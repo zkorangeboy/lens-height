@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "components": [
+    {
+      "id": "apple-quarter",
+      "name": "Quarter Apple Box (placeholder)",
+      "category": "base",
+      "bottomMount": "ground",
+      "topMount": "ground",
+      "rise": 2.0,
+      "stability": "normal",
+      "measured": false,
+      "notes": "Placeholder dimension, not yet taped."
+    },
+    {
+      "id": "apple-half",
+      "name": "Half Apple Box (placeholder)",
+      "category": "base",
+      "bottomMount": "ground",
+      "topMount": "ground",
+      "rise": 4.0,
+      "stability": "normal",
+      "measured": false,
+      "notes": "Placeholder dimension, not yet taped."
+    },
+    {
+      "id": "apple-full",
+      "name": "Full Apple Box (placeholder)",
+      "category": "base",
+      "bottomMount": "ground",
+      "topMount": "ground",
+      "rise": 8.0,
+      "stability": "normal",
+      "measured": false,
+      "notes": "Placeholder dimension, not yet taped."
+    },
+    {
+      "id": "apple-quarter-tall",
+      "name": "Quarter Apple Box, on end (placeholder)",
+      "category": "base",
+      "bottomMount": "ground",
+      "topMount": "ground",
+      "rise": 12.0,
+      "stability": "low",
+      "measured": false,
+      "notes": "Tall/unstable orientation per SPEC.md 3.1."
+    },
+    {
+      "id": "tripod-baby-placeholder",
+      "name": "Baby Tripod (placeholder)",
+      "category": "support",
+      "bottomMount": "ground",
+      "topMount": "bowl-100",
+      "riseRange": {
+        "specMin": 10.0,
+        "specMax": 28.0,
+        "practicalMin": 11.0,
+        "practicalMax": 27.0
+      },
+      "levelingLoss": 1.0,
+      "spreadRequired": true,
+      "measured": false,
+      "notes": "Placeholder figures, not yet taped."
+    },
+    {
+      "id": "dolly-placeholder",
+      "name": "Studio Dolly (placeholder)",
+      "category": "support",
+      "bottomMount": "ground",
+      "topMount": "bowl-150",
+      "baseRise": 6.0,
+      "boomRange": {
+        "specMin": 0.0,
+        "specMax": 30.0,
+        "practicalMin": 0.0,
+        "practicalMax": 29.0
+      },
+      "levelingLoss": 0.5,
+      "spreadRequired": false,
+      "measured": false,
+      "notes": "Placeholder figures, not yet taped."
+    },
+    {
+      "id": "head-standard-placeholder",
+      "name": "Standard Fluid Head (placeholder)",
+      "category": "head",
+      "bottomMount": "bowl-100",
+      "topMount": "flat-38",
+      "modes": [
+        { "name": "normal", "rise": 6.0, "cameraMountFacing": "up" },
+        { "name": "underslung", "rise": -4.0, "cameraMountFacing": "down" }
+      ],
+      "measured": false,
+      "notes": "Placeholder figures, not yet taped."
+    },
+    {
+      "id": "head-lambda-placeholder",
+      "name": "Lambda-Style Underslung Head (placeholder)",
+      "category": "head",
+      "bottomMount": "bowl-150",
+      "topMount": "flat-38",
+      "modes": [
+        { "name": "underslung", "rise": -3.0, "cameraMountFacing": "up" }
+      ],
+      "measured": false,
+      "notes": "Nose-hung head per SPEC.md 3.3: negative rise, bracket still faces up."
+    },
+    {
+      "id": "baseplate-19-placeholder",
+      "name": "19mm Studio Baseplate (placeholder)",
+      "category": "baseplate",
+      "bottomMount": "flat-38",
+      "topMount": "dovetail",
+      "rise": 1.5,
+      "measured": false,
+      "notes": "Placeholder figures, not yet taped."
+    },
+    {
+      "id": "riser-1in-placeholder",
+      "name": "1in Riser Block (placeholder)",
+      "category": "riser",
+      "bottomMount": "dovetail",
+      "topMount": "dovetail",
+      "rise": 1.0,
+      "measured": false,
+      "notes": "Placeholder figures, not yet taped."
+    },
+    {
+      "id": "camera-body-placeholder",
+      "name": "Placeholder Camera Body",
+      "category": "camera-body",
+      "bottomMount": "camera-base",
+      "topMount": "optical-center",
+      "opticalCenterAboveBase": 4.0,
+      "measured": false,
+      "notes": "Placeholder figures, not yet taped."
+    }
+  ],
+  "packages": [
+    {
+      "id": "test-package",
+      "name": "Test Package (placeholder)",
+      "componentIds": [
+        "apple-quarter",
+        "apple-half",
+        "apple-full",
+        "apple-quarter-tall",
+        "tripod-baby-placeholder",
+        "dolly-placeholder",
+        "head-standard-placeholder",
+        "head-lambda-placeholder",
+        "baseplate-19-placeholder",
+        "riser-1in-placeholder",
+        "camera-body-placeholder"
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "id": "build-placeholder",
+      "name": "Placeholder A-Cam Build",
+      "componentIds": [
+        "baseplate-19-placeholder",
+        "riser-1in-placeholder",
+        "camera-body-placeholder"
+      ],
+      "bottomMount": "flat-38",
+      "hasRatedTopHandle": true,
+      "topHandleOffset": -3.0,
+      "measured": false,
+      "notes": "Placeholder build; topHandleOffset not yet taped."
+    }
+  ]
+}

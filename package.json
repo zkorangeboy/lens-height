@@ -1,0 +1,10 @@
+{
+  "name": "lensheight",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lens Height Solver — data model, seed gear, and solver (no UI yet).",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
