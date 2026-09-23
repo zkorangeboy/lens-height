@@ -110,15 +110,17 @@ export function buildAttachPoints(build, gear) {
 /**
  * A support's achievable rise interval, using practical (not spec)
  * figures, with levelingLoss subtracted from the top (SPEC.md 3.2).
- * Handles both plain-range supports (tripods, hi-hats) and dolly-style
- * supports (fixed baseRise + boomRange).
+ * Handles plain-range supports (tripods, hi-hats) and dolly-style
+ * supports, whose base segment is either a fixed `baseRise` or an
+ * adjustable `legRange` (a telescoping column) stacked under `boomRange`.
  */
 export function supportInterval(support) {
   if (support.boomRange) {
-    const base = support.baseRise || 0;
+    const legMin = support.legRange ? support.legRange.practicalMin : support.baseRise || 0;
+    const legMax = support.legRange ? support.legRange.practicalMax : support.baseRise || 0;
     return {
-      min: base + support.boomRange.practicalMin,
-      max: base + support.boomRange.practicalMax - (support.levelingLoss || 0),
+      min: legMin + support.boomRange.practicalMin,
+      max: legMax + support.boomRange.practicalMax - (support.levelingLoss || 0),
     };
   }
   if (support.riseRange) {
@@ -129,4 +131,47 @@ export function supportInterval(support) {
   }
   const fixed = support.rise || 0;
   return { min: fixed, max: fixed };
+}
+
+/**
+ * The interval a support can cover with *live* movement alone (SPEC.md
+ * 3.5 / 5.2): the same shape as supportInterval, but counting only range
+ * contributed by a `moveable` component. `legRange` (adjustable — legs
+ * reposition between setups, not during a take) is deliberately excluded
+ * here even though it counts toward supportInterval; only `boomRange`
+ * (or a plain `riseRange` support whose own adjustability is `moveable`)
+ * does. A support with no moveable range collapses to a zero-width point.
+ */
+export function supportMoveableInterval(support) {
+  if (support.boomRange) {
+    const base = support.baseRise || 0; // fixed, not legRange — legs are excluded
+    return {
+      min: base + support.boomRange.practicalMin,
+      max: base + support.boomRange.practicalMax - (support.levelingLoss || 0),
+    };
+  }
+  if (support.riseRange && support.adjustability === "moveable") {
+    return {
+      min: support.riseRange.practicalMin,
+      max: support.riseRange.practicalMax - (support.levelingLoss || 0),
+    };
+  }
+  return { min: 0, max: 0 };
+}
+
+/**
+ * "Mark a chain as built" (SPEC.md 5.5): capture a resolved chain (as
+ * produced by solver.js's enumerateChains or buildChain) as the minimal,
+ * serializable selection needed to reconstruct it later — the shape
+ * solver.js's buildChain expects, and what a real app would persist as
+ * the current rig.
+ */
+export function describeCurrentRig(chain) {
+  return {
+    baseItemIds: chain.baseItems.map((c) => c.id),
+    supportId: chain.support.id,
+    headId: chain.head.id,
+    modeName: chain.mode.name,
+    attachName: chain.attach.name,
+  };
 }

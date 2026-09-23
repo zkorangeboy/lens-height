@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { mergeOverrides } from "../src/model.js";
-import { solve, enumerateChains, margin } from "../src/solver.js";
+import { mergeOverrides, describeCurrentRig } from "../src/model.js";
+import { solve, enumerateChains, margin, buildChain, checkChain, evaluateChain, isFeasible } from "../src/solver.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -709,5 +709,315 @@ describe("solver", () => {
     // support -> head leg above was fine.
     const withMismatchedBuild = enumerateChains(gear, { packageId: "pkg", buildId: "bMismatch", maxBaseLayerItems: 0 });
     assert.equal(withMismatchedBuild.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Check mode and delta search — SPEC.md 5.5-5.7
+// ---------------------------------------------------------------------------
+
+/**
+ * One small rig with exactly one support, one head/mode, one build attach
+ * point, and one spare base-layer item. Deliberately has no alternative
+ * support/head/attach to swap into, so delta search's only possible move
+ * is adding (or not adding) the one spare box — that determinism is what
+ * makes the "single addition" test unambiguous.
+ */
+function makeCheckModeGear() {
+  const support = {
+    id: "s1",
+    category: "support",
+    bottomMount: "ground",
+    topMount: "bowl-100",
+    riseRange: { specMin: 10, specMax: 20, practicalMin: 10, practicalMax: 20 },
+    levelingLoss: 0,
+  };
+  const head = {
+    id: "h1",
+    category: "head",
+    bottomMount: "bowl-100",
+    topMount: "flat-38",
+    modes: [{ name: "normal", rise: 5, cameraMountFacing: "up" }],
+  };
+  const cam = { id: "cam1", category: "camera-body", opticalCenterAboveBase: 5 };
+  const build = { id: "b1", componentIds: ["cam1"], bottomMount: "flat-38", hasRatedTopHandle: false };
+  const box = { id: "box1", name: "Track + Wedges", category: "base", bottomMount: "ground", topMount: "ground", rise: 5, stability: "normal" };
+
+  const gear = makeGear({
+    components: [support, head, cam, box],
+    packageComponentIds: ["s1", "h1", "cam1", "box1"],
+    build,
+  });
+
+  // Current rig: no base layer under it. interval = [10+5+5, 20+5+5] = [20, 30].
+  const currentChain = buildChain(gear, {
+    packageId: "pkg",
+    buildId: "b1",
+    baseItemIds: [],
+    supportId: "s1",
+    headId: "h1",
+    modeName: "normal",
+    attachName: "base",
+  });
+  const currentRig = describeCurrentRig(currentChain);
+
+  return { gear, currentChain, currentRig };
+}
+
+describe("check mode", () => {
+  test("feasible: reports interval, both margins, and target position for the current rig", () => {
+    const { gear, currentRig } = makeCheckModeGear();
+
+    const result = checkChain(gear, {
+      target: { type: "fixed", height: 25 },
+      packageId: "pkg",
+      buildId: "b1",
+      currentRig, // no explicit `chain` — defaults to the marked current rig
+    });
+
+    assert.equal(result.chain.support.id, "s1");
+    assert.equal(result.chain.min, 20);
+    assert.equal(result.chain.max, 30);
+    assert.equal(result.evaluation.feasible, true);
+    assert.equal(result.evaluation.marginBelow, 5);
+    assert.equal(result.evaluation.marginAbove, 5);
+    assert.deepEqual(result.evaluation.targetPosition, { low: 0.5, high: 0.5 });
+    assert.equal(result.delta, null, "no delta search when the current rig already reaches the target");
+  });
+
+  test("infeasible: reports feasible: false and runs delta search", () => {
+    const { gear, currentRig } = makeCheckModeGear();
+
+    // Current rig tops out at 30"; even adding the one spare box (+5")
+    // only reaches 35", nowhere near 100", and there's no alternate
+    // support/head/attach in this fixture to swap into.
+    const result = checkChain(gear, {
+      target: { type: "fixed", height: 100 },
+      packageId: "pkg",
+      buildId: "b1",
+      currentRig,
+    });
+
+    assert.equal(result.evaluation.feasible, false);
+    assert.ok(result.evaluation.marginAbove < 0, "target is past the top of the current rig's range");
+    assert.ok(result.delta, "an infeasible check still returns a delta search result");
+    assert.equal(result.delta.candidates.length, 0, "nothing in this package closes a 70\" gap");
+    assert.match(result.delta.message, /no single addition or swap/i);
+  });
+});
+
+describe("delta search", () => {
+  test("returns a single-component addition when one spare box closes the gap", () => {
+    const { gear, currentChain, currentRig } = makeCheckModeGear();
+
+    // Current rig maxes out at 30"; target 33" is a 3" shortfall that the
+    // one spare box (+5") closes, landing at [25, 35].
+    const result = checkChain(gear, {
+      target: { type: "fixed", height: 33 },
+      packageId: "pkg",
+      buildId: "b1",
+      currentRig,
+    });
+
+    assert.equal(result.evaluation.feasible, false);
+    assert.ok(result.delta);
+    assert.equal(result.delta.candidates.length, 1);
+
+    const [candidate] = result.delta.candidates;
+    assert.equal(candidate.changes.length, 1, "exactly one change: adding the spare box");
+    assert.equal(candidate.changes[0].kind, "add");
+    assert.equal(candidate.changes[0].component.id, "box1");
+    assert.equal(candidate.evaluation.feasible, true);
+    assert.equal(candidate.chain.min, currentChain.min + 5);
+    assert.equal(candidate.chain.max, currentChain.max + 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adjustability — SPEC.md 3.5 / 5.1-5.3
+// ---------------------------------------------------------------------------
+
+describe("adjustability", () => {
+  test("range target: rangeType 'moveable' rejects a chain whose only range-bearing component is 'adjustable', even though the numeric range fits", () => {
+    const support = {
+      id: "sAdjOnly",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 10, specMax: 30, practicalMin: 10, practicalMax: 30 },
+      levelingLoss: 0,
+      adjustability: "adjustable",
+    };
+    const head = {
+      id: "hAdjOnly",
+      category: "head",
+      bottomMount: "bowl-100",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "camAdjOnly", category: "camera-body", opticalCenterAboveBase: 0 };
+    const build = { id: "bAdjOnly", componentIds: ["camAdjOnly"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    const gear = makeGear({
+      components: [support, head, cam],
+      packageComponentIds: ["sAdjOnly", "hAdjOnly", "camAdjOnly"],
+      build,
+    });
+
+    const chain = buildChain(gear, {
+      packageId: "pkg",
+      buildId: "bAdjOnly",
+      baseItemIds: [],
+      supportId: "sAdjOnly",
+      headId: "hAdjOnly",
+      modeName: "normal",
+      attachName: "base",
+    });
+    assert.equal(chain.adjustability, "adjustable");
+
+    // [15, 25] fits comfortably inside the chain's [10, 30] interval, so a
+    // rangeType: "adjustable" target (the default) is feasible...
+    const asAdjustable = evaluateChain(chain, { type: "range", low: 15, high: 25, rangeType: "adjustable" }, 0.5);
+    assert.equal(asAdjustable.feasible, true);
+
+    // ...but a rangeType: "moveable" target is not: this support can only
+    // be repositioned between setups, not moved live during the take, so
+    // no amount of numeric range makes it satisfy a live move.
+    const asMoveable = evaluateChain(chain, { type: "range", low: 15, high: 25, rangeType: "moveable" }, 0.5);
+    assert.equal(asMoveable.feasible, false);
+
+    // Confirmed at the solve-mode level too: nothing in this package
+    // satisfies the moveable target.
+    const result = solve(gear, {
+      target: { type: "range", low: 15, high: 25, rangeType: "moveable" },
+      packageId: "pkg",
+      buildId: "bAdjOnly",
+    });
+    assert.equal(result.feasible.length, 0);
+  });
+
+  test("ranking: a moveable chain with equal margin and more pieces outranks an adjustable one", () => {
+    const adjustableSupport = {
+      id: "sAdj2",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 0, specMax: 100, practicalMin: 0, practicalMax: 100 },
+      levelingLoss: 0,
+      adjustability: "adjustable",
+    };
+    const moveableSupport = {
+      id: "sMove2",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 0, specMax: 100, practicalMin: 0, practicalMax: 100 },
+      levelingLoss: 0,
+      adjustability: "moveable",
+    };
+    const head = {
+      id: "hAdjRank",
+      category: "head",
+      bottomMount: "bowl-100",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "camAdjRank", category: "camera-body", opticalCenterAboveBase: 0 };
+    const build = { id: "bAdjRank", componentIds: ["camAdjRank"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    // A zero-rise filler, exactly as in the piece-count tiebreak test: it
+    // pads pieceCount without moving the interval, so margin can't be
+    // what decides this comparison — only adjustability can.
+    const filler = { id: "fillerAdj", category: "base", bottomMount: "ground", topMount: "ground", rise: 0, stability: "normal" };
+
+    const gear = makeGear({
+      components: [adjustableSupport, moveableSupport, head, cam, filler],
+      packageComponentIds: ["sAdj2", "sMove2", "hAdjRank", "camAdjRank", "fillerAdj"],
+      build,
+    });
+
+    const target = { type: "fixed", height: 50 };
+    const result = solve(gear, { target, packageId: "pkg", buildId: "bAdjRank" });
+
+    const adjustableChain = result.feasible.find((c) => c.support.id === "sAdj2" && c.baseItems.length === 0);
+    const moveableChainWithFiller = result.feasible.find((c) => c.support.id === "sMove2" && c.baseItems.length === 1);
+    assert.ok(adjustableChain && moveableChainWithFiller);
+
+    assert.equal(
+      Math.min(adjustableChain.evaluation.marginBelow, adjustableChain.evaluation.marginAbove),
+      Math.min(moveableChainWithFiller.evaluation.marginBelow, moveableChainWithFiller.evaluation.marginAbove),
+      "both chains must tie on margin for this to isolate the adjustability criterion"
+    );
+    assert.ok(
+      moveableChainWithFiller.pieceCount > adjustableChain.pieceCount,
+      "the moveable chain has strictly more pieces, so only adjustability can explain it ranking first"
+    );
+
+    assert.ok(
+      result.feasible.indexOf(moveableChainWithFiller) < result.feasible.indexOf(adjustableChain),
+      "moveable should outrank adjustable even with equal margin and more pieces"
+    );
+  });
+
+  test("range target: a short boom on long adjustable legs is rejected for a moveable span wider than the boom alone", () => {
+    const support = {
+      id: "sBoomOnLegs",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-150",
+      // Long adjustable legs (50") under a short moveable boom (10").
+      legRange: { specMin: 0, specMax: 50, practicalMin: 0, practicalMax: 50 },
+      boomRange: { specMin: 0, specMax: 10, practicalMin: 0, practicalMax: 10 },
+      levelingLoss: 0,
+      adjustability: "moveable", // most capable type present, per SPEC.md 3.5
+    };
+    const head = {
+      id: "hBoomOnLegs",
+      category: "head",
+      bottomMount: "bowl-150",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "camBoomOnLegs", category: "camera-body", opticalCenterAboveBase: 0 };
+    const build = { id: "bBoomOnLegs", componentIds: ["camBoomOnLegs"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    const gear = makeGear({
+      components: [support, head, cam],
+      packageComponentIds: ["sBoomOnLegs", "hBoomOnLegs", "camBoomOnLegs"],
+      build,
+    });
+
+    const chain = buildChain(gear, {
+      packageId: "pkg",
+      buildId: "bBoomOnLegs",
+      baseItemIds: [],
+      supportId: "sBoomOnLegs",
+      headId: "hBoomOnLegs",
+      modeName: "normal",
+      attachName: "base",
+    });
+
+    // Total interval: legs (0-50) + boom (0-10) = [0, 60]. Moveable
+    // interval: boom alone = [0, 10], width 10 — legs are adjustable, not
+    // moveable, so they don't count toward it even though the chain's
+    // overall adjustability label is "moveable".
+    assert.equal(chain.min, 0);
+    assert.equal(chain.max, 60);
+    assert.equal(chain.adjustability, "moveable");
+    assert.equal(chain.moveableInterval.max - chain.moveableInterval.min, 10);
+
+    // A 25" live move fits comfortably inside the total interval [0, 60]
+    // ...
+    const wideSpan = { type: "range", low: 5, high: 30, rangeType: "moveable" };
+    assert.ok(wideSpan.low >= chain.min && wideSpan.high <= chain.max, "sanity: the span does fit the total interval");
+    // ...but the boom alone can only move live across 10", so a moveable
+    // target this wide must be rejected even though the total interval
+    // covers it.
+    assert.equal(isFeasible(chain, wideSpan, 0.5), false);
+
+    const result = solve(gear, { target: wideSpan, packageId: "pkg", buildId: "bBoomOnLegs" });
+    assert.equal(result.feasible.length, 0);
+
+    // A span that fits within the boom's own 10" width, by contrast, is
+    // feasible: the legs can position it anywhere in the total range.
+    const narrowSpan = { type: "range", low: 20, high: 28, rangeType: "moveable" };
+    assert.equal(isFeasible(chain, narrowSpan, 0.5), true);
   });
 });

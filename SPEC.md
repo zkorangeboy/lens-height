@@ -99,7 +99,12 @@ The component with the adjustable range. `ground → bowl-*` or
 - **Dollies.** Rise is `baseRise + boomRange`, where `baseRise` is floor
   (or track) to the boom's zero point. The boom interval is usually the
   widest range in the system and is what makes a dolly answer a range
-  query by itself.
+  query by itself. When the column itself telescopes, declare `legRange`
+  (same shape as `riseRange`) instead of a fixed `baseRise`: an
+  `adjustable` sub-range stacked under the `moveable` `boomRange`. Legs
+  reposition the boom between setups but don't move live, and don't widen
+  what a `moveable` range query can ask of this support (5.2) — only the
+  boom's own width does.
 
 Each support declares `levelingLoss` — inches of usable range sacrificed
 to level on uneven ground (default 1"). Subtract from the top of the
@@ -162,6 +167,37 @@ and signed offset to optical center:
 A down-facing head mount therefore produces up to two candidate chains
 (inverted vs. hung from the handle), and the solver evaluates both. A
 build only offers `top-handle` if it has a handle rated to carry it.
+
+### 3.5 Adjustability
+
+Every component declares an `adjustability`:
+
+- `moveable` — adjustable *during* a take (a dolly boom, a jib arm, a
+  powered column). The rig can execute a live move across this range.
+- `adjustable` — adjustable *between* setups, not within a shot (tripod
+  legs, a column riser). Repositioning takes re-rigging time and cannot
+  happen mid-take.
+- `fixed` — no range at all (hi-hats, risers, apple boxes). This is the
+  implied value: any component with no range is `fixed`, whether or not
+  the field is present.
+
+Today only supports (3.2) carry a real range, so they're the only
+components that are ever `moveable` or `adjustable` — every base-layer
+item, head, and camera-build part is `fixed`. The field still lives on
+every component, so a future part with its own range (a second boom, a
+powered riser) needs no schema change to participate.
+
+A chain's adjustability is the most capable type found among its
+components, and is ranking criterion 2 in solve mode (5.3) — a chain that
+*can* move live outranks one that can't, independent of any particular
+query.
+
+The label alone is not sufficient to satisfy a `moveable` range target,
+though. A support can combine an `adjustable` sub-range with a narrower
+`moveable` one (`legRange` + `boomRange`, 3.2) — its adjustability is
+still `moveable` overall, since that's the most capable type present, but
+only the `moveable` sub-range's own width is usable for a live move. 5.2
+computes that width explicitly rather than trusting the label.
 
 ---
 
@@ -254,45 +290,113 @@ into the GitHub web editor from a phone with no conversion step.
 
 ## 5. Solver
 
+The solver has two modes, and both reduce to the same per-chain evaluation
+(5.2) so the math is never duplicated between them:
+
+- **Solve mode** — "what configurations reach this target?" Enumerates
+  every mount-compatible chain from the package pool and ranks the
+  feasible ones (5.3).
+- **Check mode** — "does *this specific* rig reach this target?" Evaluates
+  one fully-specified chain — explicit, or defaulted to the current rig
+  (5.5) — and reports its interval, margins, feasibility, and where the
+  target falls in its adjustable range (5.6). When infeasible, it runs a
+  delta search against the current rig instead of solve mode's
+  general fallback (5.7).
+
 ### 5.1 Inputs
 
 - `target`: either `{ type: "fixed", height: H }` or
-  `{ type: "range", low: L, high: Hi }`
+  `{ type: "range", low: L, high: Hi, rangeType }`, where `rangeType` is
+  `"moveable"` or `"adjustable"` (defaults to `"adjustable"` if omitted):
+  - `"moveable"` — the move happens *during* the take (a boom or jib
+    move). Only components whose adjustability (3.5) is `moveable` can
+    execute it.
+  - `"adjustable"` — the height changes *between* setups within a scene,
+    not live. Both `moveable` and `adjustable` range count toward
+    covering it — there's time to re-rig either way.
 - `packageId` — restricts the component pool to gear actually on the show
 - `buildId` — the camera build in use
 - `tolerance` — default **±0.5"**, user-adjustable
+- `mode` — `"solve"` (default) or `"check"`
+- Check mode additionally takes a `chain` selection (base item ids,
+  support id, head id + mode name, build attach name). If omitted, it
+  defaults to the current rig (5.5); if there is no current rig either,
+  check mode has nothing to evaluate.
 
-### 5.2 Algorithm
+### 5.2 Evaluating a chain
+
+However a chain was produced — enumerated by solve mode or specified
+directly for check mode — it is scored the same way:
+
+1. **Compute the interval.** Total rise is an interval `[min, max]`: sum
+   of fixed rises (base layer, head mode, build attach point), plus the
+   support's full adjustable range (using practical figures, minus
+   `levelingLoss` from the top). Alongside it, compute the chain's
+   **moveable interval** `[moveableMin, moveableMax]` the same way, but
+   summing only range contributed by `moveable` components (3.5) — an
+   `adjustable` sub-range like `legRange` (3.2) counts toward `[min,
+   max]` but not toward the moveable interval. A chain with no `moveable`
+   component anywhere in it has a zero-width moveable interval.
+2. **Compute margin.** Two values, not one:
+   - Fixed target `H`: `marginBelow = H - min`, `marginAbove = max - H`.
+   - Range target `[L, Hi]`: `marginBelow = L - min`, `marginAbove = max -
+     Hi`.
+3. **Test feasibility.**
+   - Fixed target: feasible if `H ∈ [min - tol, max + tol]` — equivalently
+     `marginBelow >= -tol` and `marginAbove >= -tol`.
+   - Range target, `rangeType: "adjustable"`: feasible if
+     `[L, Hi] ⊆ [min, max]` — the config must cover the whole move without
+     re-rigging. Tolerance applies to the endpoints. The chain's
+     adjustability (3.5) doesn't matter here — there's time between
+     setups to use all of it, `moveable` or `adjustable` alike.
+   - Range target, `rangeType: "moveable"`: feasible only if the
+     requested span fits within the moveable interval —
+     `Hi - L <= moveableMax - moveableMin` (tolerance applies here too) —
+     *and* the span itself sits inside the total interval,
+     `[L, Hi] ⊆ [min, max]`. The moveable interval doesn't have to be
+     positioned at `[L, Hi]` itself: any `adjustable` range elsewhere in
+     the chain can reposition it anywhere the total interval allows, so
+     only its *width* — how far it can move live — limits what a
+     moveable target can ask for. A chain whose only range is
+     `adjustable` has a zero-width moveable interval and so is rejected
+     outright, same as before, no matter how wide `[min, max]` is.
+4. **Locate the target in the adjustable range.** `targetPosition` is
+   `(point - min) / (max - min)` — 0 at the bottom of the chain's
+   reachable interval, 1 at the top — evaluated at `H` for a fixed target
+   and at both `L` and `Hi` for a range target. Not meaningful when the
+   chain has no adjustable range (`max === min`).
+
+The output — `{ min, max, marginBelow, marginAbove, feasible,
+targetPosition }` — is what both modes report; solve mode additionally
+uses it to rank (5.3).
+
+### 5.3 Solve mode
 
 1. **Enumerate chains.** From the package pool, generate every
    mount-compatible chain: `[base layer combos] × [support] × [head mode] ×
    [build attach point]`. Cap base-layer combos at 2 items.
    Prune aggressively on mount mismatch.
-2. **Compute the interval.** For each chain, total rise is an interval
-   `[min, max]`: sum of fixed rises, plus the sum of adjustable ranges
-   (using practical figures, minus `levelingLoss` from the top).
-3. **Test feasibility.**
-   - Fixed target: feasible if `H ∈ [min - tol, max + tol]`.
-   - Range target: feasible if `[L, Hi] ⊆ [min, max]` — the config must
-     cover the whole move without re-rigging. Tolerance applies to the
-     endpoints.
-4. **Score and sort.** Each feasible chain reports two margin values:
-   `marginBelow` and `marginAbove`. For a fixed target `H`: `marginBelow =
-   H - min`, `marginAbove = max - H`. For a range target `[L, Hi]`:
-   `marginBelow = L - min`, `marginAbove = max - Hi`. Both values are
-   carried on the result (and shown to the user); ranking priority uses
-   them as follows, in order:
+2. **Evaluate each chain** (5.2). Keep the feasible ones.
+3. **Score and sort.** Ranking priority, in order. This order is kept as
+   a single ordered list of criteria in the implementation, so
+   re-prioritizing is a one-line reordering, not a rewrite of the
+   comparison logic:
    1. **Most margin left** — sort by `min(marginBelow, marginAbove)`
       descending. This favors configs sitting mid-range, which is what
       leaves room to adjust on the day.
-   2. **Fewest pieces of gear** — count components in the chain,
+   2. **Most capable adjustability** — `moveable` > `adjustable` >
+      `fixed`, using the most capable type found in the chain (3.5). This
+      applies to every query, not only a `moveable` range target: a chain
+      that *can* move live outranks one that can only be repositioned
+      between setups, because it leaves more options open on the day.
+   3. **Fewest pieces of gear** — count components in the chain,
       including each apple box.
-   3. **Fastest to rig** — configs whose support+head match the currently
-      assembled rig (see 5.4) sort up.
-   4. **Most stable** — penalize tall base stacks, low-stability box
+   4. **Fastest to rig** — configs whose support+head match the current
+      rig (5.5) sort up.
+   5. **Most stable** — penalize tall base stacks, low-stability box
       orientations, and configs near the top of a tripod's range.
 
-### 5.3 Failure output
+### 5.4 Solve-mode failure output
 
 When no chain is feasible, **do not return an empty result**. Return the
 nearest achievable configuration and the shortfall:
@@ -305,11 +409,56 @@ the target, then checking whether any available base-layer item or
 combination closes the gap. If the gap cannot be closed with gear in the
 package, say so explicitly and name the rise that would be needed.
 
-### 5.4 Current rig state (v1.5)
+### 5.5 Current rig
 
-Let the user mark one configuration as "built". Feeds ranking criterion 3
-and enables the most useful answer of all: *what is the smallest change to
-the rig I already have?*
+The user can mark one specific chain as "built" — the rig actually
+standing on set right now. This is a first-class concept the solver
+depends on in two places, not a deferred nicety:
+
+- **Solve-mode ranking criterion 4** (5.3) sorts a chain up when its
+  support and head match the current rig — swapping base-layer items or
+  flipping the camera mount is fast; swapping the legs or the head is not.
+- **Check mode** (5.6) defaults to it when no explicit chain is given, and
+  **delta search** (5.7) measures every candidate against it.
+
+The current rig is stored as a full chain selection — base item ids,
+support id, head id and mode name, build attach name — not just a
+support/head pair, so it can be reconstructed and evaluated exactly, not
+approximated.
+
+### 5.6 Check mode
+
+Given a chain — explicit, or defaulted from the current rig (5.5) — check
+mode resolves the referenced components and evaluates it (5.2). A
+check-mode chain is not exempt from the mount and facing rules in section
+2 just because the user specified it directly: an incompatible selection
+is rejected the same way solve mode prunes one during enumeration.
+
+The result is the evaluation itself — interval, `marginBelow`,
+`marginAbove`, `feasible`, and `targetPosition`. When infeasible, it also
+runs the delta search below.
+
+### 5.7 Delta search
+
+When check mode is infeasible, the general "add any base-layer item"
+fallback (5.4) isn't the most useful answer — the user already has a rig
+built and wants the smallest change to it, not the single closest
+alternative from scratch. Delta search looks for:
+
+- **Additions** — one or more base-layer items from the package, not
+  already under the current rig, stacked on top of it.
+- **Swaps** — replacing exactly one of support, head (and its mode), or
+  build attach point with a different one from the package pool, holding
+  everything else fixed.
+
+Each added item or swapped slot counts as one change. Candidates are
+ranked by **fewest changes** first — not fewest pieces of gear, the
+solve-mode metric — then by margin, then by piece count, to keep ties
+deterministic. Adjustability (5.3 criterion 2) is not part of this
+ranking: fewest changes always dominates in check mode, regardless of
+whether a candidate happens to be more capable than the current rig. If
+no combination of additions or swaps reaches the target, say so
+explicitly, the same way 5.4 does for solve mode.
 
 ---
 

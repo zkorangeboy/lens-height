@@ -9,6 +9,7 @@
       "topMount": "ground",
       "rise": 2.0,
       "stability": "normal",
+      "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder dimension, not yet taped."
     },
@@ -20,6 +21,7 @@
       "topMount": "ground",
       "rise": 4.0,
       "stability": "normal",
+      "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder dimension, not yet taped."
     },
@@ -31,6 +33,7 @@
       "topMount": "ground",
       "rise": 8.0,
       "stability": "normal",
+      "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder dimension, not yet taped."
     },
@@ -42,8 +45,21 @@
       "topMount": "ground",
       "rise": 12.0,
       "stability": "low",
+      "adjustability": "fixed",
       "measured": false,
       "notes": "Tall/unstable orientation per SPEC.md 3.1."
+    },
+    {
+      "id": "track-wedges-placeholder",
+      "name": "Track + Wedges (placeholder)",
+      "category": "base",
+      "bottomMount": "ground",
+      "topMount": "ground",
+      "rise": 1.5,
+      "stability": "normal",
+      "adjustability": "fixed",
+      "measured": false,
+      "notes": "SPEC.md 3.1: the most commonly forgotten offset in the chain — not zero."
     },
     {
       "id": "tripod-baby-placeholder",
@@ -59,8 +75,9 @@
       },
       "levelingLoss": 1.0,
       "spreadRequired": true,
+      "adjustability": "adjustable",
       "measured": false,
-      "notes": "Placeholder figures, not yet taped."
+      "notes": "Placeholder figures, not yet taped. Legs are set between setups, not moved during a take."
     },
     {
       "id": "dolly-placeholder",
@@ -77,8 +94,9 @@
       },
       "levelingLoss": 0.0,
       "spreadRequired": false,
+      "adjustability": "moveable",
       "measured": false,
-      "notes": "Placeholder figures, not yet taped."
+      "notes": "Placeholder figures, not yet taped. Boom is live-adjustable during a take."
     },
     {
       "id": "head-standard-placeholder",
@@ -90,6 +108,7 @@
         { "name": "normal", "rise": 6.0, "cameraMountFacing": "up" },
         { "name": "underslung", "rise": -4.0, "cameraMountFacing": "down" }
       ],
+      "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder figures, not yet taped."
     },
@@ -102,6 +121,7 @@
       "modes": [
         { "name": "underslung", "rise": -3.0, "cameraMountFacing": "up" }
       ],
+      "adjustability": "fixed",
       "measured": false,
       "notes": "Nose-hung head per SPEC.md 3.3: negative rise, bracket still faces up."
     },
@@ -112,6 +132,7 @@
       "bottomMount": "flat-38",
       "topMount": "dovetail",
       "rise": 1.5,
+      "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder figures, not yet taped."
     },
@@ -122,6 +143,7 @@
       "bottomMount": "dovetail",
       "topMount": "dovetail",
       "rise": 1.0,
+      "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder figures, not yet taped."
     },
@@ -132,6 +154,7 @@
       "bottomMount": "camera-base",
       "topMount": "optical-center",
       "opticalCenterAboveBase": 4.0,
+      "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder figures, not yet taped."
     }
@@ -145,6 +168,7 @@
         "apple-half",
         "apple-full",
         "apple-quarter-tall",
+        "track-wedges-placeholder",
         "tripod-baby-placeholder",
         "dolly-placeholder",
         "head-standard-placeholder",
