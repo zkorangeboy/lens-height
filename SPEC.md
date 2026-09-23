@@ -276,11 +276,15 @@ into the GitHub web editor from a phone with no conversion step.
    - Range target: feasible if `[L, Hi] ⊆ [min, max]` — the config must
      cover the whole move without re-rigging. Tolerance applies to the
      endpoints.
-4. **Score and sort.** Ranking priority, in order:
-   1. **Most range headroom left** — for a fixed target,
-      `min(H - min, max - H)`; for a range target,
-      `min(L - min, max - Hi)`. This favors configs sitting mid-range,
-      which is what leaves room to adjust on the day.
+4. **Score and sort.** Each feasible chain reports two margin values:
+   `marginBelow` and `marginAbove`. For a fixed target `H`: `marginBelow =
+   H - min`, `marginAbove = max - H`. For a range target `[L, Hi]`:
+   `marginBelow = L - min`, `marginAbove = max - Hi`. Both values are
+   carried on the result (and shown to the user); ranking priority uses
+   them as follows, in order:
+   1. **Most margin left** — sort by `min(marginBelow, marginAbove)`
+      descending. This favors configs sitting mid-range, which is what
+      leaves room to adjust on the day.
    2. **Fewest pieces of gear** — count components in the chain,
       including each apple box.
    3. **Fastest to rig** — configs whose support+head match the currently

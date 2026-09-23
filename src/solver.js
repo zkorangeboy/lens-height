@@ -88,11 +88,16 @@ export function isFeasible(chain, target, tolerance) {
   return target.low >= chain.min - tolerance && target.high <= chain.max + tolerance;
 }
 
-export function headroom(chain, target) {
+/**
+ * How much room a chain leaves below and above the target (SPEC.md 5.2
+ * step 4). For a fixed target H: below = H - min, above = max - H.
+ * For a range target [L, Hi]: below = L - min, above = max - Hi.
+ */
+export function margin(chain, target) {
   if (target.type === "fixed") {
-    return Math.min(target.height - chain.min, chain.max - target.height);
+    return { below: target.height - chain.min, above: chain.max - target.height };
   }
-  return Math.min(target.low - chain.min, chain.max - target.high);
+  return { below: target.low - chain.min, above: chain.max - target.high };
 }
 
 function stabilityScore(chain, target) {
@@ -117,8 +122,12 @@ function matchesCurrentRig(chain, currentRig) {
 
 /** Ranking per SPEC.md 5.2 step 4. Sorts best-first. */
 export function compareChains(a, b, target, currentRig) {
-  const headroomDiff = headroom(b, target) - headroom(a, target);
-  if (headroomDiff !== 0) return headroomDiff;
+  const marginOf = (chain) => {
+    const m = margin(chain, target);
+    return Math.min(m.below, m.above);
+  };
+  const marginDiff = marginOf(b) - marginOf(a);
+  if (marginDiff !== 0) return marginDiff;
 
   const pieceDiff = a.pieceCount - b.pieceCount;
   if (pieceDiff !== 0) return pieceDiff;

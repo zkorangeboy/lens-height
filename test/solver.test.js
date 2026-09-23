@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { mergeOverrides } from "../src/model.js";
-import { solve, enumerateChains, headroom } from "../src/solver.js";
+import { solve, enumerateChains, margin } from "../src/solver.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -98,7 +98,7 @@ function makeGear({ components, packageComponentIds, build, builds }) {
 }
 
 describe("solver", () => {
-  test("fixed target: feasible chain with correct interval and headroom ranking", () => {
+  test("fixed target: feasible chain with correct interval and margin ranking", () => {
     const support = {
       id: "s1",
       category: "support",
@@ -493,7 +493,7 @@ describe("solver", () => {
     assert.equal(highJustOutside.feasible.length, 0, "high just past max + tolerance should be infeasible");
   });
 
-  test("ranking: sorts by headroom first — the config sitting most mid-range wins", () => {
+  test("ranking: sorts by margin first — the config sitting most mid-range wins", () => {
     const narrowSupport = {
       id: "sNarrow",
       category: "support",
@@ -525,16 +525,16 @@ describe("solver", () => {
       build,
     });
 
-    // narrow: [10,20], headroom at 15 = min(5,5) = 5
-    // wide:   [0,40],  headroom at 15 = min(15,25) = 15
+    // narrow: [10,20], margin at 15 = below 5, above 5 -> min = 5
+    // wide:   [0,40],  margin at 15 = below 15, above 25 -> min = 15
     const result = solve(gear, { target: { type: "fixed", height: 15 }, packageId: "pkg", buildId: "bOrd1" });
 
     assert.equal(result.feasible.length, 2);
-    assert.equal(result.feasible[0].support.id, "sWide", "more headroom should sort first");
+    assert.equal(result.feasible[0].support.id, "sWide", "more margin should sort first");
     assert.equal(result.feasible[1].support.id, "sNarrow");
   });
 
-  test("ranking: ties on headroom, then sorts by fewest pieces of gear", () => {
+  test("ranking: ties on margin, then sorts by fewest pieces of gear", () => {
     const support = {
       id: "sOrd2",
       category: "support",
@@ -553,7 +553,7 @@ describe("solver", () => {
     const cam = { id: "camOrd2", category: "camera-body", opticalCenterAboveBase: 0 };
     const build = { id: "bOrd2", componentIds: ["camOrd2"], bottomMount: "flat-38", hasRatedTopHandle: false };
     // A zero-rise filler: adding it to a chain shifts min/max by nothing,
-    // so it exists purely to create a headroom tie against a chain with
+    // so it exists purely to create a margin tie against a chain with
     // one fewer piece of gear, isolating the piece-count tiebreak.
     const filler = { id: "filler", category: "base", bottomMount: "ground", topMount: "ground", rise: 0, stability: "normal" };
     const gear = makeGear({
@@ -568,14 +568,17 @@ describe("solver", () => {
     const noFiller = result.feasible.find((c) => c.baseItems.length === 0);
     const withFiller = result.feasible.find((c) => c.baseItems.length === 1);
     assert.ok(noFiller && withFiller);
-    assert.equal(headroom(noFiller, target), headroom(withFiller, target), "the filler must not change headroom");
+    const noFillerMargin = margin(noFiller, target);
+    const withFillerMargin = margin(withFiller, target);
+    assert.equal(noFillerMargin.below, withFillerMargin.below, "the filler must not change marginBelow");
+    assert.equal(noFillerMargin.above, withFillerMargin.above, "the filler must not change marginAbove");
     assert.ok(
       result.feasible.indexOf(noFiller) < result.feasible.indexOf(withFiller),
-      "fewer pieces of gear should rank first once headroom ties"
+      "fewer pieces of gear should rank first once margin ties"
     );
   });
 
-  test("ranking: ties on headroom and piece count, ranks a match to the current rig next", () => {
+  test("ranking: ties on margin and piece count, ranks a match to the current rig next", () => {
     const support = {
       id: "sOrd3",
       category: "support",
@@ -607,7 +610,7 @@ describe("solver", () => {
     });
 
     // headA and headB are identical (same rise, same facing), so their
-    // chains tie on both headroom and piece count; only the current-rig
+    // chains tie on both margin and piece count; only the current-rig
     // match (SPEC.md 5.2 step 4.3 / 5.4) can separate them.
     const result = solve(gear, {
       target: { type: "fixed", height: 50 },
@@ -620,7 +623,7 @@ describe("solver", () => {
     assert.equal(result.feasible[0].head.id, "hOrd3b", "the chain matching the already-built rig should sort first on a full tie");
   });
 
-  test("ranking: ties on headroom, piece count, and current rig, ranks the more stable chain next", () => {
+  test("ranking: ties on margin, piece count, and current rig, ranks the more stable chain next", () => {
     const support = {
       id: "sOrd4",
       category: "support",
