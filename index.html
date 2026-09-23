@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Lens Height Solver</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Lens Height</h1>
+  </header>
+
+  <main id="app">
+    <div id="loading" class="notice">Loading gear…</div>
+
+    <form id="query-form" hidden>
+      <div class="segmented" id="mode-toggle" role="tablist" aria-label="Mode">
+        <button type="button" id="mode-check" class="segmented-btn is-active" role="tab" aria-selected="true">Check rig</button>
+        <button type="button" id="mode-solve" class="segmented-btn" role="tab" aria-selected="false">Find configs</button>
+      </div>
+
+      <section class="card">
+        <label class="field">
+          <span class="field-label">Package</span>
+          <select id="package-select"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Camera build</span>
+          <select id="build-select"></select>
+        </label>
+      </section>
+
+      <section class="card" id="chain-slots-section">
+        <h2>Your rig</h2>
+        <div class="field">
+          <span class="field-label">Base layer</span>
+          <div id="base-layer-checkboxes" class="checkbox-list"></div>
+        </div>
+        <label class="field">
+          <span class="field-label">Support</span>
+          <select id="support-select"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Head</span>
+          <select id="head-select"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Head mode</span>
+          <select id="mode-select"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Camera attach point</span>
+          <select id="attach-select"></select>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>Target height</h2>
+        <div class="segmented" id="target-type-toggle" role="tablist" aria-label="Target type">
+          <button type="button" id="target-fixed" class="segmented-btn is-active" role="tab" aria-selected="true">Fixed</button>
+          <button type="button" id="target-range" class="segmented-btn" role="tab" aria-selected="false">Range</button>
+        </div>
+
+        <div id="fixed-target-fields">
+          <label class="field">
+            <span class="field-label">Height (in)</span>
+            <input type="number" id="target-height" inputmode="decimal" step="0.25" placeholder="e.g. 32" />
+          </label>
+        </div>
+
+        <div id="range-target-fields" hidden>
+          <label class="field">
+            <span class="field-label">Low (in)</span>
+            <input type="number" id="target-low" inputmode="decimal" step="0.25" placeholder="e.g. 24" />
+          </label>
+          <label class="field">
+            <span class="field-label">High (in)</span>
+            <input type="number" id="target-high" inputmode="decimal" step="0.25" placeholder="e.g. 40" />
+          </label>
+          <span class="field-label">Range type</span>
+          <div class="segmented" id="range-type-toggle" role="tablist" aria-label="Range type">
+            <button type="button" id="range-moveable" class="segmented-btn" role="tab" aria-selected="false">Moveable — during the take</button>
+            <button type="button" id="range-adjustable" class="segmented-btn is-active" role="tab" aria-selected="true">Adjustable — between setups</button>
+          </div>
+        </div>
+      </section>
+
+      <button type="submit" id="run-button" class="run-button">Check rig</button>
+    </form>
+
+    <section id="results" aria-live="polite"></section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

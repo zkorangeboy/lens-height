@@ -104,6 +104,11 @@ function assembleChain(baseItems, support, head, mode, build, attach) {
   };
 }
 
+/** SPEC.md 3.1: the default base-layer stacking cap. Taller stacks are
+ * legal but ranked last (solve mode) or flagged (check mode) — this is
+ * the single place that "2" is defined, so nothing else hardcodes it. */
+export const DEFAULT_MAX_BASE_LAYER_ITEMS = 2;
+
 /**
  * Enumerate every mount-compatible chain from the package pool for a
  * given build (SPEC.md 5.3 step 1). Does not evaluate against a target.
@@ -112,9 +117,9 @@ function assembleChain(baseItems, support, head, mode, build, attach) {
  * @param {object} opts
  * @param {string} opts.packageId
  * @param {string} opts.buildId
- * @param {number} [opts.maxBaseLayerItems=2]
+ * @param {number} [opts.maxBaseLayerItems=DEFAULT_MAX_BASE_LAYER_ITEMS]
  */
-export function enumerateChains(gear, { packageId, buildId, maxBaseLayerItems = 2 }) {
+export function enumerateChains(gear, { packageId, buildId, maxBaseLayerItems = DEFAULT_MAX_BASE_LAYER_ITEMS }) {
   const pool = packagePool(gear, packageId);
   const build = getBuild(gear, buildId);
 
@@ -477,7 +482,7 @@ export function solve(gear, query) {
     packageId,
     buildId,
     tolerance = 0.5,
-    maxBaseLayerItems = 2,
+    maxBaseLayerItems = DEFAULT_MAX_BASE_LAYER_ITEMS,
     currentRig = null,
   } = query;
 
