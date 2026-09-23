@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { mergeOverrides } from "../src/model.js";
-import { solve, enumerateChains } from "../src/solver.js";
+import { solve, enumerateChains, headroom } from "../src/solver.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,9 +23,9 @@ describe("gear.json seed data", () => {
     assert.ok(Array.isArray(seed.builds) && seed.builds.length > 0);
   });
 
-  test("every seed component is marked measured: false (placeholder data)", () => {
+  test("every seed component carries a boolean measured flag", () => {
     for (const component of seed.components) {
-      assert.equal(component.measured, false, `${component.id} should be unmeasured placeholder data`);
+      assert.equal(typeof component.measured, "boolean", `${component.id}.measured should be true/false, not missing or non-boolean`);
     }
   });
 
@@ -88,12 +88,12 @@ describe("mergeOverrides (SPEC.md 4.1)", () => {
  * A minimal, hand-computable gear fixture. Each test overrides just the
  * pieces it needs via the `pool`/`build` helpers below.
  */
-function makeGear({ components, packageComponentIds, build }) {
+function makeGear({ components, packageComponentIds, build, builds }) {
   return {
     schemaVersion: 1,
     components,
     packages: [{ id: "pkg", name: "pkg", componentIds: packageComponentIds }],
-    builds: [build],
+    builds: builds || [build],
   };
 }
 
@@ -263,7 +263,10 @@ describe("solver", () => {
       topMount: "bowl-150",
       baseRise: 6,
       boomRange: { specMin: 0, specMax: 40, practicalMin: 0, practicalMax: 38 },
-      levelingLoss: 2,
+      // Dollies are leveled independently of the boom (bubble + wedges under
+      // the wheels, not the boom itself), so unlike a tripod they don't lose
+      // usable boom range to leveling. See SPEC.md 3.2 / gear.json.
+      levelingLoss: 0,
     };
     const head = {
       id: "h4",
@@ -279,7 +282,10 @@ describe("solver", () => {
       packageComponentIds: ["s4", "h4", "cam4"],
       build,
     });
-    // support interval = [6+0, 6+38-2] = [6,42]; +head(5)+build(8) = [19,55]
+    // Support interval = baseRise + boomRange, minus levelingLoss from the
+    // top (here 0): [6 + 0, 6 + 38] = [6, 44].
+    // Chain total adds the fixed head rise (5) and build rise (8) to both
+    // ends: [6 + 5 + 8, 44 + 5 + 8] = [19, 57].
 
     const result = solve(gear, {
       target: { type: "range", low: 25, high: 50 },
@@ -290,7 +296,7 @@ describe("solver", () => {
     assert.equal(result.feasible.length, 1);
     assert.equal(result.feasible[0].support.id, "s4");
     assert.equal(result.feasible[0].min, 19);
-    assert.equal(result.feasible[0].max, 55);
+    assert.equal(result.feasible[0].max, 57);
   });
 
   test("base-layer stacking: capped at 2 items by default, configurable higher", () => {
@@ -390,5 +396,315 @@ describe("solver", () => {
     assert.equal(unclosable.fallback.suggestion.closesGap, false);
     assert.equal(unclosable.fallback.suggestion.maxAdditionalRise, 17); // 3+5+9
     assert.equal(unclosable.fallback.suggestion.stillShortBy, 5); // gap(22) - 17
+  });
+
+  test("fixed target: tolerance boundary is inclusive at both ends", () => {
+    const support = {
+      id: "s7",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 10, specMax: 30, practicalMin: 10, practicalMax: 30 },
+      levelingLoss: 0,
+    };
+    const head = {
+      id: "h7",
+      category: "head",
+      bottomMount: "bowl-100",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "cam7", category: "camera-body", opticalCenterAboveBase: 0 };
+    const build = { id: "b7", componentIds: ["cam7"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    const gear = makeGear({
+      components: [support, head, cam],
+      packageComponentIds: ["s7", "h7", "cam7"],
+      build,
+    });
+    // interval = [10, 30], default tolerance = 0.5, so [min - tol, max + tol] = [9.5, 30.5]
+
+    const atMinBoundary = solve(gear, { target: { type: "fixed", height: 9.5 }, packageId: "pkg", buildId: "b7" });
+    assert.equal(atMinBoundary.feasible.length, 1, "min - tolerance should be feasible (inclusive)");
+
+    const justBelowMinBoundary = solve(gear, { target: { type: "fixed", height: 9.49 }, packageId: "pkg", buildId: "b7" });
+    assert.equal(justBelowMinBoundary.feasible.length, 0, "just past min - tolerance should be infeasible");
+
+    const atMaxBoundary = solve(gear, { target: { type: "fixed", height: 30.5 }, packageId: "pkg", buildId: "b7" });
+    assert.equal(atMaxBoundary.feasible.length, 1, "max + tolerance should be feasible (inclusive)");
+
+    const justAboveMaxBoundary = solve(gear, { target: { type: "fixed", height: 30.51 }, packageId: "pkg", buildId: "b7" });
+    assert.equal(justAboveMaxBoundary.feasible.length, 0, "just past max + tolerance should be infeasible");
+
+    // Tolerance is user-adjustable (SPEC.md 5.1), not hardcoded: the same
+    // target that just missed above becomes reachable with a wider one.
+    const widerTolerance = solve(gear, {
+      target: { type: "fixed", height: 30.51 },
+      packageId: "pkg",
+      buildId: "b7",
+      tolerance: 1,
+    });
+    assert.equal(widerTolerance.feasible.length, 1, "a wider tolerance should reclaim the same target");
+  });
+
+  test("range target: tolerance boundary applies to both endpoints", () => {
+    const support = {
+      id: "s8",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 10, specMax: 30, practicalMin: 10, practicalMax: 30 },
+      levelingLoss: 0,
+    };
+    const head = {
+      id: "h8",
+      category: "head",
+      bottomMount: "bowl-100",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "cam8", category: "camera-body", opticalCenterAboveBase: 0 };
+    const build = { id: "b8", componentIds: ["cam8"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    const gear = makeGear({
+      components: [support, head, cam],
+      packageComponentIds: ["s8", "h8", "cam8"],
+      build,
+    });
+    // interval = [10, 30], default tolerance = 0.5
+
+    const atBothBoundaries = solve(gear, {
+      target: { type: "range", low: 9.5, high: 30.5 },
+      packageId: "pkg",
+      buildId: "b8",
+    });
+    assert.equal(atBothBoundaries.feasible.length, 1, "low = min - tol and high = max + tol should both be feasible (inclusive)");
+
+    const lowJustOutside = solve(gear, {
+      target: { type: "range", low: 9.49, high: 25 },
+      packageId: "pkg",
+      buildId: "b8",
+    });
+    assert.equal(lowJustOutside.feasible.length, 0, "low just past min - tolerance should be infeasible");
+
+    const highJustOutside = solve(gear, {
+      target: { type: "range", low: 15, high: 30.51 },
+      packageId: "pkg",
+      buildId: "b8",
+    });
+    assert.equal(highJustOutside.feasible.length, 0, "high just past max + tolerance should be infeasible");
+  });
+
+  test("ranking: sorts by headroom first — the config sitting most mid-range wins", () => {
+    const narrowSupport = {
+      id: "sNarrow",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 10, specMax: 20, practicalMin: 10, practicalMax: 20 },
+      levelingLoss: 0,
+    };
+    const wideSupport = {
+      id: "sWide",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 0, specMax: 40, practicalMin: 0, practicalMax: 40 },
+      levelingLoss: 0,
+    };
+    const head = {
+      id: "hOrd1",
+      category: "head",
+      bottomMount: "bowl-100",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "camOrd1", category: "camera-body", opticalCenterAboveBase: 0 };
+    const build = { id: "bOrd1", componentIds: ["camOrd1"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    const gear = makeGear({
+      components: [narrowSupport, wideSupport, head, cam],
+      packageComponentIds: ["sNarrow", "sWide", "hOrd1", "camOrd1"],
+      build,
+    });
+
+    // narrow: [10,20], headroom at 15 = min(5,5) = 5
+    // wide:   [0,40],  headroom at 15 = min(15,25) = 15
+    const result = solve(gear, { target: { type: "fixed", height: 15 }, packageId: "pkg", buildId: "bOrd1" });
+
+    assert.equal(result.feasible.length, 2);
+    assert.equal(result.feasible[0].support.id, "sWide", "more headroom should sort first");
+    assert.equal(result.feasible[1].support.id, "sNarrow");
+  });
+
+  test("ranking: ties on headroom, then sorts by fewest pieces of gear", () => {
+    const support = {
+      id: "sOrd2",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 0, specMax: 100, practicalMin: 0, practicalMax: 100 },
+      levelingLoss: 0,
+    };
+    const head = {
+      id: "hOrd2",
+      category: "head",
+      bottomMount: "bowl-100",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "camOrd2", category: "camera-body", opticalCenterAboveBase: 0 };
+    const build = { id: "bOrd2", componentIds: ["camOrd2"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    // A zero-rise filler: adding it to a chain shifts min/max by nothing,
+    // so it exists purely to create a headroom tie against a chain with
+    // one fewer piece of gear, isolating the piece-count tiebreak.
+    const filler = { id: "filler", category: "base", bottomMount: "ground", topMount: "ground", rise: 0, stability: "normal" };
+    const gear = makeGear({
+      components: [support, head, cam, filler],
+      packageComponentIds: ["sOrd2", "hOrd2", "camOrd2", "filler"],
+      build,
+    });
+
+    const target = { type: "fixed", height: 50 };
+    const result = solve(gear, { target, packageId: "pkg", buildId: "bOrd2" });
+
+    const noFiller = result.feasible.find((c) => c.baseItems.length === 0);
+    const withFiller = result.feasible.find((c) => c.baseItems.length === 1);
+    assert.ok(noFiller && withFiller);
+    assert.equal(headroom(noFiller, target), headroom(withFiller, target), "the filler must not change headroom");
+    assert.ok(
+      result.feasible.indexOf(noFiller) < result.feasible.indexOf(withFiller),
+      "fewer pieces of gear should rank first once headroom ties"
+    );
+  });
+
+  test("ranking: ties on headroom and piece count, ranks a match to the current rig next", () => {
+    const support = {
+      id: "sOrd3",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 0, specMax: 100, practicalMin: 0, practicalMax: 100 },
+      levelingLoss: 0,
+    };
+    const headA = {
+      id: "hOrd3a",
+      category: "head",
+      bottomMount: "bowl-100",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const headB = {
+      id: "hOrd3b",
+      category: "head",
+      bottomMount: "bowl-100",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "camOrd3", category: "camera-body", opticalCenterAboveBase: 0 };
+    const build = { id: "bOrd3", componentIds: ["camOrd3"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    const gear = makeGear({
+      components: [support, headA, headB, cam],
+      packageComponentIds: ["sOrd3", "hOrd3a", "hOrd3b", "camOrd3"],
+      build,
+    });
+
+    // headA and headB are identical (same rise, same facing), so their
+    // chains tie on both headroom and piece count; only the current-rig
+    // match (SPEC.md 5.2 step 4.3 / 5.4) can separate them.
+    const result = solve(gear, {
+      target: { type: "fixed", height: 50 },
+      packageId: "pkg",
+      buildId: "bOrd3",
+      currentRig: { supportId: "sOrd3", headId: "hOrd3b" },
+    });
+
+    assert.equal(result.feasible.length, 2);
+    assert.equal(result.feasible[0].head.id, "hOrd3b", "the chain matching the already-built rig should sort first on a full tie");
+  });
+
+  test("ranking: ties on headroom, piece count, and current rig, ranks the more stable chain next", () => {
+    const support = {
+      id: "sOrd4",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 0, specMax: 100, practicalMin: 0, practicalMax: 100 },
+      levelingLoss: 0,
+    };
+    const head = {
+      id: "hOrd4",
+      category: "head",
+      bottomMount: "bowl-100",
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 0, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "camOrd4", category: "camera-body", opticalCenterAboveBase: 0 };
+    const build = { id: "bOrd4", componentIds: ["camOrd4"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    // Same rise, different stability flags: the two single-box chains land
+    // on an identical interval, so only the stability penalty (SPEC.md 5.2
+    // step 4.4) can separate them.
+    const normalBox = { id: "normalBox", category: "base", bottomMount: "ground", topMount: "ground", rise: 4, stability: "normal" };
+    const lowBox = { id: "lowBox", category: "base", bottomMount: "ground", topMount: "ground", rise: 4, stability: "low" };
+    const gear = makeGear({
+      components: [support, head, cam, normalBox, lowBox],
+      packageComponentIds: ["sOrd4", "hOrd4", "camOrd4", "normalBox", "lowBox"],
+      build,
+    });
+
+    const result = solve(gear, { target: { type: "fixed", height: 50 }, packageId: "pkg", buildId: "bOrd4" });
+
+    const normalChain = result.feasible.find((c) => c.baseItems.length === 1 && c.baseItems[0].id === "normalBox");
+    const lowChain = result.feasible.find((c) => c.baseItems.length === 1 && c.baseItems[0].id === "lowBox");
+    assert.ok(normalChain && lowChain);
+    assert.equal(normalChain.min, lowChain.min);
+    assert.equal(normalChain.max, lowChain.max);
+    assert.ok(
+      result.feasible.indexOf(normalChain) < result.feasible.indexOf(lowChain),
+      "a normal-stability box should outrank an otherwise-identical low-stability one"
+    );
+  });
+
+  test("mount-type mismatches are pruned, not summed (SPEC.md 5.2 step 1)", () => {
+    const support = {
+      id: "sMount",
+      category: "support",
+      bottomMount: "ground",
+      topMount: "bowl-100",
+      riseRange: { specMin: 10, specMax: 20, practicalMin: 10, practicalMax: 20 },
+      levelingLoss: 0,
+    };
+    const matchingHead = {
+      id: "hMatch",
+      category: "head",
+      bottomMount: "bowl-100", // matches the support's topMount
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 5, cameraMountFacing: "up" }],
+    };
+    const mismatchedHead = {
+      id: "hMismatch",
+      category: "head",
+      bottomMount: "bowl-150", // does NOT match the support's topMount (bowl-100)
+      topMount: "flat-38",
+      modes: [{ name: "normal", rise: 5, cameraMountFacing: "up" }],
+    };
+    const cam = { id: "camMount", category: "camera-body", opticalCenterAboveBase: 5 };
+    const matchingBuild = { id: "bMatch", componentIds: ["camMount"], bottomMount: "flat-38", hasRatedTopHandle: false };
+    // Does NOT match either head's topMount (flat-38).
+    const mismatchedBuild = { id: "bMismatch", componentIds: ["camMount"], bottomMount: "dovetail", hasRatedTopHandle: false };
+
+    const gear = makeGear({
+      components: [support, matchingHead, mismatchedHead, cam],
+      packageComponentIds: ["sMount", "hMatch", "hMismatch", "camMount"],
+      builds: [matchingBuild, mismatchedBuild],
+    });
+
+    // support -> head mismatch: only the mount-compatible head produces a chain.
+    const withMatchingBuild = enumerateChains(gear, { packageId: "pkg", buildId: "bMatch", maxBaseLayerItems: 0 });
+    assert.equal(withMatchingBuild.length, 1);
+    assert.equal(withMatchingBuild[0].head.id, "hMatch");
+
+    // head -> build mismatch: no head's topMount matches this build's
+    // bottomMount, so no chain is generated, even though the
+    // support -> head leg above was fine.
+    const withMismatchedBuild = enumerateChains(gear, { packageId: "pkg", buildId: "bMismatch", maxBaseLayerItems: 0 });
+    assert.equal(withMismatchedBuild.length, 0);
   });
 });

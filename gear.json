@@ -75,7 +75,7 @@
         "practicalMin": 0.0,
         "practicalMax": 29.0
       },
-      "levelingLoss": 0.5,
+      "levelingLoss": 0.0,
       "spreadRequired": false,
       "measured": false,
       "notes": "Placeholder figures, not yet taped."
