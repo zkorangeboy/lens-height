@@ -568,7 +568,7 @@ function renderAlternates(chain) {
   const items = chain.alternates.map((alt) => `<li>${escapeHtml(summarizeAlternate(alt))}</li>`).join("");
   return `
     <details class="badge-details">
-      <summary class="badge badge-info">+${chain.count - 1} equivalent</summary>
+      <summary class="badge badge-info">+${chain.count - 1} more options</summary>
       <ul class="change-list badge-tooltip">${items}</ul>
     </details>`;
 }

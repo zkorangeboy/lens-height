@@ -528,7 +528,9 @@ describe("solver", () => {
 
     // narrow: [10,20], margin at 15 = below 5, above 5 -> min = 5
     // wide:   [0,40],  margin at 15 = below 15, above 25 -> min = 15
-    const result = solve(gear, { target: { type: "fixed", height: 15 }, packageId: "pkg", buildId: "bOrd1" });
+    // Opt out of pruning: this test is about how chains rank against each other, and
+    // dominance (5.3 step 4) or collapsing (step 5) would remove some of the ones it compares.
+    const result = solve(gear, { target: { type: "fixed", height: 15 }, packageId: "pkg", buildId: "bOrd1", collapse: false, dropDominated: false });
 
     assert.equal(result.feasible.length, 2);
     assert.equal(result.feasible[0].support.id, "sWide", "more margin should sort first");
@@ -564,9 +566,9 @@ describe("solver", () => {
     });
 
     const target = { type: "fixed", height: 50 };
-    // collapse: false — these compare chains that share a support/head/mode/attach and
-    // adapter rise, which solve mode would otherwise fold into one result (5.3 step 4).
-    const result = solve(gear, { target, packageId: "pkg", buildId: "bOrd2", collapse: false });
+    // Opt out of pruning: this test is about how chains rank against each other, and
+    // dominance (5.3 step 4) or collapsing (step 5) would remove some of the ones it compares.
+    const result = solve(gear, { target, packageId: "pkg", buildId: "bOrd2", collapse: false, dropDominated: false });
 
     const noFiller = result.feasible.find((c) => c.baseItems.length === 0);
     const withFiller = result.feasible.find((c) => c.baseItems.length === 1);
@@ -655,9 +657,9 @@ describe("solver", () => {
       build,
     });
 
-    // collapse: false — these compare chains that share a support/head/mode/attach and
-    // adapter rise, which solve mode would otherwise fold into one result (5.3 step 4).
-    const result = solve(gear, { target: { type: "fixed", height: 50 }, packageId: "pkg", buildId: "bOrd4", collapse: false });
+    // Opt out of pruning: this test is about how chains rank against each other, and
+    // dominance (5.3 step 4) or collapsing (step 5) would remove some of the ones it compares.
+    const result = solve(gear, { target: { type: "fixed", height: 50 }, packageId: "pkg", buildId: "bOrd4", collapse: false, dropDominated: false });
 
     const normalChain = result.feasible.find((c) => c.baseItems.length === 1 && c.baseItems[0].id === "normalBox");
     const lowChain = result.feasible.find((c) => c.baseItems.length === 1 && c.baseItems[0].id === "lowBox");
@@ -940,9 +942,9 @@ describe("adjustability", () => {
     });
 
     const target = { type: "fixed", height: 50 };
-    // collapse: false — these compare chains that share a support/head/mode/attach and
-    // adapter rise, which solve mode would otherwise fold into one result (5.3 step 4).
-    const result = solve(gear, { target, packageId: "pkg", buildId: "bAdjRank", collapse: false });
+    // Opt out of pruning: this test is about how chains rank against each other, and
+    // dominance (5.3 step 4) or collapsing (step 5) would remove some of the ones it compares.
+    const result = solve(gear, { target, packageId: "pkg", buildId: "bAdjRank", collapse: false, dropDominated: false });
 
     const adjustableChain = result.feasible.find((c) => c.support.id === "sAdj2" && c.baseItems.length === 0);
     const moveableChainWithFiller = result.feasible.find((c) => c.support.id === "sMove2" && c.baseItems.length === 1);

@@ -469,8 +469,9 @@ describe("apple boxes: the soft penalties (SPEC.md 2.1, 5.3)", () => {
     // explain the result.
     const gear = rigGear([hiHat(), apple("half", "half", "flat", 4), plate, head()]);
 
-    // collapse: false — both chains share a support/head/mode/attach and adapter rise.
-    const result = solve(gear, { target: { type: "fixed", height: 10 }, packageId: "pkg", buildId: "bld", collapse: false });
+    // Opt out of pruning: the plate chain dominates the apple-box one (same margins and pieces, no penalty),
+    // so by default the apple-box chain is dropped. This test is about how the two rank.
+    const result = solve(gear, { target: { type: "fixed", height: 10 }, packageId: "pkg", buildId: "bld", collapse: false, dropDominated: false });
 
     const withApple = result.feasible.find((c) => c.baseItems.some((i) => i.id === "half"));
     const withPlate = result.feasible.find((c) => c.baseItems.some((i) => i.id === "plate"));
@@ -486,7 +487,7 @@ describe("apple boxes: the soft penalties (SPEC.md 2.1, 5.3)", () => {
     const bigHiHat = hiHat({ id: "hihat16", name: "Tall hi-hat", rise: 16 });
     const gear = rigGear([tripod(), wideTripod, bigHiHat, apple("half", "half", "flat", 4), head()]);
     const target = { type: "fixed", height: 20 };
-    const result = solve(gear, { target, packageId: "pkg", buildId: "bld", collapse: false });
+    const result = solve(gear, { target, packageId: "pkg", buildId: "bld", collapse: false, dropDominated: false });
 
     const find = (supportId, apples) =>
       result.feasible.find((c) => c.support.id === supportId && c.adapters.length === 0 && c.baseItems.length === (apples ? 1 : 0));
@@ -828,7 +829,97 @@ describe("delta search with adapters", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Collapsing equivalent chains (SPEC.md 5.3 step 4)
+// Dropping dominated chains (SPEC.md 5.3 step 4)
+// ---------------------------------------------------------------------------
+
+describe("dropping dominated chains", () => {
+  const at = (height) => ({ type: "fixed", height });
+  // Flat lists, so what was dropped is visible.
+  const flat = (gear, height, over = {}) =>
+    solve(gear, { target: at(height), packageId: "pkg", buildId: "bld", collapse: false, ...over }).feasible;
+  const riserIds = (c) => c.adapters.map((a) => a.id).sort().join("+") || "none";
+  const margins = (c) => `${c.evaluation.marginBelow}/${c.evaluation.marginAbove}`;
+
+  test("a riser that doesn't improve either margin is dropped; one that centers the target survives", () => {
+    // Tripod 10-30, target 29: bare it sits 19 from the bottom and 1 from the top.
+    // A 6" riser (16-36) centers it at 13 / 7 and survives. A 0" spacer changes
+    // neither margin and only adds a piece, so the bare tripod dominates it.
+    const gear = rigGear([tripod(), riser(6), riser(0, { id: "spacer", name: '0" spacer' }), head()]);
+    const kept = flat(gear, 29);
+    assert.deepEqual(kept.map(riserIds).sort(), ["none", "riser6"]);
+    assert.equal(margins(kept.find((c) => riserIds(c) === "riser6")), "13/7", "the riser centers it");
+
+    const all = flat(gear, 29, { dropDominated: false });
+    assert.ok(all.some((c) => riserIds(c) === "spacer"), "it was a real, feasible chain before pruning");
+  });
+
+  test("6\" + 12\" is dominated by a single 18\": same margins, more pieces", () => {
+    const gear = rigGear([tripod(), riser(6), riser(12), riser(18), head()]);
+    const kept = flat(gear, 30).map(riserIds);
+    assert.ok(kept.includes("riser18"));
+    assert.ok(!kept.includes("riser12+riser6"));
+    assert.ok(flat(gear, 30, { dropDominated: false }).map(riserIds).includes("riser12+riser6"));
+  });
+
+  test("moving the target toward one end of the range trades one margin for the other, so neither riser chain dominates", () => {
+    // Target 20 is dead center of 10-30 (10 / 10). A 6" riser gives 4 / 16: worse below, better above.
+    const gear = rigGear([tripod(), riser(6), head()]);
+    const kept = flat(gear, 20);
+    assert.deepEqual(kept.map(riserIds).sort(), ["none", "riser6"]);
+    assert.equal(margins(kept.find((c) => riserIds(c) === "none")), "10/10");
+    assert.equal(margins(kept.find((c) => riserIds(c) === "riser6")), "4/16");
+  });
+
+  test("a chain with a wider range beats a narrower one on both margins — across supports", () => {
+    const wide = tripod({ id: "wide", name: "Wide tripod", riseRange: { specMin: 0, specMax: 60, practicalMin: 0, practicalMax: 60 } });
+    const gear = rigGear([tripod(), wide, head()]);
+    assert.deepEqual(flat(gear, 20).map((c) => c.support.id), ["wide"]);
+    assert.equal(flat(gear, 20, { dropDominated: false }).length, 2);
+  });
+
+  test("adjustability counts: a moveable chain drops an otherwise identical adjustable one, never the reverse", () => {
+    const boom = tripod({ id: "boom", name: "Boom", adjustability: "moveable" });
+    const gear = rigGear([tripod(), boom, head()]);
+    assert.deepEqual(flat(gear, 20).map((c) => c.support.id), ["boom"]);
+  });
+
+  test("a ranking penalty counts: a chain without one drops an otherwise identical chain that has it", () => {
+    const plate = { id: "plate", name: "Plate", category: "base", bottomMount: "ground", topMount: "ground", rise: 4 };
+    // Light apple-box penalty, on a hi-hat where the hard rules allow it.
+    const onHat = rigGear([hiHat(), apple("half", "half", "flat", 4), plate, head()]);
+    assert.deepEqual(flat(onHat, 10).map((c) => c.baseItems.map((i) => i.id).join()), ["plate"]);
+    // Heavy penalty, a tripod on apple boxes.
+    const onTripod = rigGear([tripod(), apple("half", "half", "flat", 4), plate, head()]);
+    const kept = flat(onTripod, 20);
+    assert.ok(kept.some((c) => c.baseItems.some((i) => i.id === "plate")));
+    const alone = (id) => (c) => c.baseItems.length === 1 && c.baseItems[0].id === id;
+    assert.ok(kept.some(alone("plate")));
+    assert.ok(!kept.some(alone("half")), "the lone apple-box chain is dominated by the equal plate chain");
+    // Plate and apple together rise 8", a different position: incomparable, so it stays.
+    assert.ok(kept.some((c) => c.baseItems.length === 2));
+  });
+
+  test("chains that tie on every dimension both stay", () => {
+    const gear = rigGear([tripod(), tripod({ id: "tripod2", name: "Tripod 2" }), head()]);
+    assert.equal(flat(gear, 20).length, 2);
+  });
+
+  test("dominated chains are gone, not demoted to alternates", () => {
+    const gear = rigGear([tripod(), riser(6), riser(12), riser(18), head()]);
+    const { feasible } = solve(gear, { target: at(30), packageId: "pkg", buildId: "bld" });
+    const everyChain = feasible.flatMap((c) => [c, ...c.alternates]).map(riserIds);
+    assert.ok(!everyChain.includes("riser12+riser6"));
+  });
+
+  test("dropDominated: false keeps everything", () => {
+    const gear = rigGear([tripod(), riser(6), riser(12), riser(18), head()]);
+    assert.equal(flat(gear, 30, { dropDominated: false }).length, 5);
+    assert.equal(flat(gear, 30).length, 4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Collapsing equivalent chains (SPEC.md 5.3 step 5)
 // ---------------------------------------------------------------------------
 
 describe("collapsing equivalent chains", () => {
@@ -836,30 +927,57 @@ describe("collapsing equivalent chains", () => {
     solve(gear, { target: { type: "fixed", height: 30 }, packageId: "pkg", buildId: "bld", ...over });
   const adapterIds = (c) => c.adapters.map((a) => a.id).sort();
 
-  test("6 + 12 and 18 are one result: the simplest is the representative, the other is an alternate", () => {
+  test("the key is support, head, head mode, and attach point: every adapter choice on the same four is one result", () => {
     const gear = rigGear([tripod(), riser(6), riser(12), riser(18), head()]);
-    const flat = solveFor(gear, { collapse: false });
-    const collapsed = solveFor(gear);
-
-    assert.equal(flat.feasible.length, 5); // none, 6, 12, 18, and 6+12
-    assert.equal(collapsed.feasible.length, 4);
-
-    const eighteen = collapsed.feasible.find((c) => c.count === 2);
-    assert.deepEqual(adapterIds(eighteen), ["riser18"], "the single riser is simpler than two");
-    assert.equal(eighteen.pieceCount, 4);
-    assert.equal(eighteen.alternates.length, 1);
-    assert.deepEqual(adapterIds(eighteen.alternates[0]), ["riser12", "riser6"]);
-    assert.equal(eighteen.alternates[0].pieceCount, 5);
+    const { feasible } = solveFor(gear);
+    // none, 6, 12, 18 survive dominance (6 + 12 is dropped); all four share one key.
+    assert.equal(feasible.length, 1);
+    assert.equal(feasible[0].count, 4);
+    assert.equal(feasible[0].alternates.length, 3);
   });
 
-  test("different total adapter rise stays separate", () => {
+  test("the representative is the best-ranked member, not the simplest", () => {
     const gear = rigGear([tripod(), riser(6), riser(12), riser(18), head()]);
-    const totals = solveFor(gear).feasible.map((c) => c.adapters.reduce((s, a) => s + a.rise, 0)).sort((a, b) => a - b);
-    assert.deepEqual(totals, [0, 6, 12, 18]);
+    const [result] = solveFor(gear).feasible;
+    // Target 30: none 0 margin, 6" -> 6, 12" -> 8, 18" -> 2. The 12" riser is best,
+    // even though the bare tripod (no adapters) is the simplest.
+    assert.deepEqual(adapterIds(result), ["riser12"]);
+    assert.ok(result.alternates.some((c) => c.adapters.length === 0 && c.pieceCount < result.pieceCount), "and the simpler chain is an alternate");
+  });
+
+  test("alternates stay in rank order", () => {
+    const gear = rigGear([tripod(), riser(6), riser(12), riser(18), head()]);
+    const [result] = solveFor(gear).feasible;
+    const minMargin = (c) => Math.min(c.evaluation.marginBelow, c.evaluation.marginAbove);
+    const ranks = [result, ...result.alternates].map(minMargin);
+    assert.deepEqual(ranks, [8, 6, 2, 0]);
+  });
+
+  test("a different support, head mode, or attach point is a different result", () => {
+    const twoAttach = head({
+      modes: [
+        { name: "a", rise: 0, cameraMountFacing: "up", supportMountFacing: "up" },
+        { name: "b", rise: 0, cameraMountFacing: "down", supportMountFacing: "up" },
+      ],
+    });
+    const gear = rigGear([tripod(), tripod({ id: "tripod2", name: "Tripod 2" }), twoAttach]);
+    const keys = solveFor(gear).feasible.map((c) => `${c.support.id}|${c.mode.name}|${c.attach.name}`).sort();
+    assert.deepEqual(keys, ["tripod2|a|base", "tripod2|b|base-inverted", "tripod|a|base", "tripod|b|base-inverted"]);
+  });
+
+  test("base-layer choices aren't part of the key: a chain with and without one share a result", () => {
+    const plate = { id: "plate", name: "Plate", category: "base", bottomMount: "ground", topMount: "ground", rise: 6 };
+    const gear = rigGear([tripod(), plate, head()]);
+    // Bare 10-30 sits (20 / 0); on the plate 16-36 it sits (14 / 6): incomparable, so both survive.
+    assert.equal(solveFor(gear, { collapse: false }).feasible.length, 2);
+    const { feasible } = solveFor(gear);
+    assert.equal(feasible.length, 1);
+    assert.equal(feasible[0].baseItems[0].id, "plate", "the plate chain has the better margin, so it represents the group");
+    assert.equal(feasible[0].alternates[0].baseItems.length, 0);
   });
 
   test("results carry a count and alternates even when nothing collapsed", () => {
-    const gear = rigGear([tripod(), riser(6), head()]);
+    const gear = rigGear([tripod(), head()]);
     for (const c of solveFor(gear).feasible) {
       assert.equal(c.count, 1);
       assert.deepEqual(c.alternates, []);
@@ -869,42 +987,32 @@ describe("collapsing equivalent chains", () => {
   test("collapse: false returns every chain flat, one per result", () => {
     const gear = rigGear([tripod(), riser(6), riser(12), riser(18), head()]);
     const flat = solveFor(gear, { collapse: false });
+    assert.equal(flat.feasible.length, 4);
     assert.ok(flat.feasible.every((c) => c.count === 1 && c.alternates.length === 0));
   });
 
-  test("a different support, head mode, or attach point is a different result", () => {
-    const gear = rigGear([tripod(), tripod({ id: "tripod2", name: "Tripod 2" }), twoModeHead(), offset(), head()]);
-    const keys = new Set(solveFor(gear).feasible.map((c) => `${c.support.id}|${c.head.id}|${c.mode.name}|${c.attach.name}`));
-    const flatKeys = new Set(solveFor(gear, { collapse: false }).feasible.map((c) => `${c.support.id}|${c.head.id}|${c.mode.name}|${c.attach.name}`));
-    assert.deepEqual([...keys].sort(), [...flatKeys].sort(), "every distinct combination survives");
-    assert.ok(keys.size >= 4);
-  });
-
-  test("base-layer choices aren't part of the key: a chain with and without one share a result", () => {
-    const plate = { id: "plate", name: "Plate", category: "base", bottomMount: "ground", topMount: "ground", rise: 6 };
-    const gear = rigGear([tripod(), plate, head()]);
-    const flat = solveFor(gear, { collapse: false });
-    const collapsed = solveFor(gear);
-    assert.equal(flat.feasible.length, 2); // bare tripod and tripod on the plate
-    assert.equal(collapsed.feasible.length, 1);
-    assert.equal(collapsed.feasible[0].baseItems.length, 0, "the simpler one represents it");
-    assert.equal(collapsed.feasible[0].alternates[0].baseItems[0].id, "plate");
-  });
-
   test("results are ordered by their representative's rank", () => {
-    const gear = rigGear([tripod(), riser(6), riser(12), riser(18), head()]);
+    const wide = tripod({ id: "wide", name: "Wide", adjustability: "moveable", riseRange: { specMin: 0, specMax: 80, practicalMin: 0, practicalMax: 80 } });
+    const twoAttach = head({
+      modes: [
+        { name: "a", rise: 0, cameraMountFacing: "up", supportMountFacing: "up" },
+        { name: "b", rise: 8, cameraMountFacing: "down", supportMountFacing: "up" },
+      ],
+    });
+    const gear = rigGear([wide, twoAttach]);
     const margins = solveFor(gear).feasible.map((c) => Math.min(c.evaluation.marginBelow, c.evaluation.marginAbove));
-    assert.deepEqual(margins, [...margins].sort((a, b) => b - a));
-    assert.deepEqual(adapterIds(solveFor(gear).feasible[0]), ["riser12"]); // 22-42 sits 30 mid-range
+    assert.deepEqual(margins, [...margins].sort((x, y) => y - x));
   });
 
-  test("nothing is lost: the counts add up to the flat list, and each alternate is a distinct chain", () => {
+  test("nothing is lost, and the seed's typical queries come in under 20 top-level results", () => {
     const seed = JSON.parse(readFileSync(path.join(__dirname, "..", "gear.json"), "utf8"));
-    const q = { target: { type: "fixed", height: 30 }, packageId: "test-package", buildId: "build-placeholder" };
-    const flat = solve(seed, { ...q, collapse: false });
-    const collapsed = solve(seed, q);
-    assert.equal(collapsed.feasible.reduce((sum, c) => sum + c.count, 0), flat.feasible.length);
-    assert.ok(collapsed.feasible.length < flat.feasible.length / 2, "and it does shrink the list substantially");
-    for (const c of collapsed.feasible) assert.equal(c.alternates.length, c.count - 1);
+    for (const target of [{ type: "fixed", height: 30 }, { type: "range", low: 25, high: 40 }]) {
+      const q = { target, packageId: "test-package", buildId: "build-placeholder" };
+      const pruned = solve(seed, { ...q, collapse: false });
+      const collapsed = solve(seed, q);
+      assert.equal(collapsed.feasible.reduce((sum, c) => sum + c.count, 0), pruned.feasible.length, "counts add up to what dominance left");
+      for (const c of collapsed.feasible) assert.equal(c.alternates.length, c.count - 1);
+      assert.ok(collapsed.feasible.length < 20, `${JSON.stringify(target)} gave ${collapsed.feasible.length}`);
+    }
   });
 });

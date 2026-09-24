@@ -96,7 +96,7 @@ function printChain(index, chain, target) {
   console.log(
     `     interval: ${chain.min.toFixed(2)}" - ${chain.max.toFixed(2)}"    margin: ${signedMargin(m.below)} / ${signedMargin(m.above)}`
   );
-  if (chain.count > 1) console.log(`     +${chain.count - 1} equivalent (same support, head, mode, attach, and adapter rise)`);
+  if (chain.count > 1) console.log(`     +${chain.count - 1} more with the same support, head, mode, and attach point`);
   console.log("");
 }
 

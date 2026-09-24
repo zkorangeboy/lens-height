@@ -472,7 +472,8 @@ The solver has two modes, and both reduce to the same per-chain evaluation
 - `buildId` — the camera build in use
 - `tolerance` — default **±0.5"**, user-adjustable
 - `mode` — `"solve"` (default) or `"check"`
-- Solve mode also takes `collapse` (default on, 5.3 step 4).
+- Solve mode also takes `dropDominated` (default on, 5.3 step 4) and
+  `collapse` (default on, 5.3 step 5).
 - Check mode additionally takes a `chain` selection (base item ids,
   support id, adapter ids with the mode each is used in, head id + mode
   name, build attach name). If omitted, it
@@ -570,18 +571,37 @@ uses it to rank (5.3).
       rig (5.5) sort up.
    7. **Most stable** — penalize tall base stacks, low-stability box
       orientations, and configs near the top of a tripod's range.
-4. **Collapse equivalent chains.** Adapter combinations multiply chains
-   without adding real choices: a 6" riser plus a 12" riser and a single
-   18" riser put the head in the same place. Chains that share the same
-   **support, head, head mode, build attach point, and total adapter
-   rise** are one result. Each result is the *simplest* chain in its group
-   — fewest pieces of gear, ties broken by the ranking above — carrying
-   the rest of the group as `alternates`, and `count`, the number of
-   chains in the group (itself included). Results are then ordered by
-   their representative. Base-layer choices are not part of the group key,
-   so a group's alternates may differ in base layer as well as in which
-   adapters make up the rise. Collapsing is on by default and can be
-   turned off to get every chain flat.
+4. **Drop dominated chains.** Before anything is collapsed, remove chains
+   that another chain beats outright. Chain B is **dominated** if some
+   other chain A has all of:
+   - `marginBelow` at least B's, and `marginAbove` at least B's;
+   - no more pieces of gear than B;
+   - adjustability (3.5) at least as capable as B's;
+   - no ranking penalty that B lacks — each penalty in 5.3 step 3 (a tripod
+     on apple boxes, the number of apple boxes, the stability penalty) is no
+     worse in A than in B;
+
+   *and* is strictly better than B on at least one of them. A chain that
+   ties another on every one of these is not dominated by it; both stay.
+   Dominated chains are **dropped entirely** — they are not kept as
+   alternates. Dominance is judged across every feasible chain, not just
+   within a group.
+
+   Note what this does not do. The two margins always add up to the
+   chain's range width, so a chain that moves the target closer to one end
+   of its range (a taller riser) gains on one margin and loses on the
+   other. Two such chains on the same support are therefore incomparable,
+   and both survive; only a chain that changes nothing but the piece count
+   or a penalty (6" + 12" against a single 18", an apple box against an
+   equal plate) is dropped for it.
+5. **Collapse equivalent chains.** Chains that share the same **support,
+   head, head mode, and build attach point** are one result, whatever
+   adapters and base-layer items they add. Each result is its group's
+   **best-ranked** chain under the ranking in step 3 — not the simplest —
+   carrying the rest of the group as `alternates` (best-ranked first) and
+   `count`, the number of chains in the group (itself included). Results
+   are ordered by their representative. Collapsing is on by default and
+   can be turned off to get every chain flat.
 
 ### 5.4 Solve-mode failure output
 

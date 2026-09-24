@@ -401,6 +401,9 @@ function matchesCurrentRig(chain, currentRig) {
 
 /**
  * Solve-mode ranking criteria (SPEC.md 5.3 step 3), in priority order —
+ * entries flagged `penalty: true` are the ranking penalties (score is 0
+ * with none, lower with more) that dominance pruning (step 4) also reads,
+ * so what counts as a penalty is defined here once.
  * the single ordered list the spec calls for, so re-prioritizing is a
  * matter of reordering this array rather than rewriting compareChains.
  * Each `score` returns a number where higher is better; ties fall
@@ -413,6 +416,7 @@ const RANKING_CRITERIA = [
     // doesn't do it, whatever its margin. Not a rule — see rules.js for
     // the hard ones — and separate from the light general penalty below.
     name: "tripodOnAppleBoxes",
+    penalty: true,
     score: (chain) => (tripodOnAppleBoxes(chain.baseItems, chain.support) ? -1 : 0),
   },
   {
@@ -431,6 +435,7 @@ const RANKING_CRITERIA = [
     // those rules, from the heavy tripod penalty, and from pieceCount, so
     // it still applies when piece counts tie.
     name: "appleBoxes",
+    penalty: true,
     score: (chain) => -appleBoxCount(chain.baseItems),
   },
   {
@@ -443,6 +448,7 @@ const RANKING_CRITERIA = [
   },
   {
     name: "stability",
+    penalty: true,
     score: (chain, ctx) => stabilityScore(chain, ctx.target),
   },
 ];
@@ -579,46 +585,70 @@ function buildFallback(gear, target, packageId, buildId) {
   };
 }
 
-/** Total adapter rise, rounded so 6 + 12 and 18 land on the same key. */
-function totalAdapterRise(chain) {
-  return Number(chain.adapters.reduce((sum, a) => sum + a.rise, 0).toFixed(6));
+const EPSILON = 1e-9;
+
+/**
+ * Everything dominance compares, as numbers where *higher is better*
+ * (SPEC.md 5.3 step 4): both margins, fewer pieces, adjustability, and
+ * each ranking penalty.
+ */
+function dominanceVector(chain, ctx) {
+  return [
+    chain.evaluation.marginBelow,
+    chain.evaluation.marginAbove,
+    -chain.pieceCount,
+    ADJUSTABILITY_RANK[chain.adjustability] ?? ADJUSTABILITY_RANK.fixed,
+    ...RANKING_CRITERIA.filter((c) => c.penalty).map((c) => c.score(chain, ctx)),
+  ];
 }
 
-/** SPEC.md 5.3 step 4: what makes two chains "the same result". Base-layer
- * choices are deliberately not part of it. */
-function equivalenceKey(chain) {
-  return [chain.support.id, chain.head.id, chain.mode.name, chain.attach.name, totalAdapterRise(chain)].join("|");
+/** A dominates B: at least as good on every dimension, better on one. */
+function dominates(vectorA, vectorB) {
+  let strictlyBetter = false;
+  for (let i = 0; i < vectorA.length; i++) {
+    const diff = vectorA[i] - vectorB[i];
+    if (diff < -EPSILON) return false;
+    if (diff > EPSILON) strictlyBetter = true;
+  }
+  return strictlyBetter;
 }
 
 /**
- * Collapse equivalent chains (SPEC.md 5.3 step 4). `rankedChains` is
- * already best-first. Each group becomes its simplest chain — fewest
- * pieces, ties to the better-ranked — carrying the rest as `alternates`
- * and the group size as `count`; results are then re-ordered by their
- * representative.
+ * Drop dominated chains (SPEC.md 5.3 step 4). Judged across every chain
+ * passed in; dominated chains are removed outright, not kept as
+ * alternates. Chains that tie on every dimension both stay.
  */
-function collapseEquivalent(rankedChains, target, currentRig) {
+export function dropDominatedChains(chains, target, currentRig = null) {
+  const ctx = { target, currentRig };
+  const vectors = chains.map((chain) => dominanceVector(chain, ctx));
+  return chains.filter((_, b) => !vectors.some((vectorA, a) => a !== b && dominates(vectorA, vectors[b])));
+}
+
+/** SPEC.md 5.3 step 5: what makes two chains "the same result". Adapters
+ * and base-layer choices are deliberately not part of it. */
+function equivalenceKey(chain) {
+  return [chain.support.id, chain.head.id, chain.mode.name, chain.attach.name].join("|");
+}
+
+/**
+ * Collapse equivalent chains (SPEC.md 5.3 step 5). `rankedChains` is
+ * already best-first, so each group's first member is its best-ranked:
+ * that becomes the result, carrying the rest as `alternates` (still in
+ * rank order) and the group size as `count`. Groups keep the order of
+ * their representatives.
+ */
+function collapseEquivalent(rankedChains) {
   const groups = new Map();
   for (const chain of rankedChains) {
     const key = equivalenceKey(chain);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(chain);
   }
-
-  const results = [];
-  for (const members of groups.values()) {
-    let representative = members[0];
-    for (const member of members) {
-      if (member.pieceCount < representative.pieceCount) representative = member;
-    }
-    results.push({
-      ...representative,
-      alternates: members.filter((m) => m !== representative),
-      count: members.length,
-    });
-  }
-  results.sort((a, b) => compareChains(a, b, target, currentRig));
-  return results;
+  return [...groups.values()].map(([representative, ...alternates]) => ({
+    ...representative,
+    alternates,
+    count: alternates.length + 1,
+  }));
 }
 
 /**
@@ -635,7 +665,8 @@ function collapseEquivalent(rankedChains, target, currentRig) {
  * @param {number} [query.tolerance=0.5]
  * @param {number} [query.maxBaseLayerItems=DEFAULT_MAX_BASE_LAYER_ITEMS]
  * @param {number} [query.maxAdapters=DEFAULT_MAX_ADAPTERS]
- * @param {boolean} [query.collapse=true] - collapse equivalent chains (5.3 step 4)
+ * @param {boolean} [query.dropDominated=true] - drop dominated chains (5.3 step 4)
+ * @param {boolean} [query.collapse=true] - collapse equivalent chains (5.3 step 5)
  * @param {{supportId:string,headId:string}|null} [query.currentRig=null]
  * @returns {{feasible: object[], fallback: object|null}} each feasible entry
  *   carries `alternates` (the other chains it stands for) and `count`
@@ -648,16 +679,18 @@ export function solve(gear, query) {
     tolerance = 0.5,
     maxBaseLayerItems = DEFAULT_MAX_BASE_LAYER_ITEMS,
     maxAdapters = DEFAULT_MAX_ADAPTERS,
+    dropDominated = true,
     collapse = true,
     currentRig = null,
   } = query;
 
   const chains = enumerateChains(gear, { packageId, buildId, maxBaseLayerItems, maxAdapters });
   const evaluated = chains.map((chain) => ({ ...chain, evaluation: evaluateChain(chain, target, tolerance) }));
-  const ranked = evaluated.filter((chain) => chain.evaluation.feasible);
+  const reachable = evaluated.filter((chain) => chain.evaluation.feasible);
+  const ranked = dropDominated ? dropDominatedChains(reachable, target, currentRig) : reachable;
   ranked.sort((a, b) => compareChains(a, b, target, currentRig));
   const feasible = collapse
-    ? collapseEquivalent(ranked, target, currentRig)
+    ? collapseEquivalent(ranked)
     : ranked.map((chain) => ({ ...chain, alternates: [], count: 1 }));
 
   if (feasible.length > 0) {
