@@ -443,3 +443,23 @@ select {
   color: var(--danger);
   border-color: var(--danger);
 }
+
+.hint {
+  display: block;
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.adapter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 6px;
+}
+
+.adapter-mode {
+  margin-left: 32px;
+  width: calc(100% - 32px);
+  min-height: 44px;
+}

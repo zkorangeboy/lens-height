@@ -80,6 +80,10 @@ function printChain(index, chain, target) {
   console.log(
     `     support    ${chain.support.name.padEnd(38)} ${signed(supportRange.min)} to ${signed(supportRange.max)}`
   );
+  for (const adapter of chain.adapters) {
+    const label = adapter.mode ? `${adapter.name} (${adapter.mode})` : adapter.name;
+    console.log(`     adapter    ${label.padEnd(38)} ${signed(adapter.rise)}`);
+  }
   console.log(
     `     head       ${chain.head.name.padEnd(38)} ${signed(chain.mode.rise)}  (${chain.mode.name}, faces ${chain.mode.cameraMountFacing})`
   );
@@ -92,6 +96,7 @@ function printChain(index, chain, target) {
   console.log(
     `     interval: ${chain.min.toFixed(2)}" - ${chain.max.toFixed(2)}"    margin: ${signedMargin(m.below)} / ${signedMargin(m.above)}`
   );
+  if (chain.count > 1) console.log(`     +${chain.count - 1} equivalent (same support, head, mode, attach, and adapter rise)`);
   console.log("");
 }
 

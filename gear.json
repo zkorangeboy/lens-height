@@ -5,9 +5,12 @@
       "id": "apple-quarter",
       "name": "Quarter Apple Box (placeholder)",
       "category": "base",
+      "kind": "apple-box",
+      "boxSize": "quarter",
+      "orientation": "flat",
       "bottomMount": "ground",
       "topMount": "ground",
-      "rise": 2.0,
+      "rise": 2,
       "stability": "normal",
       "adjustability": "fixed",
       "measured": false,
@@ -17,9 +20,12 @@
       "id": "apple-half",
       "name": "Half Apple Box (placeholder)",
       "category": "base",
+      "kind": "apple-box",
+      "boxSize": "half",
+      "orientation": "flat",
       "bottomMount": "ground",
       "topMount": "ground",
-      "rise": 4.0,
+      "rise": 4,
       "stability": "normal",
       "adjustability": "fixed",
       "measured": false,
@@ -29,101 +35,280 @@
       "id": "apple-full",
       "name": "Full Apple Box (placeholder)",
       "category": "base",
+      "kind": "apple-box",
+      "boxSize": "full",
+      "orientation": "flat",
       "bottomMount": "ground",
       "topMount": "ground",
-      "rise": 8.0,
+      "rise": 8,
       "stability": "normal",
       "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder dimension, not yet taped."
     },
     {
-      "id": "apple-quarter-tall",
-      "name": "Quarter Apple Box, on end (placeholder)",
+      "id": "apple-full-12in",
+      "name": "Full Apple Box, 12\" face (placeholder)",
       "category": "base",
+      "kind": "apple-box",
+      "boxSize": "full",
+      "orientation": "12in",
       "bottomMount": "ground",
       "topMount": "ground",
-      "rise": 12.0,
+      "rise": 12,
       "stability": "low",
       "adjustability": "fixed",
       "measured": false,
-      "notes": "Tall/unstable orientation per SPEC.md 3.1."
+      "notes": "Only a full apple may stand on its 12\" face (SPEC.md 2.1)."
+    },
+    {
+      "id": "apple-full-20in",
+      "name": "Full Apple Box, 20\" face (placeholder)",
+      "category": "base",
+      "kind": "apple-box",
+      "boxSize": "full",
+      "orientation": "20in",
+      "bottomMount": "ground",
+      "topMount": "ground",
+      "rise": 20,
+      "stability": "low",
+      "adjustability": "fixed",
+      "measured": false,
+      "notes": "Only a full apple may stand on its 20\" face (SPEC.md 2.1)."
     },
     {
       "id": "track-wedges-placeholder",
       "name": "Track + Wedges (placeholder)",
       "category": "base",
       "bottomMount": "ground",
-      "topMount": "ground",
+      "topMount": "dolly-wheels",
       "rise": 1.5,
       "stability": "normal",
       "adjustability": "fixed",
       "measured": false,
-      "notes": "SPEC.md 3.1: the most commonly forgotten offset in the chain — not zero."
+      "notes": "SPEC.md 3.1: the most commonly forgotten offset in the chain — not zero. Top is dolly-wheels: only a dolly rides on it.",
+      "kind": "track"
     },
     {
       "id": "tripod-baby-placeholder",
       "name": "Baby Tripod (placeholder)",
       "category": "support",
       "bottomMount": "ground",
-      "topMount": "bowl-100",
+      "topMount": "mitchell",
       "riseRange": {
-        "specMin": 10.0,
-        "specMax": 28.0,
-        "practicalMin": 11.0,
-        "practicalMax": 27.0
+        "specMin": 10,
+        "specMax": 28,
+        "practicalMin": 11,
+        "practicalMax": 27
       },
-      "levelingLoss": 1.0,
+      "levelingLoss": 1,
       "spreadRequired": true,
       "adjustability": "adjustable",
       "measured": false,
-      "notes": "Placeholder figures, not yet taped. Legs are set between setups, not moved during a take."
+      "notes": "Placeholder figures, not yet taped. Legs are set between setups, not moved during a take.",
+      "kind": "tripod"
     },
     {
       "id": "dolly-placeholder",
       "name": "Studio Dolly (placeholder)",
       "category": "support",
-      "bottomMount": "ground",
-      "topMount": "bowl-150",
-      "baseRise": 6.0,
+      "bottomMount": [
+        "ground",
+        "dolly-wheels"
+      ],
+      "topMount": "mitchell",
+      "baseRise": 6,
       "boomRange": {
-        "specMin": 0.0,
-        "specMax": 30.0,
-        "practicalMin": 0.0,
-        "practicalMax": 29.0
+        "specMin": 0,
+        "specMax": 30,
+        "practicalMin": 0,
+        "practicalMax": 29
       },
-      "levelingLoss": 0.0,
+      "levelingLoss": 0,
       "spreadRequired": false,
       "adjustability": "moveable",
       "measured": false,
-      "notes": "Placeholder figures, not yet taped. Boom is live-adjustable during a take."
+      "notes": "Placeholder figures, not yet taped. Boom is live-adjustable during a take.",
+      "family": "fisher",
+      "kind": "dolly"
+    },
+    {
+      "id": "hihat-placeholder",
+      "name": "Hi-Hat (placeholder)",
+      "category": "support",
+      "bottomMount": "ground",
+      "topMount": "mitchell",
+      "rise": 8,
+      "adjustability": "fixed",
+      "measured": false,
+      "notes": "Placeholder figure, not yet taped. Fixed rise, no range.",
+      "kind": "hi-hat"
+    },
+    {
+      "id": "lohat-placeholder",
+      "name": "Low Hat (placeholder)",
+      "category": "support",
+      "bottomMount": "ground",
+      "topMount": "mitchell",
+      "rise": 3.5,
+      "adjustability": "fixed",
+      "measured": false,
+      "notes": "Placeholder figure, not yet taped. Fixed rise, no range.",
+      "kind": "lo-hat"
+    },
+    {
+      "id": "mitchell-riser-6",
+      "name": "Mitchell Riser 6\"",
+      "category": "adapter",
+      "bottomMount": "mitchell",
+      "topMount": "mitchell",
+      "rise": 6,
+      "mountFacing": "up",
+      "adjustability": "fixed",
+      "measured": true,
+      "notes": "No family requirement: works on any support the mounts allow."
+    },
+    {
+      "id": "mitchell-riser-12",
+      "name": "Mitchell Riser 12\"",
+      "category": "adapter",
+      "bottomMount": "mitchell",
+      "topMount": "mitchell",
+      "rise": 12,
+      "mountFacing": "up",
+      "adjustability": "fixed",
+      "measured": true,
+      "notes": "No family requirement: works on any support the mounts allow."
+    },
+    {
+      "id": "mitchell-riser-18",
+      "name": "Mitchell Riser 18\"",
+      "category": "adapter",
+      "bottomMount": "mitchell",
+      "topMount": "mitchell",
+      "rise": 18,
+      "mountFacing": "up",
+      "adjustability": "fixed",
+      "measured": true,
+      "notes": "No family requirement: works on any support the mounts allow."
+    },
+    {
+      "id": "mitchell-riser-24",
+      "name": "Mitchell Riser 24\"",
+      "category": "adapter",
+      "bottomMount": "mitchell",
+      "topMount": "mitchell",
+      "rise": 24,
+      "mountFacing": "up",
+      "adjustability": "fixed",
+      "measured": true,
+      "notes": "No family requirement: works on any support the mounts allow."
+    },
+    {
+      "id": "mitchell-offset",
+      "name": "Mitchell Offset",
+      "category": "adapter",
+      "bottomMount": "mitchell",
+      "topMount": "mitchell",
+      "modes": [
+        {
+          "name": "upright",
+          "rise": 1,
+          "mountFacing": "up"
+        },
+        {
+          "name": "underslung",
+          "rise": 0,
+          "mountFacing": "down"
+        }
+      ],
+      "adjustability": "fixed",
+      "measured": true,
+      "notes": "Upright it is a 1in riser. Underslung its top mount faces down: the only thing that lets an underslung head hang. No family requirement."
+    },
+    {
+      "id": "dolly-low-mode-placeholder",
+      "name": "Dolly Low Mode (placeholder)",
+      "category": "adapter",
+      "bottomMount": "mitchell",
+      "topMount": "mitchell",
+      "rise": -4,
+      "mountFacing": "up",
+      "family": "fisher",
+      "requiresFamily": "fisher",
+      "adjustability": "fixed",
+      "measured": false,
+      "notes": "Placeholder figure, not yet taped. Negative rise: head sits lower."
+    },
+    {
+      "id": "dolly-rotating-offset-placeholder",
+      "name": "Dolly Rotating Offset (placeholder)",
+      "category": "adapter",
+      "bottomMount": "mitchell",
+      "topMount": "mitchell",
+      "rise": 2,
+      "mountFacing": "up",
+      "family": "fisher",
+      "requiresFamily": "fisher",
+      "adjustability": "fixed",
+      "measured": false,
+      "notes": "Placeholder figure, not yet taped."
+    },
+    {
+      "id": "dolly-broken-neck-placeholder",
+      "name": "Dolly Broken Neck (placeholder)",
+      "category": "adapter",
+      "bottomMount": "mitchell",
+      "topMount": "mitchell",
+      "rise": 5,
+      "mountFacing": "up",
+      "family": "fisher",
+      "requiresFamily": "fisher",
+      "adjustability": "fixed",
+      "measured": false,
+      "notes": "Placeholder figure, not yet taped."
     },
     {
       "id": "head-standard-placeholder",
       "name": "Standard Fluid Head (placeholder)",
       "category": "head",
-      "bottomMount": "bowl-100",
+      "bottomMount": "mitchell",
       "topMount": "flat-38",
       "modes": [
-        { "name": "normal", "rise": 6.0, "cameraMountFacing": "up" },
-        { "name": "underslung", "rise": -4.0, "cameraMountFacing": "down" }
+        {
+          "name": "normal",
+          "rise": 6,
+          "cameraMountFacing": "up",
+          "supportMountFacing": "up"
+        },
+        {
+          "name": "underslung",
+          "rise": -4,
+          "cameraMountFacing": "down",
+          "supportMountFacing": "down"
+        }
       ],
       "adjustability": "fixed",
       "measured": false,
-      "notes": "Placeholder figures, not yet taped."
+      "notes": "Placeholder figures, not yet taped. Underslung hangs from a down-facing mount, so it needs an offset in underslung mode."
     },
     {
       "id": "head-lambda-placeholder",
       "name": "Lambda-Style Underslung Head (placeholder)",
       "category": "head",
-      "bottomMount": "bowl-150",
+      "bottomMount": "mitchell",
       "topMount": "flat-38",
       "modes": [
-        { "name": "underslung", "rise": -3.0, "cameraMountFacing": "up" }
+        {
+          "name": "underslung",
+          "rise": -3,
+          "cameraMountFacing": "up",
+          "supportMountFacing": "up"
+        }
       ],
       "adjustability": "fixed",
       "measured": false,
-      "notes": "Nose-hung head per SPEC.md 3.3: negative rise, bracket still faces up."
+      "notes": "Nose-hung head per SPEC.md 3.3: negative rise, bracket still faces up, and it sits on an ordinary up-facing mount — no offset needed."
     },
     {
       "id": "baseplate-19-placeholder",
@@ -142,7 +327,7 @@
       "category": "riser",
       "bottomMount": "dovetail",
       "topMount": "dovetail",
-      "rise": 1.0,
+      "rise": 1,
       "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder figures, not yet taped."
@@ -153,7 +338,7 @@
       "category": "camera-body",
       "bottomMount": "camera-base",
       "topMount": "optical-center",
-      "opticalCenterAboveBase": 4.0,
+      "opticalCenterAboveBase": 4,
       "adjustability": "fixed",
       "measured": false,
       "notes": "Placeholder figures, not yet taped."
@@ -167,10 +352,21 @@
         "apple-quarter",
         "apple-half",
         "apple-full",
-        "apple-quarter-tall",
+        "apple-full-12in",
+        "apple-full-20in",
         "track-wedges-placeholder",
         "tripod-baby-placeholder",
         "dolly-placeholder",
+        "hihat-placeholder",
+        "lohat-placeholder",
+        "mitchell-riser-6",
+        "mitchell-riser-12",
+        "mitchell-riser-18",
+        "mitchell-riser-24",
+        "mitchell-offset",
+        "dolly-low-mode-placeholder",
+        "dolly-rotating-offset-placeholder",
+        "dolly-broken-neck-placeholder",
         "head-standard-placeholder",
         "head-lambda-placeholder",
         "baseplate-19-placeholder",
@@ -190,7 +386,7 @@
       ],
       "bottomMount": "flat-38",
       "hasRatedTopHandle": true,
-      "topHandleOffset": -3.0,
+      "topHandleOffset": -3,
       "measured": false,
       "notes": "Placeholder build; topHandleOffset not yet taped."
     }

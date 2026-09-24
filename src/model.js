@@ -170,6 +170,9 @@ export function describeCurrentRig(chain) {
   return {
     baseItemIds: chain.baseItems.map((c) => c.id),
     supportId: chain.support.id,
+    adapterIds: chain.adapters.map((c) => c.id),
+    // Which mode each multi-mode adapter is in (single-mode adapters have none).
+    adapterModes: Object.fromEntries(chain.adapters.filter((c) => c.mode).map((c) => [c.id, c.mode])),
     headId: chain.head.id,
     modeName: chain.mode.name,
     attachName: chain.attach.name,

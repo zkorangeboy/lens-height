@@ -41,6 +41,10 @@
           <span class="field-label">Support</span>
           <select id="support-select"></select>
         </label>
+        <div class="field">
+          <span class="field-label">Adapters</span>
+          <div id="adapter-checkboxes" class="checkbox-list"></div>
+        </div>
         <label class="field">
           <span class="field-label">Head</span>
           <select id="head-select"></select>
@@ -78,11 +82,7 @@
             <span class="field-label">High (in)</span>
             <input type="number" id="target-high" inputmode="decimal" step="0.25" placeholder="e.g. 40" />
           </label>
-          <span class="field-label">Range type</span>
-          <div class="segmented" id="range-type-toggle" role="tablist" aria-label="Range type">
-            <button type="button" id="range-moveable" class="segmented-btn" role="tab" aria-selected="false">Moveable — during the take</button>
-            <button type="button" id="range-adjustable" class="segmented-btn is-active" role="tab" aria-selected="true">Adjustable — between setups</button>
-          </div>
+          <p class="hint">A range is a move during the take, so only gear that can move live counts.</p>
         </div>
       </section>
 

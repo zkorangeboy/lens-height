@@ -21,8 +21,8 @@ const state = {
   mode: "check", // "check" | "solve"
   packageId: null,
   buildId: null,
-  selection: { baseItemIds: [], supportId: null, headId: null, modeName: null, attachName: null },
-  target: { type: "fixed", height: "", low: "", high: "", rangeType: "adjustable" },
+  selection: { baseItemIds: [], supportId: null, adapterIds: [], adapterModes: {}, headId: null, modeName: null, attachName: null },
+  target: { type: "fixed", height: "", low: "", high: "" },
 };
 
 // ---------------------------------------------------------------------------
@@ -43,6 +43,7 @@ const el = {
 
   baseLayerCheckboxes: document.getElementById("base-layer-checkboxes"),
   supportSelect: document.getElementById("support-select"),
+  adapterCheckboxes: document.getElementById("adapter-checkboxes"),
   headSelect: document.getElementById("head-select"),
   modeSelect: document.getElementById("mode-select"),
   attachSelect: document.getElementById("attach-select"),
@@ -54,8 +55,6 @@ const el = {
   targetHeight: document.getElementById("target-height"),
   targetLow: document.getElementById("target-low"),
   targetHigh: document.getElementById("target-high"),
-  rangeMoveableBtn: document.getElementById("range-moveable"),
-  rangeAdjustableBtn: document.getElementById("range-adjustable"),
 
   runButton: document.getElementById("run-button"),
 };
@@ -132,11 +131,13 @@ function onPackageChange() {
   state.pool = {
     baseItems: components.filter((c) => c.category === "base"),
     supports: components.filter((c) => c.category === "support"),
+    adapters: components.filter((c) => c.category === "adapter"),
     heads: components.filter((c) => c.category === "head"),
   };
 
   renderBaseLayerCheckboxes();
   renderSupportSelect();
+  renderAdapterCheckboxes();
   renderHeadSelect();
 }
 
@@ -159,6 +160,43 @@ function renderBaseLayerCheckboxes() {
         </label>`
     )
     .join("");
+}
+
+function renderAdapterCheckboxes() {
+  state.selection.adapterIds = [];
+  state.selection.adapterModes = {};
+  el.adapterCheckboxes.innerHTML = state.pool.adapters.length
+    ? state.pool.adapters
+        .map((item) => {
+          const modePicker = item.modes
+            ? `<select class="adapter-mode" data-adapter="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.name)} mode">${item.modes
+                .map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)} (top faces ${escapeHtml(m.mountFacing || "up")})</option>`)
+                .join("")}</select>`
+            : "";
+          return `
+        <div class="adapter-row">
+          <label class="checkbox-row">
+            <input type="checkbox" value="${escapeHtml(item.id)}" />
+            <span>${escapeHtml(item.name)}</span>
+            ${item.measured === false ? '<span class="dot-unmeasured" title="Unverified estimate"></span>' : ""}
+          </label>
+          ${modePicker}
+        </div>`;
+        })
+        .join("")
+    : '<span class="hint">No adapters in this package.</span>';
+}
+
+/** Read which adapters are ticked and, for multi-mode ones, the mode chosen. */
+function readAdapterSelection() {
+  const ids = Array.from(el.adapterCheckboxes.querySelectorAll("input:checked")).map((i) => i.value);
+  const modes = {};
+  for (const id of ids) {
+    const picker = el.adapterCheckboxes.querySelector(`select[data-adapter="${id}"]`);
+    if (picker) modes[id] = picker.value;
+  }
+  state.selection.adapterIds = ids;
+  state.selection.adapterModes = modes;
 }
 
 function renderSupportSelect() {
@@ -219,6 +257,10 @@ function wireEvents() {
     state.selection.baseItemIds = Array.from(el.baseLayerCheckboxes.querySelectorAll("input:checked")).map((i) => i.value);
     clearResults();
   });
+  el.adapterCheckboxes.addEventListener("change", () => {
+    readAdapterSelection();
+    clearResults();
+  });
   el.supportSelect.addEventListener("change", () => {
     state.selection.supportId = el.supportSelect.value;
     clearResults();
@@ -239,8 +281,6 @@ function wireEvents() {
 
   el.targetFixedBtn.addEventListener("click", () => setTargetType("fixed"));
   el.targetRangeBtn.addEventListener("click", () => setTargetType("range"));
-  el.rangeMoveableBtn.addEventListener("click", () => setRangeType("moveable"));
-  el.rangeAdjustableBtn.addEventListener("click", () => setRangeType("adjustable"));
 
   el.targetHeight.addEventListener("input", () => {
     state.target.height = el.targetHeight.value;
@@ -293,16 +333,6 @@ function applyTargetTypeVisibility() {
   el.rangeFields.hidden = isFixed;
 }
 
-function setRangeType(rangeType) {
-  state.target.rangeType = rangeType;
-  const isMoveable = rangeType === "moveable";
-  el.rangeMoveableBtn.classList.toggle("is-active", isMoveable);
-  el.rangeMoveableBtn.setAttribute("aria-selected", String(isMoveable));
-  el.rangeAdjustableBtn.classList.toggle("is-active", !isMoveable);
-  el.rangeAdjustableBtn.setAttribute("aria-selected", String(!isMoveable));
-  clearResults();
-}
-
 function clearResults() {
   el.results.innerHTML = "";
 }
@@ -321,7 +351,7 @@ function readTarget() {
   const low = Number(state.target.low);
   const high = Number(state.target.high);
   if (state.target.low === "" || state.target.high === "" || !Number.isFinite(low) || !Number.isFinite(high)) return null;
-  return { type: "range", low, high, rangeType: state.target.rangeType };
+  return { type: "range", low, high };
 }
 
 // ---------------------------------------------------------------------------
@@ -360,7 +390,7 @@ function runQuery() {
 /** Components with measured: false, straight off the chain — a flag
  * lookup, not a height computation. */
 function unmeasuredComponentsOf(chain) {
-  return [...chain.baseItems, chain.support, chain.head, chain.build].filter((c) => c.measured === false);
+  return [...chain.baseItems, chain.support, ...chain.adapters, chain.head, chain.build].filter((c) => c.measured === false);
 }
 
 function renderUnverifiedBadge(chain) {
@@ -401,6 +431,10 @@ function renderComponentBreakdown(chain) {
       chain.support.measured === false
     )
   );
+  for (const adapter of chain.adapters) {
+    const label = adapter.mode ? `${adapter.name} — ${adapter.mode}, top faces ${adapter.mountFacing}` : adapter.name;
+    rows.push(componentRow("Adapter", label, fmtSigned(adapter.rise), adapter.measured === false));
+  }
   rows.push(
     componentRow(
       "Head",
@@ -457,10 +491,18 @@ function renderTargetPositionBar(chain, evaluation) {
     </div>`;
 }
 
+function adapterLabel(adapter) {
+  return `${adapter.name}${adapter.mode ? ` (${adapter.mode})` : ""}`;
+}
+
 function describeChange(change) {
   switch (change.kind) {
     case "add":
       return `Add ${change.component.name}`;
+    case "add-adapter":
+      return `Add ${change.component.name}${change.mode ? ` (${change.mode})` : ""}`;
+    case "swap-adapter":
+      return `Swap adapter: ${adapterLabel(change.from)} → ${adapterLabel(change.to)}`;
     case "swap-support":
       return `Swap support: ${change.from.name} → ${change.to.name}`;
     case "swap-head":
@@ -506,12 +548,29 @@ function renderCheckResult(result) {
       deltaHtml = `
         <div class="card">
           <h3>Smallest changes that reach the target</h3>
+          ${result.delta.total > result.delta.candidates.length ? `<p class="hint">Showing the best ${result.delta.candidates.length} of ${result.delta.total}.</p>` : ""}
           <ul class="delta-list">${result.delta.candidates.map(renderDeltaCandidate).join("")}</ul>
         </div>`;
     }
   }
 
   el.results.innerHTML = banner + chainCard + deltaHtml;
+}
+
+/** One line per alternate: what differs (base layer, adapters) and where it lands. */
+function summarizeAlternate(chain) {
+  const parts = [...chain.baseItems.map((i) => i.name), ...chain.adapters.map(adapterLabel)];
+  return `${parts.length ? parts.join(" + ") : "no adapters or base layer"} — ${fmtPlain(chain.min)} to ${fmtPlain(chain.max)}`;
+}
+
+function renderAlternates(chain) {
+  if (!chain.count || chain.count < 2) return "";
+  const items = chain.alternates.map((alt) => `<li>${escapeHtml(summarizeAlternate(alt))}</li>`).join("");
+  return `
+    <details class="badge-details">
+      <summary class="badge badge-info">+${chain.count - 1} equivalent</summary>
+      <ul class="change-list badge-tooltip">${items}</ul>
+    </details>`;
 }
 
 function renderSolveResults(result) {
@@ -536,6 +595,7 @@ function renderSolveResults(result) {
         <div class="stat-row"><span>Adjustability</span><span>${escapeHtml(chain.adjustability)}</span></div>
         <div class="stat-row"><span>Pieces</span><span>${chain.pieceCount}</span></div>
         ${renderBadgeRow(chain)}
+        ${renderAlternates(chain)}
       </li>`
     )
     .join("");

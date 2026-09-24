@@ -164,14 +164,14 @@ describe("solver", () => {
     // interval = [20, 39], as above.
 
     const fits = solve(gear, {
-      target: { type: "range", low: 22, high: 35 },
+      target: { type: "range", low: 22, high: 35, rangeType: "adjustable" },
       packageId: "pkg",
       buildId: "b1",
     });
     assert.equal(fits.feasible.length, 1);
 
     const overhangs = solve(gear, {
-      target: { type: "range", low: 15, high: 35 }, // low is outside [20,39] beyond tolerance
+      target: { type: "range", low: 15, high: 35, rangeType: "adjustable" }, // low is outside [20,39] beyond tolerance
       packageId: "pkg",
       buildId: "b1",
     });
@@ -193,7 +193,8 @@ describe("solver", () => {
       category: "head",
       bottomMount: "bowl-100",
       topMount: "flat-38",
-      modes: [{ name: "underslung", rise: -4, cameraMountFacing: "down" }],
+      // This test is about the camera attach point, so the head sits on an ordinary up-facing mount.
+      modes: [{ name: "underslung", rise: -4, cameraMountFacing: "down", supportMountFacing: "up" }],
     };
     const cam = { id: "cam2", category: "camera-body", opticalCenterAboveBase: 6 };
     const build = { id: "b2", componentIds: ["cam2"], bottomMount: "flat-38", hasRatedTopHandle: true, topHandleOffset: -2 };
@@ -472,21 +473,21 @@ describe("solver", () => {
     // interval = [10, 30], default tolerance = 0.5
 
     const atBothBoundaries = solve(gear, {
-      target: { type: "range", low: 9.5, high: 30.5 },
+      target: { type: "range", low: 9.5, high: 30.5, rangeType: "adjustable" },
       packageId: "pkg",
       buildId: "b8",
     });
     assert.equal(atBothBoundaries.feasible.length, 1, "low = min - tol and high = max + tol should both be feasible (inclusive)");
 
     const lowJustOutside = solve(gear, {
-      target: { type: "range", low: 9.49, high: 25 },
+      target: { type: "range", low: 9.49, high: 25, rangeType: "adjustable" },
       packageId: "pkg",
       buildId: "b8",
     });
     assert.equal(lowJustOutside.feasible.length, 0, "low just past min - tolerance should be infeasible");
 
     const highJustOutside = solve(gear, {
-      target: { type: "range", low: 15, high: 30.51 },
+      target: { type: "range", low: 15, high: 30.51, rangeType: "adjustable" },
       packageId: "pkg",
       buildId: "b8",
     });
@@ -563,7 +564,9 @@ describe("solver", () => {
     });
 
     const target = { type: "fixed", height: 50 };
-    const result = solve(gear, { target, packageId: "pkg", buildId: "bOrd2" });
+    // collapse: false — these compare chains that share a support/head/mode/attach and
+    // adapter rise, which solve mode would otherwise fold into one result (5.3 step 4).
+    const result = solve(gear, { target, packageId: "pkg", buildId: "bOrd2", collapse: false });
 
     const noFiller = result.feasible.find((c) => c.baseItems.length === 0);
     const withFiller = result.feasible.find((c) => c.baseItems.length === 1);
@@ -652,7 +655,9 @@ describe("solver", () => {
       build,
     });
 
-    const result = solve(gear, { target: { type: "fixed", height: 50 }, packageId: "pkg", buildId: "bOrd4" });
+    // collapse: false — these compare chains that share a support/head/mode/attach and
+    // adapter rise, which solve mode would otherwise fold into one result (5.3 step 4).
+    const result = solve(gear, { target: { type: "fixed", height: 50 }, packageId: "pkg", buildId: "bOrd4", collapse: false });
 
     const normalChain = result.feasible.find((c) => c.baseItems.length === 1 && c.baseItems[0].id === "normalBox");
     const lowChain = result.feasible.find((c) => c.baseItems.length === 1 && c.baseItems[0].id === "lowBox");
@@ -802,7 +807,7 @@ describe("check mode", () => {
     assert.ok(result.evaluation.marginAbove < 0, "target is past the top of the current rig's range");
     assert.ok(result.delta, "an infeasible check still returns a delta search result");
     assert.equal(result.delta.candidates.length, 0, "nothing in this package closes a 70\" gap");
-    assert.match(result.delta.message, /no single addition or swap/i);
+    assert.match(result.delta.message, /no addition or swap/i);
   });
 });
 
@@ -935,7 +940,9 @@ describe("adjustability", () => {
     });
 
     const target = { type: "fixed", height: 50 };
-    const result = solve(gear, { target, packageId: "pkg", buildId: "bAdjRank" });
+    // collapse: false — these compare chains that share a support/head/mode/attach and
+    // adapter rise, which solve mode would otherwise fold into one result (5.3 step 4).
+    const result = solve(gear, { target, packageId: "pkg", buildId: "bAdjRank", collapse: false });
 
     const adjustableChain = result.feasible.find((c) => c.support.id === "sAdj2" && c.baseItems.length === 0);
     const moveableChainWithFiller = result.feasible.find((c) => c.support.id === "sMove2" && c.baseItems.length === 1);
