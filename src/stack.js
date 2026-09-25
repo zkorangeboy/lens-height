@@ -1,11 +1,9 @@
 // Stack layout (SPEC.md 5.8): the drawing of a chain as a view model. All the
 // height math a renderer would need — where each piece sits, which column it
-// hangs in, where the target and its margins fall, where each label goes — is
+// hangs in, where the target falls, where each label goes — is
 // done here, so the UI draws percentages and numbers it is handed and
 // computes nothing.
 import { supportSegments } from "./model.js";
-import { margin } from "./solver.js";
-import { isTight } from "./verdict.js";
 
 /** Which kind a piece's own adjustability puts it in (SPEC.md 3.5). */
 const kindOf = (component) => component.adjustability || "fixed";
@@ -14,9 +12,12 @@ const kindOf = (component) => component.adjustability || "fixed";
  * the boom takes what's left (SPEC.md 5.8). */
 const ALLOCATION_ORDER = { fixed: 0, adjustable: 1, moveable: 2 };
 
-/** How tall a lane entry is, as a percentage of the drawing, unless the
- * caller says otherwise: a label, a label with a flag line, a "+". */
-const DEFAULT_LANE = { label: 7, flagged: 10, add: 5 };
+/** How tall a label is, as a percentage of the drawing, unless the caller
+ * measured it (labels wrap, so heights vary). */
+const DEFAULT_LABEL_PCT = 7;
+
+/** Room above the highest thing drawn, as a fraction of the drawing. */
+const HEADROOM = 0.06;
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -67,13 +68,13 @@ function spreadLane(entries) {
 /**
  * @param {object} chain - a resolved chain (solver.js buildChain)
  * @param {{type:"fixed",height:number}|{type:"range",low:number,high:number}|null} [target]
- * @param {{lane?: {label?: number, flagged?: number, add?: number},
- *   openGaps?: {slot: "base"|"adapter", index: number}[]}} [options] -
- *   lane entry sizes (percent of the drawing), and which insertion points
- *   get a "+" (default: all of them)
+ * @param {{lane?: {plotPx: number, labelPx: number[]}}} [options] - the
+ *   drawing's height and each block's measured label height, in pixels
  */
 export function stackLayout(chain, target = null, options = {}) {
-  const laneSize = { ...DEFAULT_LANE, ...(options.lane || {}) };
+  const lane = options.lane;
+  const labelPct = (i) =>
+    lane && lane.plotPx > 0 && lane.labelPx && lane.labelPx[i] > 0 ? (lane.labelPx[i] / lane.plotPx) * 100 : DEFAULT_LABEL_PCT;
 
   // Where to rig it: the target (the low end of a range, where the move
   // starts), clamped into what this chain can reach. No target: fully retracted.
@@ -94,7 +95,8 @@ export function stackLayout(chain, target = null, options = {}) {
   }
 
   // Walk the chain from the floor, in heights. A block that runs the other
-  // way from the last one with any height starts a new column (5.8).
+  // way from the last one with any height starts a new column (5.8) —
+  // except a camera cradled by its head, which stays in the head's column.
   const raw = [];
   const connectors = [];
   let cursor = 0;
@@ -104,7 +106,9 @@ export function stackLayout(chain, target = null, options = {}) {
     const start = cursor;
     cursor += rise;
     const runs = sign(rise);
-    if (runs !== 0) {
+    if (block.cradled) {
+      // Drawn inside the head; the direction the chain runs doesn't change.
+    } else if (runs !== 0) {
       if (direction !== 0 && runs !== direction) {
         column += 1;
         connectors.push({ fromColumn: column - 1, toColumn: column, height: start });
@@ -115,7 +119,7 @@ export function stackLayout(chain, target = null, options = {}) {
   };
 
   chain.baseItems.forEach((item, index) => {
-    place({ slot: "base", index, name: item.name, component: item, kind: kindOf(item) }, item.rise);
+    place({ slot: "base", index, name: item.name, component: item, kind: kindOf(item), mode: item.mode, modeLabel: item.modeLabel }, item.rise);
   });
 
   const supportParts = segments.map((segment, index) => ({
@@ -144,7 +148,7 @@ export function stackLayout(chain, target = null, options = {}) {
   );
 
   chain.adapters.forEach((adapter, index) => {
-    place({ slot: "adapter", index, name: adapter.name, component: adapter, kind: kindOf(adapter), mode: adapter.mode }, adapter.rise);
+    place({ slot: "adapter", index, name: adapter.name, component: adapter, kind: kindOf(adapter), mode: adapter.mode, modeLabel: adapter.modeLabel }, adapter.rise);
   });
   place({ slot: "head", index: 0, name: chain.head.name, component: chain.head, kind: kindOf(chain.head), mode: chain.mode.name }, chain.mode.rise);
   place(
@@ -156,6 +160,7 @@ export function stackLayout(chain, target = null, options = {}) {
       kind: kindOf(chain.build),
       attach: chain.attach.name,
       inverted: Boolean(chain.attach.inverted),
+      cradled: Boolean(chain.head.cradlesCamera),
     },
     chain.attach.rise
   );
@@ -182,16 +187,21 @@ export function stackLayout(chain, target = null, options = {}) {
   const targetLow = !target ? null : target.type === "fixed" ? target.height : target.low;
   const targetHigh = !target ? null : target.type === "fixed" ? target.height : target.high;
 
-  // The drawing's scale: floor (or anything below it) to the highest point,
-  // with a little headroom so the lens marker isn't clipped. One scale for
-  // every column, so heights compare across them.
-  const heights = [0, cursor, chain.min, chain.max, ...raw.flatMap((b) => [b.start, b.end])];
+  // The drawing's scale fits the content (5.8): the floor (or a piece hanging
+  // below it) up to just above the highest of the lens, the target, and the
+  // pieces. The reach doesn't stretch it; it's clipped instead.
+  const heights = [0, cursor, ...raw.flatMap((b) => [b.start, b.end])];
   if (target) heights.push(targetLow, targetHigh);
   const lo = Math.min(...heights);
   const top = Math.max(...heights);
-  const hi = top + (top - lo) * 0.04 || lo + 1;
+  const hi = top + (top - lo) * HEADROOM || lo + 1;
   const pct = (height) => round2(((height - lo) / (hi - lo)) * 100);
   const span = (from, to) => ({ bottomPct: pct(from), topPct: pct(to), heightPct: round2(pct(to) - pct(from)) });
+  const clipped = (from, to) => ({
+    ...span(clamp(from, lo, hi), clamp(to, lo, hi)),
+    continuesBelow: from < lo,
+    continuesAbove: to > hi,
+  });
 
   const blocks = raw.map((block) => {
     const bottom = Math.min(block.start, block.end);
@@ -217,46 +227,22 @@ export function stackLayout(chain, target = null, options = {}) {
     };
   });
 
-  // The label lane: every block's label, and a "+" at each open insertion
-  // point, each near its own height but never overlapping (5.8).
-  const open = options.openGaps
-    ? new Set(options.openGaps.map((g) => `${g.slot}:${g.index}`))
-    : new Set(gaps.map((g) => `${g.slot}:${g.index}`));
-  const sequence = (slot, index) =>
-    ({ base: 0, support: 1, adapter: 2, head: 3, build: 4 })[slot] * 1000 + index * 2;
-  const entries = [
-    ...blocks.map((b, i) => ({
-      type: "block",
-      block: i,
-      column: b.column,
-      anchorPct: b.anchorPct,
-      size: b.inverted ? laneSize.flagged : laneSize.label,
-      order: sequence(b.slot, b.index) + 1,
-    })),
-    ...gaps
-      .filter((g) => open.has(`${g.slot}:${g.index}`))
-      .map((g) => ({
-        type: "gap",
-        slot: g.slot,
-        index: g.index,
-        column: g.column,
-        on: g.on,
-        anchorPct: pct(g.height),
-        size: laneSize.add,
-        order: sequence(g.slot, g.index),
-      })),
-  ].sort((a, b) => a.anchorPct - b.anchorPct || a.order - b.order);
+  // The label lane: every block's label, each near its own height but
+  // never overlapping (5.8).
+  const entries = blocks
+    .map((b, i) => ({ block: i, column: b.column, anchorPct: b.anchorPct, size: labelPct(i) }))
+    .sort((a, b) => a.anchorPct - b.anchorPct || a.block - b.block);
   const centers = spreadLane(entries);
-  const lane = entries.map(({ order, ...entry }, i) => {
+  const labels = entries.map((entry, i) => {
     const at = round2(centers[i]);
     return {
       ...entry,
+      size: round2(entry.size),
       pct: at,
       leader: { bottomPct: Math.min(at, entry.anchorPct), heightPct: round2(Math.abs(at - entry.anchorPct)) },
     };
   });
 
-  const m = target && margin(chain, target);
 
   return {
     floor: { height: 0, pct: pct(0) },
@@ -264,19 +250,15 @@ export function stackLayout(chain, target = null, options = {}) {
     columns: column + 1,
     connectors: connectors.map((c) => ({ ...c, pct: pct(c.height) })),
     gaps: gaps.map((g) => ({ ...g, pct: pct(g.height) })),
-    lane,
+    lane: labels,
     lens: { height: cursor, pct: pct(cursor), column },
-    reach: { min: chain.min, max: chain.max, ...span(chain.min, chain.max) },
-    moveable: sweep && { ...sweep, ...span(sweep.min, sweep.max) },
+    reach: { min: chain.min, max: chain.max, ...clipped(chain.min, chain.max) },
+    moveable: sweep && { ...sweep, ...clipped(sweep.min, sweep.max) },
     target: target && {
       low: targetLow,
       high: targetHigh,
       isRange: target.type === "range",
       ...span(targetLow, targetHigh),
-    },
-    margins: m && {
-      above: { amount: m.above, tight: isTight(m.above), pct: pct(targetHigh) },
-      below: { amount: m.below, tight: isTight(m.below), pct: pct(targetLow) },
     },
     estimated: blocks.some((b) => b.estimated),
   };

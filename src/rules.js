@@ -47,13 +47,18 @@ export function facingsMate(headModeFacing, attachFacing) {
  */
 export function adapterVariants(adapter) {
   if (!adapter.modes || adapter.modes.length === 0) return [{ ...adapter, mode: null }];
-  return adapter.modes.map((m) => ({
+  return adapter.modes.map(({ name, label, ...fields }) => ({
     ...adapter,
-    mode: m.name,
-    rise: m.rise,
-    mountFacing: m.mountFacing || "up",
+    ...fields,
+    mode: name,
+    modeLabel: label || name,
+    mountFacing: fields.mountFacing || "up",
   }));
 }
+
+/** Base items take modes the same way (SPEC.md 3.1): a full apple's faces
+ * are modes carrying their own rise, orientation, and stability. */
+export const componentVariants = adapterVariants;
 
 /**
  * Stack `items` on top of a mount, bottom to top, in an order where every
@@ -171,7 +176,8 @@ const anFacing = (facing) => (facing === "up" ? "an up-facing" : "a down-facing"
 const nameOf = (component) => component.name || component.id;
 const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 /** "Mitchell Offset (underslung)" — a multi-mode adapter says which mode. */
-const withMode = (component) => (component.mode ? `${nameOf(component)} (${component.mode})` : nameOf(component));
+const withMode = (component) =>
+  component.mode ? `${nameOf(component)} (${component.modeLabel || component.mode})` : nameOf(component);
 
 /** "Cleared Studio Dolly. It is a dolly, and…" — a reason that opens with the
  * component's own name reads better as "It", since the note just named it. */
@@ -193,6 +199,7 @@ const isFlippedMode = (name) => /underslung/i.test(name || "");
 
 const EMPTY_PICKS = () => ({
   baseItemIds: [],
+  baseModes: {},
   supportId: null,
   adapterIds: [],
   adapterModes: {},
@@ -289,20 +296,31 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
   const out = EMPTY_PICKS();
 
   // Base layer.
+  // Base layer, each item in its mode (a full apple's face).
   const keptBase = [];
   for (const id of picks.baseItemIds || []) {
-    const item = byId[id];
-    if (!item) continue;
-    const reason = whyBaseItem(item, keptBase);
-    if (reason) notes.push(noteFor("Removed", item, reason));
+    const component = byId[id];
+    if (!component) continue;
+    const wanted = (picks.baseModes || {})[id];
+    const tried = [variantOf(component, wanted), ...adapterVariants(component)].filter(Boolean);
+    const legal = tried.find((v) => !whyBaseItem(v, keptBase));
+    if (!legal) notes.push(noteFor("Removed", component, whyBaseItem(tried[0], keptBase)));
     else {
-      keptBase.push(item);
-      out.baseItemIds.push(id);
+      if (wanted !== undefined && legal.mode !== wanted) {
+        const asked = variantOf(component, wanted);
+        notes.push(
+          asked
+            ? noteFor(`Switched to ${legal.modeLabel}:`, component, whyBaseItem(asked, keptBase))
+            : `Set ${nameOf(component)} to ${legal.modeLabel}. It has no "${wanted}" option.`
+        );
+      }
+      keptBase.push(legal);
     }
   }
   // Kept in the order they physically stack, so picks and drawing agree.
   const baseStack = orderStack(keptBase, "ground", "up");
   out.baseItemIds = baseStack.items.map((item) => item.id);
+  for (const item of baseStack.items) if (item.mode) out.baseModes[item.id] = item.mode;
 
   // Support.
   let support = byId[picks.supportId] || null;
@@ -402,7 +420,7 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
   const build = getBuild(gear, buildId);
   const byId = Object.fromEntries(pool.map((c) => [c.id, c]));
 
-  const keptBase = picks.baseItemIds.map((id) => byId[id]);
+  const keptBase = picks.baseItemIds.map((id) => variantOf(byId[id], picks.baseModes[id]));
   const support = byId[picks.supportId] || null;
   const keptAdapters = picks.adapterIds.map((id) => variantOf(byId[id], picks.adapterModes[id]));
   const adapterStack = support ? orderStack(keptAdapters, support.topMount, topFacingOf(support)) : null;
@@ -426,7 +444,11 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
     .filter((c) => c.category === "base")
     .map((item) => {
       const others = keptBase.filter((b) => b.id !== item.id);
-      return entry(item, whyBaseItem(item, others));
+      const modes = adapterVariants(item).map((variant) => {
+        const reason = whyBaseItem(variant, others);
+        return { name: variant.mode, label: variant.modeLabel || "", flipped: false, available: !reason, reason };
+      });
+      return entry(item, modes.some((m) => m.available) ? null : modes[0].reason, { modes });
     });
 
   const supports = pool
@@ -440,7 +462,7 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
       const others = keptAdapters.filter((a) => a.id !== adapter.id);
       const modes = adapterVariants(adapter).map((variant) => {
         const reason = support ? whyAdapter(variant, support, others) : NEED_SUPPORT;
-        return { name: variant.mode, label: variant.mode || "", flipped: isFlippedMode(variant.mode), available: !reason, reason };
+        return { name: variant.mode, label: variant.modeLabel || "", flipped: isFlippedMode(variant.mode), available: !reason, reason };
       });
       const anyLegal = modes.some((m) => m.available);
       return entry(adapter, anyLegal ? null : modes[0].reason, { modes });
@@ -451,7 +473,7 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
     .map((candidate) => {
       const modes = candidate.modes.map((m) => {
         const reason = adapterStack ? whyHeadMode(candidate, m, adapterStack, beneathName) : NEED_SUPPORT;
-        return { name: m.name, label: m.name, flipped: isFlippedMode(m.name), available: !reason, reason };
+        return { name: m.name, label: m.label || m.name, flipped: isFlippedMode(m.name), available: !reason, reason };
       });
       return entry(candidate, modes.some((m) => m.available) ? null : modes[0].reason, { modes });
     });
@@ -533,17 +555,22 @@ function whyNotInOrder(items, startMount, startFacing, startName) {
 }
 
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const MODES_KEY = { base: "baseModes", adapter: "adapterModes" };
+const IDS_KEY = { base: "baseItemIds", adapter: "adapterIds" };
 
 /** Would `next` survive revalidation with every piece still in it, in the
- * same order? A head mode or camera mount switching is fine. Returns the
- * reason it wouldn't, or null. */
+ * same order and mode? A head mode or camera mount switching is fine.
+ * Returns the reason it wouldn't, or null. */
 function whyLost(gear, packageId, buildId, next) {
   const { picks, notes } = revalidatePicks(gear, packageId, buildId, next);
+  const sameModes = (slot) =>
+    next[IDS_KEY[slot]].every((id) => ((next[MODES_KEY[slot]] || {})[id] ?? null) === (picks[MODES_KEY[slot]][id] ?? null));
   const kept =
     sameList(picks.baseItemIds, next.baseItemIds) &&
+    sameModes("base") &&
     picks.supportId === next.supportId &&
     sameList(picks.adapterIds, next.adapterIds) &&
-    next.adapterIds.every((id) => (next.adapterModes[id] ?? null) === (picks.adapterModes[id] ?? null)) &&
+    sameModes("adapter") &&
     picks.headId === next.headId &&
     Boolean(picks.modeName) &&
     Boolean(picks.attachName);
@@ -552,10 +579,9 @@ function whyLost(gear, packageId, buildId, next) {
 }
 
 /** Everything that could go in a base-layer or adapter position, one entry
- * per usable way (a multi-mode adapter once per mode). */
+ * per usable way (a multi-mode item once per mode). */
 function candidatesFor(pool, slot) {
-  if (slot === "base") return pool.filter((c) => c.category === "base").map((c) => ({ ...c, mode: null }));
-  return pool.filter((c) => c.category === "adapter").flatMap(adapterVariants);
+  return pool.filter((c) => c.category === slot).flatMap(adapterVariants);
 }
 
 const optionEntry = (candidate, reason) => ({
@@ -573,7 +599,7 @@ const optionEntry = (candidate, reason) => ({
  * given `list` (the other pieces in that slot, in stack order), or null. */
 function whyAtPosition(ctx, slot, list, index, candidate, replacing) {
   const { gear, packageId, buildId, picks, support } = ctx;
-  const ids = slot === "base" ? picks.baseItemIds : picks.adapterIds;
+  const ids = picks[IDS_KEY[slot]];
   if (ids.some((id, i) => id === candidate.id && !(replacing && i === index))) {
     return `${nameOf(candidate)} is already in the rig.`;
   }
@@ -597,15 +623,11 @@ function whyAtPosition(ctx, slot, list, index, candidate, replacing) {
   }
 
   // Whatever is above must still have somewhere to go.
-  const nextIds = items.map((c) => c.id);
-  const next =
-    slot === "base"
-      ? { ...picks, baseItemIds: nextIds }
-      : {
-          ...picks,
-          adapterIds: nextIds,
-          adapterModes: Object.fromEntries(items.filter((c) => c.mode).map((c) => [c.id, c.mode])),
-        };
+  const next = {
+    ...picks,
+    [IDS_KEY[slot]]: items.map((c) => c.id),
+    [MODES_KEY[slot]]: Object.fromEntries(items.filter((c) => c.mode).map((c) => [c.id, c.mode])),
+  };
   return whyLost(gear, packageId, buildId, next);
 }
 
@@ -614,9 +636,18 @@ function editContext(gear, packageId, buildId, rawPicks) {
   const pool = getPackageComponents(gear, packageId);
   const byId = Object.fromEntries(pool.map((c) => [c.id, c]));
   const support = byId[picks.supportId] || null;
-  const base = picks.baseItemIds.map((id) => byId[id]);
+  const head = byId[picks.headId] || null;
+  const base = picks.baseItemIds.map((id) => variantOf(byId[id], picks.baseModes[id]));
   const adapters = picks.adapterIds.map((id) => variantOf(byId[id], picks.adapterModes[id]));
-  return { gear, packageId, buildId, picks, pool, byId, support, base, adapters };
+  return { gear, packageId, buildId, picks, pool, byId, support, head, base, adapters };
+}
+
+/** Where an insertion point is, in plain words: "on the floor", "on Studio
+ * Dolly", "under Standard Fluid Head". */
+function positionWords(ctx, slot, index) {
+  if (slot === "base") return index === 0 ? "on the floor" : `on ${withMode(ctx.base[index - 1])}`;
+  if (index > 0 && index === ctx.adapters.length && ctx.head) return `under ${nameOf(ctx.head)}`;
+  return `on ${index === 0 ? nameOf(ctx.support) : withMode(ctx.adapters[index - 1])}`;
 }
 
 /**
@@ -625,7 +656,7 @@ function editContext(gear, packageId, buildId, rawPicks) {
  * 0 sits on the support and `adapter` i on adapter i-1. Adapter points only
  * exist once there's a support.
  *
- * @returns {{slot: "base"|"adapter", index: number, options: object[]}[]}
+ * @returns {{slot: "base"|"adapter", index: number, where: string, options: object[]}[]}
  */
 export function insertOptions(gear, packageId, buildId, rawPicks) {
   const ctx = editContext(gear, packageId, buildId, rawPicks);
@@ -637,17 +668,40 @@ export function insertOptions(gear, packageId, buildId, rawPicks) {
       const options = candidatesFor(ctx.pool, slot).map((candidate) =>
         optionEntry(candidate, whyAtPosition(ctx, slot, list, index, candidate, false))
       );
-      gaps.push({ slot, index, options });
+      gaps.push({ slot, index, where: positionWords(ctx, slot, index), options });
     }
   }
   return gaps;
 }
 
 /**
+ * Everything that can legally be added to the rig (SPEC.md 5.9, 7.2's Add
+ * button): one entry per component, with every position it fits. At each
+ * position it goes in its first mode that fits there.
+ *
+ * @returns {{id, name, label, rise, component, positions: {slot, index, mode, where}[]}[]}
+ */
+export function addOptions(gear, packageId, buildId, rawPicks) {
+  const byComponent = new Map();
+  for (const gap of insertOptions(gear, packageId, buildId, rawPicks)) {
+    const placed = new Set();
+    for (const option of gap.options) {
+      if (!option.available || placed.has(option.id)) continue;
+      placed.add(option.id);
+      if (!byComponent.has(option.id)) {
+        byComponent.set(option.id, { id: option.id, name: option.name, label: option.name, rise: option.rise, component: option.component, positions: [] });
+      }
+      byComponent.get(option.id).positions.push({ slot: gap.slot, index: gap.index, mode: option.mode, where: gap.where });
+    }
+  }
+  return [...byComponent.values()];
+}
+
+/**
  * What may replace one piece of the rig (SPEC.md 5.9). Base items and
  * adapters are judged in their exact place; a support needs only to sit on
  * the base layer, and a head needs one legal mode on what's beneath it.
- * The piece itself (in its current mode) isn't listed.
+ * The piece itself isn't listed (its modes are a toggle, not a swap).
  */
 export function swapOptions(gear, packageId, buildId, rawPicks, slot, index = 0) {
   const ctx = editContext(gear, packageId, buildId, rawPicks);
@@ -670,33 +724,35 @@ export function swapOptions(gear, packageId, buildId, rawPicks, slot, index = 0)
  * Turn one edit into the next picks (not yet revalidated):
  * - `{op: "insert", slot: "base"|"adapter", index, id, mode?}`
  * - `{op: "swap", slot: "base"|"adapter", index, id, mode?}`, or
- *   `{op: "swap", slot: "support"|"head"|"build", id}`
+ *   `{op: "swap", slot: "support"|"head", id}`
  * - `{op: "remove", slot: "base"|"adapter", index}`
- * - `{op: "mode", slot: "adapter", index, mode}`, `{op: "mode", slot: "head", mode}`,
+ * - `{op: "mode", slot: "base"|"adapter", index, mode}`, `{op: "mode", slot: "head", mode}`,
  *   or `{op: "mode", slot: "build", mode}` (the camera's attach point)
  */
 export function applyEdit(picks, edit) {
   const next = {
     ...picks,
     baseItemIds: [...picks.baseItemIds],
+    baseModes: { ...(picks.baseModes || {}) },
     adapterIds: [...picks.adapterIds],
     adapterModes: { ...picks.adapterModes },
   };
-  const listKey = edit.slot === "base" ? "baseItemIds" : "adapterIds";
+  const ids = next[IDS_KEY[edit.slot]];
+  const modes = next[MODES_KEY[edit.slot]];
   const setMode = (id, mode) => {
-    if (edit.slot === "adapter" && mode) next.adapterModes[id] = mode;
+    if (modes && mode) modes[id] = mode;
   };
   const dropMode = (id) => {
-    if (id && !next.adapterIds.includes(id)) delete next.adapterModes[id];
+    if (id && modes && !ids.includes(id)) delete modes[id];
   };
 
   switch (edit.op) {
     case "insert":
-      next[listKey].splice(edit.index, 0, edit.id);
+      ids.splice(edit.index, 0, edit.id);
       setMode(edit.id, edit.mode);
       break;
     case "remove": {
-      const [gone] = next[listKey].splice(edit.index, 1);
+      const [gone] = ids.splice(edit.index, 1);
       dropMode(gone);
       break;
     }
@@ -704,13 +760,13 @@ export function applyEdit(picks, edit) {
       if (edit.slot === "support") next.supportId = edit.id;
       else if (edit.slot === "head") next.headId = edit.id;
       else {
-        const [gone] = next[listKey].splice(edit.index, 1, edit.id);
+        const [gone] = ids.splice(edit.index, 1, edit.id);
         dropMode(gone);
         setMode(edit.id, edit.mode);
       }
       break;
     case "mode":
-      if (edit.slot === "adapter") next.adapterModes[next.adapterIds[edit.index]] = edit.mode;
+      if (modes) modes[ids[edit.index]] = edit.mode;
       else if (edit.slot === "head") next.modeName = edit.mode;
       else if (edit.slot === "build") next.attachName = edit.mode;
       break;

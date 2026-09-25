@@ -200,6 +200,8 @@ export function supportSegments(support) {
 export function describeCurrentRig(chain) {
   return {
     baseItemIds: chain.baseItems.map((c) => c.id),
+    // Which mode each moded base item is in (a full apple's face).
+    baseModes: Object.fromEntries(chain.baseItems.filter((c) => c.mode).map((c) => [c.id, c.mode])),
     supportId: chain.support.id,
     adapterIds: chain.adapters.map((c) => c.id),
     // Which mode each multi-mode adapter is in (single-mode adapters have none).

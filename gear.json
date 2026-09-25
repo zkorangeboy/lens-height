@@ -44,37 +44,29 @@
       "stability": "normal",
       "adjustability": "fixed",
       "measured": false,
-      "notes": "Placeholder dimension, not yet taped."
-    },
-    {
-      "id": "apple-full-12in",
-      "name": "Full Apple Box, 12\" face",
-      "category": "base",
-      "kind": "apple-box",
-      "boxSize": "full",
-      "orientation": "12in",
-      "bottomMount": "ground",
-      "topMount": "ground",
-      "rise": 12,
-      "stability": "low",
-      "adjustability": "fixed",
-      "measured": false,
-      "notes": "Only a full apple may stand on its 12\" face (SPEC.md 2.1)."
-    },
-    {
-      "id": "apple-full-20in",
-      "name": "Full Apple Box, 20\" face",
-      "category": "base",
-      "kind": "apple-box",
-      "boxSize": "full",
-      "orientation": "20in",
-      "bottomMount": "ground",
-      "topMount": "ground",
-      "rise": 20,
-      "stability": "low",
-      "adjustability": "fixed",
-      "measured": false,
-      "notes": "Only a full apple may stand on its 20\" face (SPEC.md 2.1)."
+      "notes": "Placeholder dimensions, not yet taped. Orientation is a mode: only a full apple may stand on its 12\" or 20\" face (SPEC.md 2.1).",
+      "modes": [
+        {
+          "name": "flat",
+          "label": "Flat, 8″",
+          "rise": 8,
+          "orientation": "flat"
+        },
+        {
+          "name": "12in",
+          "label": "12″ face",
+          "rise": 12,
+          "orientation": "12in",
+          "stability": "low"
+        },
+        {
+          "name": "20in",
+          "label": "20″ face",
+          "rise": 20,
+          "orientation": "20in",
+          "stability": "low"
+        }
+      ]
     },
     {
       "id": "track-wedges-placeholder",
@@ -294,21 +286,28 @@
     },
     {
       "id": "head-lambda-placeholder",
-      "name": "Lambda-Style Underslung Head",
+      "name": "Lambda Head",
       "category": "head",
       "bottomMount": "mitchell",
       "topMount": "flat-38",
       "modes": [
         {
           "name": "underslung",
-          "rise": -3,
+          "rise": -13,
+          "cameraMountFacing": "up",
+          "supportMountFacing": "up"
+        },
+        {
+          "name": "overslung",
+          "rise": 13,
           "cameraMountFacing": "up",
           "supportMountFacing": "up"
         }
       ],
       "adjustability": "fixed",
       "measured": false,
-      "notes": "Nose-hung head per SPEC.md 3.3: negative rise, bracket still faces up, and it sits on an ordinary up-facing mount — no offset needed."
+      "notes": "Placeholder figures, not yet taped (about 13\" bracket to mount). SPEC.md 3.3: the bracket faces up in both modes and sits on an ordinary up-facing mount; it cradles the camera.",
+      "cradlesCamera": true
     },
     {
       "id": "baseplate-19-placeholder",
@@ -352,8 +351,6 @@
         "apple-quarter",
         "apple-half",
         "apple-full",
-        "apple-full-12in",
-        "apple-full-20in",
         "track-wedges-placeholder",
         "tripod-baby-placeholder",
         "dolly-placeholder",

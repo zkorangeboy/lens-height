@@ -127,17 +127,21 @@ the ground up, each one's `bottomMount` mating with the one below, and the
 top of the stack is what the support must accept.
 
 - **Apple boxes** (`kind: "apple-box"`, `ground → ground`). Standard
-  dimensions, so each box offers multiple rises depending on which face it
-  stands on. Each orientation is its own component, carrying `boxSize`
-  (`full`, `half`, `quarter`, `pancake`) and `orientation` (`flat`,
-  `12in`, `20in`):
-  - Full: 8" flat, 12", 20"
+  dimensions. **One component per box size**, carrying `boxSize` (`full`,
+  `half`, `quarter`, `pancake`) and `orientation`. A full apple can stand
+  on more than one face, so its orientation is a **mode** — the same
+  shape as an adapter's modes (3.6): each mode has a `name`, `label`,
+  `rise`, `orientation`, and optional `stability`, overriding the
+  component's own. Half, quarter, and pancake have no modes and stay flat:
+  - Full: modes `flat` 8", `12in` 12" face, `20in` 20" face
   - Half: 4" flat
   - Quarter: 2" flat
   - Pancake: 1" flat
   Only a full apple may stand on its 12" or 20" face (2.1) — a half,
   quarter, or pancake on those faces is invalid, not merely unstable.
-  Flag the 12"/20" orientations of a full apple as `stability: low`.
+  Flag the 12"/20" modes of a full apple as `stability: low`. A chain
+  selection names each moded base item's mode (`baseModes`, like
+  `adapterModes`), defaulting to the first.
   Apple boxes may not go under a dolly (2.1); under a tripod they're legal
   but heavily penalized in ranking.
 - **Track + wedges** (`kind: "track"`, `ground → dolly-wheels`). Contributes
@@ -213,11 +217,17 @@ Examples:
 - **O'Connor, underslung:** negative rise, facing `down`, needs a `down`
   mount beneath. The plate now faces the floor, so the camera must attach
   either inverted by its base or upright by its top handle (see 3.4).
-- **Lambda, underslung:** the head hangs from the dolly nose, so the rise
-  from nose to bottom bracket is negative, but the bracket faces `up`.
-  The camera sits on it normally and contributes its usual positive rise.
-  Its nose is an ordinary up-facing mount, so this mode needs an `up` mount
-  beneath it and no offset — "underslung" describes the rise, not the mount.
+- **Lambda, underslung and overslung:** the lambda's bracket is about 13"
+  from its mount. Underslung, the bracket hangs from the nose (rise about
+  −13"); overslung, it stands above it (about +13"). Either way the bracket
+  faces `up`: the camera sits on it normally and contributes its usual
+  positive rise, and the nose is an ordinary up-facing mount, so both modes
+  need an `up` mount beneath and no offset — "underslung" describes the
+  rise, not the mount.
+
+A head that holds the camera inside its own frame (the lambda) declares
+`cradlesCamera: true`. It changes nothing about height or compatibility;
+it tells the drawing (5.8) to draw the camera inside the head's column.
 
 Inversion is never a flag on the head. It falls out of matching a
 `down`-facing mount to a camera attach point (3.4). Measure each mode
@@ -694,7 +704,8 @@ UI, 5).
   "3.5″ too tall", "Needs 4″ more moveable travel".
 - **Waiting** — no target yet: the rig's reach, and a prompt for a target.
 
-The drawing's margin labels (5.8) use the same tight threshold.
+The verdict is the only place margins are stated; the drawing has no
+margin tags (5.8).
 
 ### 5.7 Delta search
 
@@ -749,35 +760,43 @@ the UI does no height math.
   extension, its moveable extension — so the moveable portion can be drawn
   apart from the fixed pieces. Its block carries the support's `range`
   (min and max rise) alongside the rise at this setup.
+- **Scale fits the content.** The drawing runs from the floor (or the
+  lowest piece, if one hangs below it) to just above the highest of the
+  lens, the top of the target or move band, and the top of any piece. The
+  reach does *not* stretch it.
 - **Bands:** `reach` is every lens height the chain can reach; `moveable`
   is the span the moveable portion can sweep from this setup (or `null` if
   the chain has none); `target` is the target's position — a line for a
   fixed height, a band for a range. All carry `bottomPct` / `topPct` /
-  `heightPct`.
+  `heightPct`. `reach` and `moveable` are **clipped** to the drawing, with
+  `continuesAbove` / `continuesBelow` saying so; `reach` also carries its
+  real `min` and `max`, the labels at the rail's bottom and top.
 - **Every block's heights.** Each block carries its `bottom` and `top` in
   inches (its lower and upper end, whichever way it runs), the same as
   percentages (`bottomPct`, `topPct`), and its `column`.
 - **Columns: the rig reads like the physical rig.** Blocks start in column
   0 and stack upward. Wherever the chain *reverses direction* — a block
   runs the other way from the last block that had any height (an
-  underslung head hanging below an offset, a lambda head dropping the
-  camera, then the camera rising again) — that block and everything after
-  it moves to the next column. A block with zero rise (an offset in
+  underslung head hanging below an offset, a lambda dropping its
+  bracket) — that block and everything after it moves to the next column.
+  **Except a cradled camera:** when the head declares `cradlesCamera`
+  (3.3), the camera stays in the head's column, drawn inside it (`cradled:
+  true`), even if it runs the other way. A block with zero rise (an offset in
   underslung mode) never reverses anything; it stays where it is. Each
   reversal adds a `connector` at the height where the columns join.
   `columns` is how many there are.
-- **Margins at the target's edges.** `margins.above` sits at the target's
-  top edge and `margins.below` at its bottom edge, each with the
-  `amount` (straight from 5.2's margin) and `tight` (under 1″, 5.6).
-- **The label lane.** Every block has a label, and the drawing has an
-  insertion point (a "+", 5.9) wherever one is open. Both sit in one lane
-  beside the columns, each as close as possible to the height it belongs
-  to (`anchorPct`) but spread apart so none overlap (`pct`). The caller
-  passes how tall a label and a "+" are, as a percentage of the drawing,
-  and which insertion points are open; the layout does the spreading.
-  Insertion points are identified by slot and index: `base` 0 is the
-  floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on the
-  support, `adapter` *i* on adapter *i*−1.
+- **No margin tags.** The margins are stated once, in the verdict (5.6);
+  the drawing's rail shows the reach they're measured against.
+- **The label lane.** Every block has a label, in one lane beside the
+  columns, each as close as possible to the height it belongs to
+  (`anchorPct`) but spread apart so none overlap (`pct`). Labels wrap
+  rather than truncate, so their heights vary: the caller measures each
+  label and passes the heights in pixels with the drawing's height, and
+  the layout converts and spreads them.
+- **Insertion points** (`gaps`) are identified by slot and index: `base` 0
+  is the floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on
+  the support, `adapter` *i* on adapter *i*−1. They aren't drawn; they're
+  what the Add sheet's positions (5.9) refer to.
 
 ### 5.9 What may attach
 
@@ -795,7 +814,12 @@ of it:
 - `modeControl` — whether a set of modes is shown as text, a toggle, or a
   dropdown.
 - `insertOptions` — for every insertion point (5.8), what may be added
-  there (7.2's "+").
+  there.
+- `addOptions` — everything that can legally be added to the rig
+  anywhere, one entry per component, each with the positions where it
+  fits, described in plain words ("on the floor", "on Studio Dolly",
+  "under Standard Fluid Head"). An item is added in its first mode that
+  fits at the chosen position.
 - `swapOptions` — for one piece of the rig, what may replace it.
 - `applyEdit` — turn an insert, swap, remove, or mode change into the next
   picks, which then go through `revalidatePicks` like any other change.
@@ -814,15 +838,15 @@ user tapped, so these are positional, not "anywhere in the stack":
   of the rig survives revalidation without losing a piece. A head mode or
   camera mount that has to *switch* doesn't disqualify it — that's how an
   offset flipped to underslung takes the head and camera with it. A
-  multi-mode adapter is offered once per mode that fits.
+  multi-mode item fits a position if any of its modes does.
 - A base item or adapter may be **swapped** for another on the same terms,
   in its place. A support may be swapped for any other that sits on the
   base layer; a head for any other with a legal mode. Adapters that no
   longer fit the new support are removed with a note, as in any change.
 - Base items and adapters can be **removed**; the support and head can
   only be swapped, never left empty by an edit.
-- Options that don't fit still carry their reason, so the UI can say why
-  something isn't offered.
+- Options that don't fit still carry their reason (for tests and
+  debugging); the UI shows only the ones that fit.
 
 The slots, ground up, and what each requires of what's beneath it:
 
@@ -912,21 +936,27 @@ top to bottom:
    top", "✗ 3.5″ too short". Green when feasible, the warning color when
    feasible but the tightest margin is under 1″, red when not.
 3. **The drawing** (5.8) — the main element. Full width, one true vertical
-   scale, the floor at the bottom. Components stack upward; where the chain
-   reverses direction, the pieces after it move into the next column and
-   hang downward, joined by a short connector. The target (a line) or move
-   (a band) crosses the full width, with both margins labeled at its
-   edges; a margin under 1″ is in the warning color. The reach, and the
-   moveable portion's sweep, run up a rail beside it. The drawing's border
-   takes the status color.
+   scale fitted to the content, the floor at the bottom. Components stack
+   upward; where the chain reverses direction, the pieces after it move
+   into the next column and hang downward, joined by a connector (a
+   cradled camera stays inside its head). **The target line or move band
+   is the one strong line**, across the full width; connectors and label
+   leaders are thin and neutral. A rail on the left shows the reach,
+   labeled with its lowest and highest lens heights, and the moveable
+   sweep; where the reach runs past the drawing it is clipped and marked
+   as continuing. The drawing's border takes the status color. Labels wrap
+   to two lines rather than truncating.
 4. **Edit in the drawing** (5.9). Tapping a piece (its block or its label)
-   opens a sheet to swap it — compatible options only — toggle its mode,
-   or remove it. A "+" at the base and between pieces adds a base-layer
-   item or an adapter, listing only what legally fits there; a "+" with
-   nothing to offer isn't drawn. The camera's sheet holds its mount
-   (upright, inverted, top handle). A change that invalidates another pick
-   clears or switches it with a plain-language note under the verdict.
-   There are no checkbox lists or dropdown sections.
+   opens a sheet to swap it, change its mode (a toggle for two states, a
+   segmented choice for more, like a full apple's faces), or remove it.
+   **One Add button** under the drawing opens a sheet of everything that
+   can legally be added to the rig. An item with exactly one legal
+   position goes there; one with several asks which, as a short list of
+   positions. Sheets show only compatible options, with no list of what
+   doesn't fit. The camera's sheet holds its mount (upright, inverted, top
+   handle). A change that invalidates another pick clears or switches it
+   with a plain-language note. There are no checkbox lists or dropdown
+   sections.
 
 **Information appears once.** Each piece's name and signed rise appear
 only on its label in the drawing — no text legend beside it. Names carry no

@@ -8,8 +8,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { buildChain, evaluateChain } from "../src/solver.js";
-import { applyEdit, defaultPicks, insertOptions, revalidatePicks, swapOptions } from "../src/rules.js";
+import { buildChain, enumerateChains, evaluateChain } from "../src/solver.js";
+import { addOptions, applyEdit, defaultPicks, insertOptions, modeControl, revalidatePicks, slotOptions, swapOptions } from "../src/rules.js";
 import { stackLayout } from "../src/stack.js";
 import { checkVerdict, TIGHT_MARGIN } from "../src/verdict.js";
 
@@ -19,6 +19,7 @@ const P = ["test-package", "build-placeholder"];
 
 const picksFor = (over = {}) => ({
   baseItemIds: [],
+  baseModes: {},
   supportId: "tripod-baby-placeholder",
   adapterIds: [],
   adapterModes: {},
@@ -135,25 +136,46 @@ describe("stackLayout: columns that read like the physical rig", () => {
     assert.equal(layout.lens.height, at("build").bottom, "the lens is at the bottom of the hanging camera");
   });
 
-  test("a lambda head drops the camera, then the camera rises: three columns", () => {
+  test("the lambda cradles its camera: underslung, the camera stays in the head's column", () => {
     const layout = stackLayout(chainOf(LAMBDA), { type: "fixed", height: 22 });
-    assert.deepEqual(layout.blocks.map((b) => [b.slot, b.column]), [["support", 0], ["head", 1], ["build", 2]]);
-    assert.equal(layout.connectors.length, 2);
-    assert.equal(layout.connectors[1].height, layout.blocks[1].bottom, "the second join is at the bottom of the head");
+    assert.deepEqual(layout.blocks.map((b) => [b.slot, b.column]), [["support", 0], ["head", 1], ["build", 1]]);
+    assert.equal(layout.columns, 2);
+    assert.equal(layout.connectors.length, 1, "one join, at the top of the support");
+    const [, head, camera] = layout.blocks;
+    assert.equal(camera.cradled, true);
+    assert.equal(head.rise, -13);
+    assert.equal(camera.bottom, head.bottom, "the camera sits on the bracket at the bottom of the head");
   });
 
-  test("margins sit at the target's edges, with amounts from 5.2 and the tight flag", () => {
-    const chain = chainOf(picksFor({ supportId: "dolly-placeholder" }));
-    const target = { type: "range", low: 20, high: 47 };
-    const layout = stackLayout(chain, target);
-    const e = evaluateChain(chain, target);
-    assert.equal(layout.margins.above.amount, e.marginAbove);
-    assert.equal(layout.margins.below.amount, e.marginBelow);
-    assert.equal(layout.margins.above.pct, layout.target.topPct);
-    assert.equal(layout.margins.below.pct, layout.target.bottomPct);
-    assert.equal(layout.margins.above.tight, true); // 0.5″
-    assert.equal(layout.margins.below.tight, false); // 1.5″
-    assert.equal(stackLayout(chain, null).margins, null);
+  test("the lambda overslung is one upright column", () => {
+    const layout = stackLayout(chainOf({ ...LAMBDA, modeName: "overslung" }), null);
+    assert.equal(layout.columns, 1);
+    assert.equal(layout.blocks[1].rise, 13);
+    assert.equal(layout.blocks[2].cradled, true);
+  });
+
+  test("without the flag, a camera rising out of a dropped head would get its own column", () => {
+    const chain = chainOf(LAMBDA);
+    const uncradled = { ...chain, head: { ...chain.head, cradlesCamera: false } };
+    assert.equal(stackLayout(uncradled, null).columns, 3);
+  });
+
+  test("the scale fits the content: the reach rail is clipped, not the drawing stretched", () => {
+    const chain = chainOf(picksFor({ supportId: "dolly-placeholder" })); // reach 18.5..47.5
+    const layout = stackLayout(chain, { type: "fixed", height: 20 });
+    // Content: floor to the lens at 20 (and the pieces under it).
+    assert.equal(layout.lens.height, 20);
+    assert.ok(layout.lens.pct > 90 && layout.lens.pct < 100, "the lens is near the top, not squashed under the reach");
+    assert.deepEqual([layout.reach.min, layout.reach.max], [18.5, 47.5], "the rail is labeled with the real reach");
+    assert.equal(layout.reach.topPct, 100);
+    assert.equal(layout.reach.continuesAbove, true);
+    assert.equal(layout.reach.continuesBelow, false);
+    assert.equal(layout.moveable.continuesAbove, true);
+    assert.equal(layout.margins, undefined, "no margin tags; the verdict states the margin");
+
+    const tall = stackLayout(chain, { type: "fixed", height: 60 });
+    assert.equal(tall.reach.continuesAbove, false, "a target above the reach stretches the drawing, so the rail fits");
+    assert.ok(tall.target.bottomPct < 100);
   });
 
   test("insertion points: base 0 is the floor, adapter 0 is the top of the support", () => {
@@ -177,23 +199,22 @@ describe("stackLayout: columns that read like the physical rig", () => {
 });
 
 describe("stackLayout: the label lane", () => {
-  const SIZES = { label: 7.2, flagged: 12.8, add: 6 };
   const overlaps = (lane) => {
     const sorted = [...lane].sort((a, b) => a.pct - b.pct);
-    const size = (e) => (e.type === "gap" ? SIZES.add : e.size);
     for (let i = 1; i < sorted.length; i++) {
-      if (sorted[i].pct - sorted[i - 1].pct < (size(sorted[i]) + size(sorted[i - 1])) / 2 - 1e-6) return true;
+      if (sorted[i].pct - sorted[i - 1].pct < (sorted[i].size + sorted[i - 1].size) / 2 - 0.02) return true;
     }
     return false;
   };
 
-  test("every block has one label; a '+' only where the caller says there's something to add", () => {
+  test("one label per block, sized from the measured pixel heights (labels wrap, so they vary)", () => {
     const chain = chainOf(UNDERSLUNG);
-    const layout = stackLayout(chain, null, { lane: SIZES, openGaps: [{ slot: "adapter", index: 0 }] });
-    assert.equal(layout.lane.filter((e) => e.type === "block").length, layout.blocks.length);
-    assert.deepEqual(layout.lane.filter((e) => e.type === "gap").map((e) => [e.slot, e.index]), [["adapter", 0]]);
-    const flagged = layout.lane.find((e) => e.type === "block" && layout.blocks[e.block].inverted);
-    assert.equal(flagged.size, SIZES.flagged, "the camera's label has room for 'flip image'");
+    const layout = stackLayout(chain, null, { lane: { plotPx: 500, labelPx: [40, 40, 60, 75] } });
+    assert.equal(layout.lane.length, layout.blocks.length);
+    const sizeOf = (slot) => layout.lane.find((e) => layout.blocks[e.block].slot === slot).size;
+    assert.equal(sizeOf("support"), 8);
+    assert.equal(sizeOf("build"), 15, "75px of 500");
+    assert.equal(stackLayout(chain, null).lane[0].size, 7, "a default when nothing was measured");
   });
 
   test("labels never overlap and stay inside the drawing, across a spread of rigs", () => {
@@ -201,15 +222,18 @@ describe("stackLayout: the label lane", () => {
       picksFor(),
       UNDERSLUNG,
       LAMBDA,
+      { ...LAMBDA, modeName: "overslung" },
       picksFor({ baseItemIds: ["apple-quarter", "apple-half"], adapterIds: ["mitchell-riser-6", "mitchell-offset"] }),
       picksFor({ supportId: "lohat-placeholder", adapterIds: ["mitchell-riser-6", "mitchell-riser-12"] }),
     ];
     for (const picks of rigs) {
+      const chain = chainOf(picks);
       for (const target of [null, { type: "fixed", height: 20 }, { type: "fixed", height: 70 }]) {
-        const layout = stackLayout(chainOf(picks), target, { lane: SIZES });
+        const labelPx = chain.baseItems.concat(chain.adapters).map(() => 38).concat([38, 52, 64]);
+        const layout = stackLayout(chain, target, { lane: { plotPx: 520, labelPx } });
         assert.ok(!overlaps(layout.lane), JSON.stringify(picks));
         for (const e of layout.lane) {
-          assert.ok(e.pct >= e.size / 2 - 1e-6 && e.pct <= 100 - e.size / 2 + 1e-6, `${e.pct} inside`);
+          assert.ok(e.pct >= e.size / 2 - 0.02 && e.pct <= 100 - e.size / 2 + 0.02, `${e.pct} inside`);
           assert.equal(e.leader.heightPct, Math.round(Math.abs(e.pct - e.anchorPct) * 100) / 100);
         }
       }
@@ -217,8 +241,8 @@ describe("stackLayout: the label lane", () => {
   });
 
   test("with room to spare, a label sits right at its piece", () => {
-    const layout = stackLayout(chainOf(picksFor()), { type: "fixed", height: 38 }, { lane: SIZES, openGaps: [] });
-    const support = layout.lane.find((e) => e.type === "block" && layout.blocks[e.block].slot === "support");
+    const layout = stackLayout(chainOf(picksFor()), { type: "fixed", height: 38 });
+    const support = layout.lane.find((e) => layout.blocks[e.block].slot === "support");
     assert.equal(support.pct, support.anchorPct);
     assert.equal(support.leader.heightPct, 0);
   });
@@ -231,7 +255,7 @@ describe("stackLayout: the label lane", () => {
 describe("insertOptions: only what legally fits at that exact point", () => {
   test("on a tripod: apple boxes at the floor; risers and either offset mode on the support", () => {
     assert.deepEqual(available(gap(picksFor(), "base", 0).options), [
-      "Quarter Apple Box", "Half Apple Box", "Full Apple Box", 'Full Apple Box, 12" face', 'Full Apple Box, 20" face',
+      "Quarter Apple Box", "Half Apple Box", "Full Apple Box (Flat, 8″)", "Full Apple Box (12″ face)", "Full Apple Box (20″ face)",
     ]);
     assert.deepEqual(available(gap(picksFor(), "adapter", 0).options), [
       'Mitchell Riser 6"', 'Mitchell Riser 12"', 'Mitchell Riser 18"', 'Mitchell Riser 24"', "Mitchell Offset (upright)", "Mitchell Offset (underslung)",
@@ -273,7 +297,7 @@ describe("insertOptions: only what legally fits at that exact point", () => {
     // The lambda head's one mode needs an up-facing mount: an underslung offset would clear it.
     const onLambda = gap(LAMBDA, "adapter", 0).options.find((o) => o.label === "Mitchell Offset (underslung)");
     assert.equal(onLambda.available, false);
-    assert.match(onLambda.reason, /Lambda-Style Underslung Head/);
+    assert.match(onLambda.reason, /Lambda Head/);
   });
 
   test("something already in the rig isn't offered again", () => {
@@ -305,7 +329,7 @@ describe("swapOptions", () => {
   });
 
   test("a head swaps for another with a legal mode", () => {
-    assert.deepEqual(available(swapOptions(seed, ...P, picksFor(), "head")), ["Lambda-Style Underslung Head"]);
+    assert.deepEqual(available(swapOptions(seed, ...P, picksFor(), "head")), ["Lambda Head"]);
     assert.deepEqual(available(swapOptions(seed, ...P, UNDERSLUNG, "head")), [], "the lambda needs an up-facing mount");
   });
 
@@ -317,7 +341,7 @@ describe("swapOptions", () => {
 
   test("a base item swaps in its place", () => {
     const options = swapOptions(seed, ...P, picksFor({ baseItemIds: ["apple-half"] }), "base", 0);
-    assert.ok(available(options).includes("Full Apple Box"));
+    assert.ok(available(options).includes("Full Apple Box (Flat, 8″)"));
     assert.ok(!available(options).includes("Track + Wedges"), "a tripod can't stand on track");
   });
 });
@@ -412,5 +436,133 @@ describe("applyEdit, then revalidatePicks", () => {
       }
     }
     assert.ok(tried > 60, `tried ${tried}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One Add button (SPEC.md 5.9, 7.2)
+// ---------------------------------------------------------------------------
+
+describe("addOptions: everything that can be added, with where it fits", () => {
+  const add = (picks) => Object.fromEntries(addOptions(seed, ...P, picks).map((o) => [o.id, o]));
+
+  test("one entry per component; one legal position means no question to ask", () => {
+    const options = add(picksFor());
+    assert.deepEqual(options["apple-half"].positions.map((p) => p.where), ["on the floor"]);
+    assert.deepEqual(options["mitchell-riser-6"].positions.map((p) => p.where), ["on Baby Tripod"]);
+    assert.equal(Object.values(options).filter((o) => o.id === "apple-full").length, 1, "the full apple once, not once per face");
+    assert.equal(options["apple-full"].positions[0].mode, "flat", "added in its first mode that fits");
+    assert.ok(!options["track-wedges-placeholder"], "a tripod can't stand on track, so track isn't offered");
+    assert.ok(!options["dolly-low-mode-placeholder"], "dolly-only adapters aren't offered on a tripod");
+  });
+
+  test("several legal positions are listed in plain words", () => {
+    const options = add(picksFor({ baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-12"] }));
+    assert.deepEqual(options["apple-quarter"].positions.map((p) => p.where), ["on the floor", "on Half Apple Box"]);
+    assert.deepEqual(options["mitchell-riser-6"].positions.map((p) => p.where), ["on Baby Tripod", "under Standard Fluid Head"]);
+    assert.ok(!options["apple-half"], "already in the rig");
+  });
+
+  test("a position is only offered where the item really fits: nothing goes on an underslung offset", () => {
+    const riser = add(UNDERSLUNG)["mitchell-riser-6"];
+    assert.deepEqual(riser.positions.map((p) => [p.slot, p.index, p.where]), [["adapter", 0, "on Baby Tripod"]]);
+  });
+
+  test("on a dolly: track is the only base item", () => {
+    const options = add(picksFor({ supportId: "dolly-placeholder" }));
+    assert.deepEqual(Object.values(options).filter((o) => o.component.category === "base").map((o) => o.id), ["track-wedges-placeholder"]);
+    assert.deepEqual(options["dolly-low-mode-placeholder"].positions.map((p) => p.where), ["on Studio Dolly"]);
+  });
+
+  test("every offered position, applied, puts the item there and builds", () => {
+    for (const start of [picksFor(), UNDERSLUNG, LAMBDA, picksFor({ baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-12"] })]) {
+      for (const option of addOptions(seed, ...P, start)) {
+        for (const at of option.positions) {
+          const { picks } = revalidatePicks(seed, ...P, applyEdit(start, { op: "insert", slot: at.slot, index: at.index, id: option.id, mode: at.mode }));
+          const ids = at.slot === "base" ? picks.baseItemIds : picks.adapterIds;
+          assert.equal(ids[at.index], option.id, `${option.label} ${at.where}`);
+          assert.doesNotThrow(() => chainOf(picks));
+        }
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gear model: full apple faces as modes, the lambda (SPEC.md 3.1, 3.3)
+// ---------------------------------------------------------------------------
+
+describe("apple boxes: one item per size, a full apple's face is a mode", () => {
+  const boxes = seed.components.filter((c) => c.kind === "apple-box");
+
+  test("one component per box size; only the full apple has modes", () => {
+    assert.equal(new Set(boxes.map((b) => b.boxSize)).size, boxes.length);
+    for (const box of boxes) {
+      if (box.boxSize === "full") {
+        assert.deepEqual(box.modes.map((m) => [m.name, m.rise, m.orientation]), [["flat", 8, "flat"], ["12in", 12, "12in"], ["20in", 20, "20in"]]);
+      } else {
+        assert.equal(box.modes, undefined, box.id);
+        assert.equal(box.orientation, "flat");
+      }
+    }
+  });
+
+  test("the face is chosen in the full apple's sheet, as a three-way control", () => {
+    const entry = slotOptions(seed, ...P, picksFor({ baseItemIds: ["apple-full"] })).base.find((o) => o.id === "apple-full");
+    const control = modeControl(entry.modes);
+    assert.equal(control.type, "dropdown", "three states: drawn as a segmented choice");
+    assert.deepEqual(control.entries.map((e) => e.label), ["Flat, 8″", "12″ face", "20″ face"]);
+    const half = slotOptions(seed, ...P, picksFor({ baseItemIds: ["apple-half"] })).base.find((o) => o.id === "apple-half");
+    assert.equal(modeControl(half.modes).type, "static", "a half apple is flat-only: nothing to choose");
+  });
+
+  test("turning a full apple on its face changes the rise, and survives revalidation", () => {
+    const flat = chainOf(picksFor({ baseItemIds: ["apple-full"] }));
+    const { picks, notes } = revalidatePicks(seed, ...P, applyEdit(picksFor({ baseItemIds: ["apple-full"] }), { op: "mode", slot: "base", index: 0, mode: "20in" }));
+    assert.deepEqual(notes, []);
+    assert.deepEqual(picks.baseModes, { "apple-full": "20in" });
+    const onEnd = chainOf(picks);
+    assert.equal(onEnd.min - flat.min, 12);
+    assert.equal(onEnd.baseItems[0].stability, "low");
+  });
+
+  test("a face that doesn't exist falls back to the first, with a note", () => {
+    const { picks, notes } = revalidatePicks(seed, ...P, picksFor({ baseItemIds: ["apple-full"], baseModes: { "apple-full": "sideways" } }));
+    assert.deepEqual(picks.baseModes, { "apple-full": "flat" });
+    assert.equal(notes.length, 1);
+  });
+
+  test("the solver tries every face, but never two faces of one box", () => {
+    const chains = enumerateChains(seed, { packageId: P[0], buildId: P[1], maxBaseLayerItems: 2, maxAdapters: 0 });
+    const faces = new Set(chains.flatMap((c) => c.baseItems.filter((b) => b.id === "apple-full").map((b) => b.mode)));
+    assert.deepEqual([...faces].sort(), ["12in", "20in", "flat"]);
+    for (const chain of chains) {
+      const ids = chain.baseItems.map((b) => b.id);
+      assert.equal(new Set(ids).size, ids.length);
+    }
+  });
+});
+
+describe("the lambda head: underslung and overslung, cradling the camera", () => {
+  const lambda = seed.components.find((c) => c.id === "head-lambda-placeholder");
+
+  test("two ~13″ modes, both with an up-facing camera mount, still estimated", () => {
+    assert.deepEqual(lambda.modes.map((m) => [m.name, m.rise, m.cameraMountFacing, m.supportMountFacing]), [
+      ["underslung", -13, "up", "up"],
+      ["overslung", 13, "up", "up"],
+    ]);
+    assert.equal(lambda.measured, false);
+    assert.equal(lambda.cradlesCamera, true);
+  });
+
+  test("its modes are a toggle, and the camera stays upright either way", () => {
+    const entry = slotOptions(seed, ...P, LAMBDA).head.find((o) => o.id === lambda.id);
+    const control = modeControl(entry.modes);
+    assert.equal(control.type, "toggle");
+    assert.deepEqual([control.on.name, control.off.name], ["underslung", "overslung"]);
+    const { picks, notes } = revalidatePicks(seed, ...P, applyEdit(LAMBDA, { op: "mode", slot: "head", mode: "overslung" }));
+    assert.deepEqual(notes, []);
+    assert.equal(picks.attachName, "base");
+    assert.equal(chainOf(picks).max - chainOf(LAMBDA).max, 26);
   });
 });

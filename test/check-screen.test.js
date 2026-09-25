@@ -20,6 +20,7 @@ const P = ["test-package", "build-placeholder"];
 
 const picksFor = (over = {}) => ({
   baseItemIds: [],
+  baseModes: {},
   supportId: "tripod-baby-placeholder",
   adapterIds: [],
   adapterModes: {},
@@ -167,7 +168,8 @@ describe("slotOptions: only what can legally attach to what's below", () => {
     const o = slotOptions(gear, ...P, picksFor());
     assert.equal(byId(o.base, "half12").available, false);
     assert.match(byId(o.base, "half12").reason, /half apple can't stand on its 12" face — only a full apple can/i);
-    assert.equal(byId(o.base, "apple-full-12in").available, true);
+    const full = byId(o.base, "apple-full");
+    assert.deepEqual(full.modes.filter((m) => m.available).map((m) => m.name), ["flat", "12in", "20in"], "a full apple may use any face");
   });
 
   test("with no support chosen, everything above says so instead of guessing", () => {
@@ -259,7 +261,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     // The lambda head only has an up-facing underslung mode; an underslung offset makes it illegal.
     const { picks, notes } = revalidate({ headId: "head-lambda-placeholder", modeName: "underslung", attachName: "base", adapterIds: ["mitchell-offset"], adapterModes: { "mitchell-offset": "underslung" } });
     assert.equal(picks.headId, null);
-    assert.match(notes[0], /^Cleared Lambda-Style Underslung Head\. /);
+    assert.match(notes[0], /^Cleared Lambda Head\. /);
   });
 
   test("ids the package doesn't have are dropped quietly", () => {
@@ -709,7 +711,7 @@ describe("the UI layer", () => {
   });
 
   test("edits in the drawing come from rules.js; the verdict and drawing from src/", () => {
-    for (const fn of ["insertOptions(", "swapOptions(", "applyEdit(", "checkVerdict(", "stackLayout("]) {
+    for (const fn of ["addOptions(", "swapOptions(", "applyEdit(", "checkVerdict(", "stackLayout("]) {
       assert.ok(app.includes(fn), `app.js calls ${fn}`);
     }
   });
@@ -730,6 +732,16 @@ describe("the UI layer", () => {
     }
     assert.equal(app.split("Camera inverted — flip image").length - 1, 1, "written once, in the camera's label");
     assert.equal(app.split("Estimated measurements").length - 1, 1, "one footer line");
+  });
+
+  test("simplified: one Add button, no '+' at junctions, no margin tags, no 'why not' lists", () => {
+    const css = readFileSync(path.join(root, "styles.css"), "utf8");
+    assert.equal((html.match(/data-add=""/g) || []).length, 1, "one Add button");
+    assert.doesNotMatch(app, /data-gap|lane-add|insertOptions/, "no per-junction +");
+    assert.doesNotMatch(app, /margins\.|above<\/span>|below<\/span>/, "no margin tags");
+    assert.doesNotMatch(app + css, /why-not|Why not/i);
+    assert.doesNotMatch(css, /text-overflow:\s*ellipsis/, "labels wrap instead of truncating");
+    assert.doesNotMatch(css, /dashed/, "the target is the only strong line; nothing dashed");
   });
 
   test("moveable / adjustable / fixed, consistently", () => {

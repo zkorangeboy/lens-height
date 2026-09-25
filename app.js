@@ -12,7 +12,7 @@
 // here calls them.
 
 import { buildChain, evaluateChain, normalizeTarget, exceedsBaseLayerCap, DEFAULT_MAX_BASE_LAYER_ITEMS } from "./src/solver.js";
-import { applyEdit, defaultPicks, insertOptions, modeControl, revalidatePicks, slotOptions, swapOptions } from "./src/rules.js";
+import { addOptions, applyEdit, defaultPicks, modeControl, revalidatePicks, slotOptions, swapOptions } from "./src/rules.js";
 import { checkVerdict, inches } from "./src/verdict.js";
 import { stackLayout } from "./src/stack.js";
 
@@ -28,12 +28,8 @@ const state = {
   picks: null, // always revalidated
   notes: [], // plain-language "why did that change" messages
   target: { type: "fixed", height: "", low: "", high: "" },
-  sheet: null, // what the open sheet is about: {slot, id} for a piece, {gap: {slot, index}} for a "+"
+  sheet: null, // what the open sheet is about: {slot, id} for a piece, {add: true} or {add: id} for the Add sheet
 };
-
-// Lane entry heights as a percentage of the drawing: .lane-label, a flagged
-// label, and .lane-add in styles.css, over the drawing's height there.
-const LANE = { label: 7.2, flagged: 12.8, add: 6 };
 
 const el = {
   loading: document.getElementById("loading"),
@@ -43,6 +39,7 @@ const el = {
   notesList: document.getElementById("notes-list"),
   rig: document.getElementById("rig"),
   footer: document.getElementById("rig-footer"),
+  addButton: document.getElementById("add-button"),
   sheet: document.getElementById("sheet"),
 
   targetFixedBtn: document.getElementById("target-fixed"),
@@ -143,14 +140,14 @@ function commit(next) {
 
 function wireEdits() {
   document.addEventListener("click", (event) => {
-    const t = event.target.closest("[data-piece],[data-gap],[data-edit],[data-toggle],[data-build],[data-close],[data-dismiss-notes]");
+    const t = event.target.closest("[data-piece],[data-add],[data-edit],[data-toggle],[data-build],[data-close],[data-dismiss-notes]");
     if (!t) return;
     if (t.dataset.piece) {
       const [slot, id] = t.dataset.piece.split("|");
       openSheet({ slot, id });
-    } else if (t.dataset.gap) {
-      const [slot, index] = t.dataset.gap.split("|");
-      openSheet({ gap: { slot, index: Number(index) } });
+    } else if (t.dataset.add !== undefined) {
+      // The Add button (data-add=""), or an item with several positions to choose from.
+      openSheet({ add: t.dataset.add || true });
     } else if (t.dataset.edit) {
       const change = JSON.parse(t.dataset.edit);
       if (change.op !== "mode") closeSheet();
@@ -168,12 +165,6 @@ function wireEdits() {
       state.notes = [];
       renderNotes();
     }
-  });
-
-  // A mode with more than two states is a dropdown.
-  el.sheet.addEventListener("change", (event) => {
-    const t = event.target;
-    if (t.dataset.editMode) edit({ ...JSON.parse(t.dataset.editMode), mode: t.value });
   });
 
   // Tap outside the sheet to close it.
@@ -214,14 +205,17 @@ function render() {
   const evaluation = target ? evaluateChain(chain, target) : null;
   const verdict = checkVerdict(chain, target, evaluation);
 
-  const gaps = insertOptions(gear, state.packageId, state.buildId, p);
-  const openGaps = gaps.filter((g) => g.options.some((o) => o.available));
-  const layout = stackLayout(chain, target, { lane: LANE, openGaps });
+  // Draw once to measure the labels (they wrap, so their heights vary), then
+  // lay out again with those heights so none overlap.
+  el.rig.dataset.state = verdict.state;
+  el.rig.innerHTML = drawingHtml(stackLayout(chain, target));
+  const lane = { plotPx: el.rig.querySelector(".plot").offsetHeight, labelPx: [] };
+  for (const label of el.rig.querySelectorAll(".lane-label")) lane.labelPx[Number(label.dataset.block)] = label.offsetHeight;
+  el.rig.innerHTML = drawingHtml(stackLayout(chain, target, { lane }));
 
   setVerdict(verdict.state, verdict.text);
-  el.rig.dataset.state = verdict.state;
-  el.rig.innerHTML = drawingHtml(layout);
-  el.footer.innerHTML = footerHtml(layout, chain);
+  el.footer.innerHTML = footerHtml(stackLayout(chain, target), chain);
+  el.addButton.hidden = addOptions(gear, state.packageId, state.buildId, p).length === 0;
 
   if (state.sheet) renderSheet();
 }
@@ -245,6 +239,7 @@ function renderIncomplete() {
   setVerdict("waiting", !p.supportId ? "Choose a support" : !p.headId ? "Choose a head" : "Nothing on this camera fits the head");
   el.rig.dataset.state = "waiting";
   el.footer.innerHTML = "";
+  el.addButton.hidden = true;
   el.rig.innerHTML = `<div class="empty-slot">${
     choices.length && (!p.supportId || !p.headId)
       ? `<div class="option-list">${choices.map((o) => optionButton({ op: "swap", slot, id: o.id }, o.name, null, isEstimated(o.component))).join("")}</div>`
@@ -256,29 +251,26 @@ function renderIncomplete() {
 
 function drawingHtml(layout) {
   const blocks = layout.blocks;
-  // A piece with no rise (an offset in underslung mode) is drawn as a thin bar.
-  const flat = (b) => (b.direction === "flat" ? " is-flat" : "");
+  // A piece with no rise (an offset in underslung mode) is drawn as a thin bar;
+  // a camera its head cradles is drawn inside the head.
+  const shape = (b) => `${b.direction === "flat" ? " is-flat" : ""}${b.cradled ? " is-cradled" : ""}`;
   const parts = blocks
     .flatMap((b) =>
       b.parts
         ? b.parts.map((part) => `<div class="part col-${b.column} kind-${part.kind}" style="${pos(part)}"></div>`)
-        : [`<div class="part col-${b.column} kind-${b.kind}${flat(b)}" style="${pos(b)}"></div>`]
+        : [`<div class="part col-${b.column} kind-${b.kind}${shape(b)}" style="${pos(b)}"></div>`]
     )
     .join("");
   const hits = blocks
-    .map((b) => `<button type="button" class="hit col-${b.column}${flat(b)}" style="${pos(b)}" data-piece="${pieceKey(b)}" aria-label="${escapeHtml(b.name)}"></button>`)
+    .map((b) => `<button type="button" class="hit col-${b.column}${shape(b)}" style="${pos(b)}" data-piece="${pieceKey(b)}" aria-label="${escapeHtml(b.name)}"></button>`)
     .join("");
 
   const lane = layout.lane
-    .map((entry) => {
-      const leaders = `<div class="leader-h from-col-${entry.column}${entry.type === "gap" ? " is-gap" : ""}" style="bottom:${entry.anchorPct}%"></div>
-        <div class="leader-v${entry.type === "gap" ? " is-gap" : ""}" style="${pos(entry.leader)}"></div>`;
-      if (entry.type === "gap") {
-        const where = entry.on ? `on ${entry.on}` : "on the floor";
-        return `${leaders}<button type="button" class="lane-add" style="bottom:${entry.pct}%" data-gap="${entry.slot}|${entry.index}" aria-label="Add ${escapeHtml(where)}">+</button>`;
-      }
-      return leaders + labelHtml(blocks[entry.block], entry.pct);
-    })
+    .map(
+      (entry) => `<div class="leader-h from-col-${entry.column}" style="bottom:${entry.anchorPct}%"></div>
+        <div class="leader-v" style="${pos(entry.leader)}"></div>
+        ${labelHtml(blocks[entry.block], entry)}`
+    )
     .join("");
 
   const connectors = layout.connectors
@@ -286,16 +278,21 @@ function drawingHtml(layout) {
     .join("");
 
   const target = layout.target
-    ? `<div class="target-mark${layout.target.isRange ? " is-range" : ""}" style="${pos(layout.target)}"></div>
-       <span class="margin margin-above${layout.margins.above.tight ? " is-tight" : ""}" style="bottom:${layout.margins.above.pct}%">${fmtSigned(layout.margins.above.amount)} above</span>
-       <span class="margin margin-below${layout.margins.below.tight ? " is-tight" : ""}" style="bottom:${layout.margins.below.pct}%">${fmtSigned(layout.margins.below.amount)} below</span>`
+    ? `<div class="target-mark${layout.target.isRange ? " is-range" : ""}" style="${pos(layout.target)}"></div>`
     : "";
 
-  return `<div class="plot" data-columns="${layout.columns}">
-    <div class="rail" aria-hidden="true">
-      <div class="band band-reach" style="${pos(layout.reach)}" title="Every lens height this rig reaches"></div>
-      ${layout.moveable ? `<div class="band band-moveable" style="${pos(layout.moveable)}" title="What the moveable part sweeps from here"></div>` : ""}
+  // The reach rail, labeled with the lowest and highest lens heights, and
+  // marked where it runs past the drawing.
+  const reach = layout.reach;
+  const rail = `<div class="rail" aria-hidden="true">
+      <div class="band band-reach${reach.continuesAbove ? " continues-above" : ""}${reach.continuesBelow ? " continues-below" : ""}" style="${pos(reach)}"></div>
+      ${layout.moveable ? `<div class="band band-moveable" style="${pos(layout.moveable)}"></div>` : ""}
     </div>
+    <span class="rail-label rail-top" style="bottom:${reach.topPct}%">${reach.continuesAbove ? "↑ " : ""}${inches(reach.max)}</span>
+    <span class="rail-label rail-bottom" style="bottom:${reach.bottomPct}%">${reach.continuesBelow ? "↓ " : ""}${inches(reach.min)}</span>`;
+
+  return `<div class="plot" data-columns="${layout.columns}" aria-label="Lens reaches ${inches(reach.min)} to ${inches(reach.max)}">
+    ${rail}
     <div class="floor" style="bottom:${layout.floor.pct}%"></div>
     ${target}
     ${connectors}
@@ -308,13 +305,13 @@ function drawingHtml(layout) {
 
 const pieceKey = (block) => `${block.slot}|${block.component.id}`;
 
-function labelHtml(block, at) {
+function labelHtml(block, entry) {
   const detail = [
-    block.mode,
+    block.modeLabel || block.mode,
     block.attach === "top-handle" ? "top handle" : null,
     block.parts ? block.kind : null,
   ].filter(Boolean);
-  return `<button type="button" class="lane-label${block.inverted ? " is-flagged" : ""}" style="bottom:${at}%" data-piece="${pieceKey(block)}">
+  return `<button type="button" class="lane-label" style="bottom:${entry.pct}%" data-block="${entry.block}" data-piece="${pieceKey(block)}">
     <span class="label-name">${escapeHtml(block.name)}${dot(block.estimated)}</span>
     <span class="label-rise">${fmtSigned(block.rise)}${detail.length ? ` · ${escapeHtml(detail.join(" · "))}` : ""}</span>
     ${block.inverted ? '<span class="label-flag">Camera inverted — flip image</span>' : ""}
@@ -332,27 +329,21 @@ function footerHtml(layout, chain) {
   return key + estimated + cap;
 }
 
-// --- The sheet: change one piece, or add at a "+" ------------------------------
+// --- The sheets: change one piece, or add one ----------------------------------
 
-function optionButton(change, label, rise, estimated) {
-  return `<button type="button" class="option" data-edit="${escapeHtml(JSON.stringify(change))}">
+function optionButton(attrs, label, rise, estimated) {
+  return `<button type="button" class="option" ${attrs}>
     <span>${escapeHtml(label)}${dot(estimated)}</span>${rise == null ? "" : `<span class="option-rise">${fmtSigned(rise)}</span>`}
   </button>`;
 }
+const editAttr = (change) => `data-edit="${escapeHtml(JSON.stringify(change))}"`;
 
-/** Options that fit as buttons; the ones that don't, folded away with why. */
+/** Only what fits, as buttons (SPEC.md 7.2: no list of what doesn't). */
 function optionsHtml(options, toChange, emptyText) {
   const fits = options.filter((o) => o.available);
-  const not = options.filter((o) => !o.available);
-  const list = fits.length
-    ? `<div class="option-list">${fits.map((o) => optionButton(toChange(o), o.label, o.rise, isEstimated(o.component))).join("")}</div>`
+  return fits.length
+    ? `<div class="option-list">${fits.map((o) => optionButton(editAttr(toChange(o)), o.label, o.rise, isEstimated(o.component))).join("")}</div>`
     : `<p class="hint">${escapeHtml(emptyText)}</p>`;
-  const why = not.length
-    ? `<details class="why-not"><summary>Why not the others</summary><ul>${not
-        .map((o) => `<li><strong>${escapeHtml(o.label)}</strong> — ${escapeHtml(o.reason)}</li>`)
-        .join("")}</ul></details>`
-    : "";
-  return list + why;
 }
 
 function toggleHtml(change, control, current) {
@@ -368,21 +359,24 @@ function toggleHtml(change, control, current) {
   </button>`;
 }
 
-/** Nothing, text, a toggle, or a dropdown — rules.js's modeControl decides. */
+/** Nothing, text, a toggle, or (three or more states) a segmented choice —
+ * rules.js's modeControl decides which. */
 function modeHtml(control, change, current) {
   const hint = control.hint ? `<p class="hint">${escapeHtml(control.hint)}</p>` : "";
   if (control.type === "toggle") return toggleHtml(change, control, current) + hint;
   if (control.type === "dropdown") {
-    return `<select data-edit-mode="${escapeHtml(JSON.stringify(change))}" aria-label="Mode">${control.entries
-      .map((e) => `<option value="${escapeHtml(e.name)}"${e.name === current ? " selected" : ""}>${escapeHtml(e.label)}</option>`)
-      .join("")}</select>${hint}`;
+    return `<div class="choice" role="radiogroup">${control.entries
+      .map(
+        (e) => `<button type="button" class="choice-btn" role="radio" aria-checked="${e.name === current}" ${editAttr({ ...change, mode: e.name })}>${escapeHtml(e.label)}</button>`
+      )
+      .join("")}</div>${hint}`;
   }
   if (control.type === "static" && control.entry.label) return `<p class="mode-static">${escapeHtml(control.entry.label)}</p>${hint}`;
   return hint;
 }
 
 function renderSheet() {
-  const html = state.sheet.gap ? gapSheetHtml(state.sheet.gap) : pieceSheetHtml(state.sheet);
+  const html = state.sheet.add ? addSheetHtml(state.sheet.add) : pieceSheetHtml(state.sheet);
   if (html == null) {
     closeSheet();
     return;
@@ -410,7 +404,7 @@ function pieceSheetHtml({ slot, id }) {
       gear.builds.length > 1
         ? `<h3>Camera build</h3><div class="option-list">${gear.builds
             .filter((b) => b.id !== state.buildId)
-            .map((b) => `<button type="button" class="option" data-build="${escapeHtml(b.id)}">${escapeHtml(b.name)}</button>`)
+            .map((b) => optionButton(`data-build="${escapeHtml(b.id)}"`, b.name, null, false))
             .join("")}</div>`
         : "";
     return `${head}<h3>Camera mount</h3>${modeHtml(control, { op: "mode", slot: "build" }, p.attachName)}${builds}`;
@@ -420,33 +414,49 @@ function pieceSheetHtml({ slot, id }) {
   if (slot === "head") {
     const entry = opts.head.find((o) => o.id === p.headId);
     mode = `<h3>Mode</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot: "head" }, p.modeName)}`;
-  } else if (slot === "adapter") {
-    const entry = opts.adapters.find((o) => o.id === id);
+  } else if (slot === "adapter" || slot === "base") {
+    const entry = (slot === "base" ? opts.base : opts.adapters).find((o) => o.id === id);
     if (entry.modes.length > 1) {
-      mode = `<h3>Mode</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot: "adapter", index }, p.adapterModes[id])}`;
+      const current = (slot === "base" ? p.baseModes : p.adapterModes)[id];
+      mode = `<h3>${slot === "base" ? "Face" : "Mode"}</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot, index }, current)}`;
     }
   }
 
-  const swaps = swapOptions(gear, state.packageId, state.buildId, p, slot, index);
-  const swap = `<h3>Swap for</h3>${optionsHtml(
-    swaps,
+  const swap = optionsHtml(
+    swapOptions(gear, state.packageId, state.buildId, p, slot, index),
     (o) => ({ op: "swap", slot, index, id: o.id, mode: o.mode }),
     "Nothing else fits here."
-  )}`;
+  );
   const remove =
     slot === "base" || slot === "adapter"
-      ? `<button type="button" class="remove" data-edit="${escapeHtml(JSON.stringify({ op: "remove", slot, index }))}">Remove ${escapeHtml(block.name)}</button>`
+      ? `<button type="button" class="remove" ${editAttr({ op: "remove", slot, index })}>Remove ${escapeHtml(block.name)}</button>`
       : "";
-  return head + mode + swap + remove;
+  return `${head}${mode}<h3>Swap for</h3>${swap}${remove}`;
 }
 
-function gapSheetHtml({ slot, index }) {
-  const gap = insertOptions(gear, state.packageId, state.buildId, state.picks).find((g) => g.slot === slot && g.index === index);
-  if (!gap) return null;
-  const chain = buildChain(gear, { packageId: state.packageId, buildId: state.buildId, ...state.picks });
-  const on = stackLayout(chain, null).gaps.find((g) => g.slot === slot && g.index === index);
-  const what = slot === "base" ? "base layer" : "adapter";
-  return `<h2>Add ${what}</h2>
-    <p class="sheet-sub">${escapeHtml(on && on.on ? `On ${on.on}` : "On the floor")}</p>
-    ${optionsHtml(gap.options, (o) => ({ op: "insert", slot, index, id: o.id, mode: o.mode }), "Nothing fits here.")}`;
+/** The Add sheet: everything that fits; an item with several positions
+ * asks which. */
+function addSheetHtml(which) {
+  const options = addOptions(gear, state.packageId, state.buildId, state.picks);
+  const chosen = options.find((o) => o.id === which);
+  if (chosen) {
+    return `<h2>Add ${escapeHtml(chosen.name)}</h2><p class="sheet-sub">Where?</p>
+      <div class="option-list">${chosen.positions
+        .map((at) => optionButton(editAttr({ op: "insert", slot: at.slot, index: at.index, id: chosen.id, mode: at.mode }), at.where, null, false))
+        .join("")}</div>`;
+  }
+  if (!options.length) return `<h2>Add</h2><p class="hint">Nothing else fits this rig.</p>`;
+  const item = (o) => {
+    const [only] = o.positions;
+    const attrs =
+      o.positions.length === 1
+        ? editAttr({ op: "insert", slot: only.slot, index: only.index, id: o.id, mode: only.mode })
+        : `data-add="${escapeHtml(o.id)}"`;
+    return optionButton(attrs, o.label, o.rise, isEstimated(o.component));
+  };
+  const group = (title, category) => {
+    const list = options.filter((o) => o.component.category === category);
+    return list.length ? `<h3>${title}</h3><div class="option-list">${list.map(item).join("")}</div>` : "";
+  };
+  return `<h2>Add to the rig</h2>${group("Under the support", "base")}${group("Between support and head", "adapter")}`;
 }

@@ -211,13 +211,17 @@ export function enumerateChains(
   const pool = packagePool(gear, packageId);
   const build = getBuild(gear, buildId);
 
-  const baseItems = pool.filter((c) => c.category === "base");
+  // Base items and adapters in each of their modes (a full apple's faces).
+  const baseVariantPool = pool.filter((c) => c.category === "base").flatMap(adapterVariants);
   const adapterVariantPool = pool.filter((c) => c.category === "adapter").flatMap(adapterVariants);
   const supports = pool.filter((c) => c.category === "support");
   const heads = pool.filter((c) => c.category === "head");
   const attachPoints = buildAttachPoints(build, gear);
 
-  const baseCombos = combinations(baseItems, maxBaseLayerItems);
+  // One physical box is in one orientation at a time.
+  const baseCombos = combinations(baseVariantPool, maxBaseLayerItems).filter(
+    (combo) => new Set(combo.map((b) => b.id)).size === combo.length
+  );
   // One physical adapter appears once, in one mode: drop combos that use
   // two modes of the same adapter.
   const adapterCombos = combinations(adapterVariantPool, maxAdapters).filter(
@@ -273,7 +277,7 @@ export function enumerateChains(
  */
 export function buildChain(
   gear,
-  { packageId, buildId, baseItemIds = [], supportId, adapterIds = [], adapterModes = {}, headId, modeName, attachName }
+  { packageId, buildId, baseItemIds = [], baseModes = {}, supportId, adapterIds = [], adapterModes = {}, headId, modeName, attachName }
 ) {
   const pkg = getPackage(gear, packageId);
   const poolIds = new Set(pkg.componentIds);
@@ -287,7 +291,17 @@ export function buildChain(
   if (new Set(adapterIds).size !== adapterIds.length) {
     throw new Error("The same adapter can't be used twice in one chain");
   }
-  const baseItems = baseItemIds.map((id) => resolveInPool(id, "base item"));
+  const inMode = (component, wanted, label) => {
+    const variants = adapterVariants(component);
+    if (wanted === undefined) return variants[0];
+    const variant = variants.find((v) => v.mode === wanted);
+    if (!variant) throw new Error(`${label} "${component.id}" has no mode "${wanted}"`);
+    return variant;
+  };
+  if (new Set(baseItemIds).size !== baseItemIds.length) {
+    throw new Error("The same base item can't be used twice in one chain");
+  }
+  const baseItems = baseItemIds.map((id) => inMode(resolveInPool(id, "base item"), baseModes[id], "Base item"));
   const support = resolveInPool(supportId, "support");
   const adapters = adapterIds.map((id) => {
     const adapter = resolveInPool(id, "adapter");
@@ -611,8 +625,8 @@ function buildFallback(gear, target, packageId, buildId) {
 
   let suggestion = null;
   if (direction === "short") {
-    const baseItems = packagePool(gear, packageId).filter((c) => c.category === "base");
-    const isValidCombo = (combo) => !resolveChain({ ...partsOf(nearest), baseItems: combo }).violations;
+    const baseItems = packagePool(gear, packageId).filter((c) => c.category === "base").flatMap(adapterVariants);
+    const isValidCombo = (combo) => new Set(combo.map((b) => b.id)).size === combo.length && !resolveChain({ ...partsOf(nearest), baseItems: combo }).violations;
     const comboCost = (combo) => (tripodOnAppleBoxes(combo, nearest.support) ? 100 : 0) + appleBoxCount(combo);
     suggestion = findBaseLayerSuggestion(baseItems, gap, isValidCombo, comboCost);
   }
@@ -774,12 +788,15 @@ function deltaSearch(
 
   // Everything that could be added: base items, and adapters in each mode.
   const addable = [
-    ...pool.filter((c) => c.category === "base" && !currentBaseIds.has(c.id)).map((item) => ({ slot: "base", item })),
+    ...pool
+      .filter((c) => c.category === "base" && !currentBaseIds.has(c.id))
+      .flatMap(adapterVariants)
+      .map((item) => ({ slot: "base", item })),
     ...adapterVariantPool.filter((v) => !currentAdapterIds.has(v.id)).map((item) => ({ slot: "adapter", item })),
   ];
   const additionCombos = combinations(addable, maxChanges).filter((combo) => {
-    const ids = combo.filter((x) => x.slot === "adapter").map((x) => x.item.id);
-    return new Set(ids).size === ids.length; // one mode per physical adapter
+    const ids = combo.map((x) => x.item.id);
+    return new Set(ids).size === ids.length; // one mode per physical item
   });
 
   // Every way to change exactly one slot (or none): parts to override plus
