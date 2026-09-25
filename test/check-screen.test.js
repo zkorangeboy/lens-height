@@ -212,7 +212,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
   test("ticking an apple box under a dolly clears the dolly, in plain words, and keeps what's above", () => {
     const { picks, notes } = revalidate({ supportId: "dolly-placeholder", baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-6"] });
     assert.equal(picks.supportId, null);
-    assert.deepEqual(notes, ["Cleared Studio Dolly (placeholder). It is a dolly, and apple boxes can't go under a dolly — use track."]);
+    assert.deepEqual(notes, ["Cleared Studio Dolly. It is a dolly, and apple boxes can't go under a dolly — use track."]);
     assert.deepEqual(picks.adapterIds, ["mitchell-riser-6"], "picks above the empty slot are kept");
     assert.equal(picks.headId, "head-standard-placeholder");
   });
@@ -220,13 +220,13 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
   test("changing the support to one of a different family removes the adapters that needed the old one", () => {
     const { picks, notes } = revalidate({ adapterIds: ["dolly-low-mode-placeholder", "mitchell-riser-6"] });
     assert.deepEqual(picks.adapterIds, ["mitchell-riser-6"]);
-    assert.deepEqual(notes, ["Removed Dolly Low Mode (placeholder). It only fits a fisher-family support, and Baby Tripod (placeholder) has no family."]);
+    assert.deepEqual(notes, ["Removed Dolly Low Mode. It only fits a fisher-family support, and Baby Tripod has no family."]);
   });
 
   test("track under a tripod clears the tripod", () => {
     const { picks, notes } = revalidate({ baseItemIds: ["track-wedges-placeholder"] });
     assert.equal(picks.supportId, null);
-    assert.match(notes[0], /^Cleared Baby Tripod \(placeholder\)\. It sits on the floor, not on dolly track\.$/);
+    assert.match(notes[0], /^Cleared Baby Tripod\. It sits on the floor, not on dolly track\.$/);
   });
 
   test("refilling the empty support revalidates what was kept above it", () => {
@@ -259,7 +259,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     // The lambda head only has an up-facing underslung mode; an underslung offset makes it illegal.
     const { picks, notes } = revalidate({ headId: "head-lambda-placeholder", modeName: "underslung", attachName: "base", adapterIds: ["mitchell-offset"], adapterModes: { "mitchell-offset": "underslung" } });
     assert.equal(picks.headId, null);
-    assert.match(notes[0], /^Cleared Lambda-Style Underslung Head \(placeholder\)\. /);
+    assert.match(notes[0], /^Cleared Lambda-Style Underslung Head\. /);
   });
 
   test("ids the package doesn't have are dropped quietly", () => {
@@ -706,5 +706,36 @@ describe("the UI layer", () => {
     assert.match(app, /slotOptions\(/);
     assert.match(app, /revalidatePicks\(/);
     assert.match(app, /modeControl\(/);
+  });
+
+  test("edits in the drawing come from rules.js; the verdict and drawing from src/", () => {
+    for (const fn of ["insertOptions(", "swapOptions(", "applyEdit(", "checkVerdict(", "stackLayout("]) {
+      assert.ok(app.includes(fn), `app.js calls ${fn}`);
+    }
+  });
+
+  test("delta search is frozen and hidden: no fixes, and nothing calls it", () => {
+    assert.doesNotMatch(app, /checkChain|deltaSearch|\.delta\b|fixes|fixHtml/i);
+    assert.equal(typeof solver.checkChain, "function", "still exported");
+  });
+
+  test("the drawing is the editor: no summary card, no checkbox lists or dropdown sections", () => {
+    assert.doesNotMatch(html, /id="picks"|id="result-body"|id="stack-card"|type="checkbox"|<select/);
+    assert.doesNotMatch(app, /type="checkbox"|data-slot=|stack-rows|legend|result-feasible|marginRow/);
+  });
+
+  test("information appears once: no '(placeholder)' names; 'flip image' only on the camera label", () => {
+    for (const c of [...seed.components, ...seed.packages, ...seed.builds]) {
+      assert.doesNotMatch(c.name, /placeholder/i, c.id);
+    }
+    assert.equal(app.split("Camera inverted — flip image").length - 1, 1, "written once, in the camera's label");
+    assert.equal(app.split("Estimated measurements").length - 1, 1, "one footer line");
+  });
+
+  test("moveable / adjustable / fixed, consistently", () => {
+    for (const phrase of ["Set between setups", "Moves during the take", "live travel", "move live counts"]) {
+      assert.ok(!app.includes(phrase) && !html.includes(phrase), phrase);
+    }
+    assert.match(app, /\["moveable", "adjustable", "fixed"\]/);
   });
 });

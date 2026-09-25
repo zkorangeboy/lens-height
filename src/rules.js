@@ -300,7 +300,9 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
       out.baseItemIds.push(id);
     }
   }
+  // Kept in the order they physically stack, so picks and drawing agree.
   const baseStack = orderStack(keptBase, "ground", "up");
+  out.baseItemIds = baseStack.items.map((item) => item.id);
 
   // Support.
   let support = byId[picks.supportId] || null;
@@ -344,6 +346,7 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
     if (legal.mode) out.adapterModes[id] = legal.mode;
   }
   const adapterStack = orderStack(keptAdapters, support.topMount, topFacingOf(support));
+  out.adapterIds = adapterStack.items.map((adapter) => adapter.id);
   const beneathName = adapterStack.items.length
     ? withMode(adapterStack.items[adapterStack.items.length - 1])
     : nameOf(support);
@@ -498,4 +501,221 @@ export function modeControl(entries) {
     return { type: "toggle", on: flipped[0], off: legal.find((e) => !e.flipped), hint };
   }
   return { type: "dropdown", entries: legal, hint };
+}
+
+// --- Editing in the drawing (SPEC.md 5.9, 7.2) ------------------------------
+//
+// The check screen edits the rig where the user tapped: add at an insertion
+// point, swap a piece in place, remove one, change a mode. These say what
+// fits *at that position* and turn an edit into the next picks; the picks
+// then go through revalidatePicks like any other change.
+
+/** Why `items` can't stack in exactly this order on a mount, or null if they
+ * can. `startName` names what's beneath the first item. */
+function whyNotInOrder(items, startMount, startFacing, startName) {
+  let mount = startMount;
+  let facing = startFacing;
+  let belowName = startName;
+  for (const item of items) {
+    if (!acceptsMount(item, mount)) {
+      const where = belowName ? `${belowName} ends in ${plainMount(mount)}` : `here it would sit on ${plainMount(mount)}`;
+      return `${withMode(item)} needs ${plainMounts(item.bottomMount)} beneath it, but ${where}.`;
+    }
+    const required = requiredSupportFacingOf(item);
+    if (!supportFacingOk(facing, required)) {
+      return `${withMode(item)} needs ${anFacing(required)} mount beneath it, but the top of ${belowName} faces ${facing}.`;
+    }
+    mount = item.topMount;
+    facing = topFacingOf(item);
+    belowName = withMode(item);
+  }
+  return null;
+}
+
+const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** Would `next` survive revalidation with every piece still in it, in the
+ * same order? A head mode or camera mount switching is fine. Returns the
+ * reason it wouldn't, or null. */
+function whyLost(gear, packageId, buildId, next) {
+  const { picks, notes } = revalidatePicks(gear, packageId, buildId, next);
+  const kept =
+    sameList(picks.baseItemIds, next.baseItemIds) &&
+    picks.supportId === next.supportId &&
+    sameList(picks.adapterIds, next.adapterIds) &&
+    next.adapterIds.every((id) => (next.adapterModes[id] ?? null) === (picks.adapterModes[id] ?? null)) &&
+    picks.headId === next.headId &&
+    Boolean(picks.modeName) &&
+    Boolean(picks.attachName);
+  if (kept) return null;
+  return notes.find((n) => /^(Cleared|Removed)/.test(n)) || notes[0] || "The rest of the rig wouldn't fit with it.";
+}
+
+/** Everything that could go in a base-layer or adapter position, one entry
+ * per usable way (a multi-mode adapter once per mode). */
+function candidatesFor(pool, slot) {
+  if (slot === "base") return pool.filter((c) => c.category === "base").map((c) => ({ ...c, mode: null }));
+  return pool.filter((c) => c.category === "adapter").flatMap(adapterVariants);
+}
+
+const optionEntry = (candidate, reason) => ({
+  id: candidate.id,
+  mode: candidate.mode ?? null,
+  name: nameOf(candidate),
+  label: withMode(candidate),
+  rise: candidate.rise,
+  component: candidate,
+  available: !reason,
+  reason,
+});
+
+/** Why `candidate` can't be at `index` of the base layer or adapter stack,
+ * given `list` (the other pieces in that slot, in stack order), or null. */
+function whyAtPosition(ctx, slot, list, index, candidate, replacing) {
+  const { gear, packageId, buildId, picks, support } = ctx;
+  const ids = slot === "base" ? picks.baseItemIds : picks.adapterIds;
+  if (ids.some((id, i) => id === candidate.id && !(replacing && i === index))) {
+    return `${nameOf(candidate)} is already in the rig.`;
+  }
+  const items = [...list];
+  items.splice(index, replacing ? 1 : 0, candidate);
+
+  if (slot === "base") {
+    if (appleBoxOrientationViolation([candidate])) return whyBaseItem(candidate, []);
+    const why = whyNotInOrder(items, "ground", "up", null);
+    if (why) return why;
+    if (support) {
+      const reason = whySupport(support, items);
+      if (reason) return reason;
+    }
+  } else {
+    if (candidate.requiresFamily && candidate.requiresFamily !== support.family) {
+      return whyAdapter(candidate, support, []);
+    }
+    const why = whyNotInOrder(items, support.topMount, topFacingOf(support), nameOf(support));
+    if (why) return why;
+  }
+
+  // Whatever is above must still have somewhere to go.
+  const nextIds = items.map((c) => c.id);
+  const next =
+    slot === "base"
+      ? { ...picks, baseItemIds: nextIds }
+      : {
+          ...picks,
+          adapterIds: nextIds,
+          adapterModes: Object.fromEntries(items.filter((c) => c.mode).map((c) => [c.id, c.mode])),
+        };
+  return whyLost(gear, packageId, buildId, next);
+}
+
+function editContext(gear, packageId, buildId, rawPicks) {
+  const { picks } = revalidatePicks(gear, packageId, buildId, rawPicks);
+  const pool = getPackageComponents(gear, packageId);
+  const byId = Object.fromEntries(pool.map((c) => [c.id, c]));
+  const support = byId[picks.supportId] || null;
+  const base = picks.baseItemIds.map((id) => byId[id]);
+  const adapters = picks.adapterIds.map((id) => variantOf(byId[id], picks.adapterModes[id]));
+  return { gear, packageId, buildId, picks, pool, byId, support, base, adapters };
+}
+
+/**
+ * Every insertion point in the rig (SPEC.md 5.8, 5.9) with what may be added
+ * there: `base` 0 is the floor and `base` i sits on base item i-1; `adapter`
+ * 0 sits on the support and `adapter` i on adapter i-1. Adapter points only
+ * exist once there's a support.
+ *
+ * @returns {{slot: "base"|"adapter", index: number, options: object[]}[]}
+ */
+export function insertOptions(gear, packageId, buildId, rawPicks) {
+  const ctx = editContext(gear, packageId, buildId, rawPicks);
+  const gaps = [];
+  const slots = [["base", ctx.base]];
+  if (ctx.support) slots.push(["adapter", ctx.adapters]);
+  for (const [slot, list] of slots) {
+    for (let index = 0; index <= list.length; index++) {
+      const options = candidatesFor(ctx.pool, slot).map((candidate) =>
+        optionEntry(candidate, whyAtPosition(ctx, slot, list, index, candidate, false))
+      );
+      gaps.push({ slot, index, options });
+    }
+  }
+  return gaps;
+}
+
+/**
+ * What may replace one piece of the rig (SPEC.md 5.9). Base items and
+ * adapters are judged in their exact place; a support needs only to sit on
+ * the base layer, and a head needs one legal mode on what's beneath it.
+ * The piece itself (in its current mode) isn't listed.
+ */
+export function swapOptions(gear, packageId, buildId, rawPicks, slot, index = 0) {
+  const ctx = editContext(gear, packageId, buildId, rawPicks);
+  if (slot === "base" || slot === "adapter") {
+    const list = slot === "base" ? ctx.base : ctx.adapters;
+    const current = list[index];
+    return candidatesFor(ctx.pool, slot)
+      .filter((c) => !(current && c.id === current.id))
+      .map((candidate) => optionEntry(candidate, whyAtPosition(ctx, slot, list, index, candidate, true)));
+  }
+  const opts = slotOptions(gear, packageId, buildId, ctx.picks);
+  const currentId = slot === "support" ? ctx.picks.supportId : ctx.picks.headId;
+  return opts[slot]
+    .filter((o) => o.id !== currentId)
+    // A support or head has no single rise (a range, or one per mode), so none is given.
+    .map((o) => ({ ...optionEntry({ ...o.component, mode: null }, o.reason), rise: null, modes: o.modes }));
+}
+
+/**
+ * Turn one edit into the next picks (not yet revalidated):
+ * - `{op: "insert", slot: "base"|"adapter", index, id, mode?}`
+ * - `{op: "swap", slot: "base"|"adapter", index, id, mode?}`, or
+ *   `{op: "swap", slot: "support"|"head"|"build", id}`
+ * - `{op: "remove", slot: "base"|"adapter", index}`
+ * - `{op: "mode", slot: "adapter", index, mode}`, `{op: "mode", slot: "head", mode}`,
+ *   or `{op: "mode", slot: "build", mode}` (the camera's attach point)
+ */
+export function applyEdit(picks, edit) {
+  const next = {
+    ...picks,
+    baseItemIds: [...picks.baseItemIds],
+    adapterIds: [...picks.adapterIds],
+    adapterModes: { ...picks.adapterModes },
+  };
+  const listKey = edit.slot === "base" ? "baseItemIds" : "adapterIds";
+  const setMode = (id, mode) => {
+    if (edit.slot === "adapter" && mode) next.adapterModes[id] = mode;
+  };
+  const dropMode = (id) => {
+    if (id && !next.adapterIds.includes(id)) delete next.adapterModes[id];
+  };
+
+  switch (edit.op) {
+    case "insert":
+      next[listKey].splice(edit.index, 0, edit.id);
+      setMode(edit.id, edit.mode);
+      break;
+    case "remove": {
+      const [gone] = next[listKey].splice(edit.index, 1);
+      dropMode(gone);
+      break;
+    }
+    case "swap":
+      if (edit.slot === "support") next.supportId = edit.id;
+      else if (edit.slot === "head") next.headId = edit.id;
+      else {
+        const [gone] = next[listKey].splice(edit.index, 1, edit.id);
+        dropMode(gone);
+        setMode(edit.id, edit.mode);
+      }
+      break;
+    case "mode":
+      if (edit.slot === "adapter") next.adapterModes[next.adapterIds[edit.index]] = edit.mode;
+      else if (edit.slot === "head") next.modeName = edit.mode;
+      else if (edit.slot === "build") next.attachName = edit.mode;
+      break;
+    default:
+      throw new Error(`Unknown edit "${edit.op}"`);
+  }
+  return next;
 }

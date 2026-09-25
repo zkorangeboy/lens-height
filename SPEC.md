@@ -462,6 +462,11 @@ one screen is check mode (7.2). The solve-mode code, its tests, and
 them; nothing in the UI calls solve mode. Shared pieces (5.2's evaluation,
 the chain rules) keep serving both.
 
+**Delta search (5.7) is frozen and hidden from the UI the same way.**
+`checkChain` still runs it and its tests stay passing, but the check screen
+evaluates the rig directly (`buildChain` + `evaluateChain`) and shows no
+suggested fixes: the user edits the rig in the drawing instead (7.2).
+
 ### 5.1 Inputs
 
 - `target`: either `{ type: "fixed", height: H }` or
@@ -669,8 +674,27 @@ an invalid selection is rejected the same way solve mode prunes one during
 enumeration, and the rejection says which rule it broke.
 
 The result is the evaluation itself — interval, `marginBelow`,
-`marginAbove`, `feasible`, and `targetPosition`. When infeasible, it also
-runs the delta search below.
+`marginAbove`, `feasible`, and `targetPosition`. When infeasible,
+`checkChain` also runs the delta search below (frozen and not shown in the
+UI, 5).
+
+**The verdict.** The check screen's one-line answer is a view model too
+(`checkVerdict` in `src/verdict.js`), so the UI never compares heights:
+
+- **Feasible** — what the rig does and its *tightest* margin in plain
+  words: "Reaches 32″ · 4″ to spare at bottom", "Covers 20–32″ · only 0.5″
+  to spare at top". The tightest of `marginBelow` ("at bottom"),
+  `marginAbove` ("at top"), and — for a moveable range — the moveable
+  travel left over once the move fits ("of moveable travel"). A margin
+  inside the tolerance but below zero reads "0.3″ past the top, within
+  tolerance".
+- **Tight** — feasible, but the tightest margin is under **1″**. Same
+  words, prefixed "only", and shown in the warning color.
+- **Infeasible** — the shortfall (5.2) in plain words: "3.5″ too short",
+  "3.5″ too tall", "Needs 4″ more moveable travel".
+- **Waiting** — no target yet: the rig's reach, and a prompt for a target.
+
+The drawing's margin labels (5.8) use the same tight threshold.
 
 ### 5.7 Delta search
 
@@ -728,7 +752,32 @@ the UI does no height math.
 - **Bands:** `reach` is every lens height the chain can reach; `moveable`
   is the span the moveable portion can sweep from this setup (or `null` if
   the chain has none); `target` is the target's position — a line for a
-  fixed height, a band for a range. All carry `bottomPct` / `heightPct`.
+  fixed height, a band for a range. All carry `bottomPct` / `topPct` /
+  `heightPct`.
+- **Every block's heights.** Each block carries its `bottom` and `top` in
+  inches (its lower and upper end, whichever way it runs), the same as
+  percentages (`bottomPct`, `topPct`), and its `column`.
+- **Columns: the rig reads like the physical rig.** Blocks start in column
+  0 and stack upward. Wherever the chain *reverses direction* — a block
+  runs the other way from the last block that had any height (an
+  underslung head hanging below an offset, a lambda head dropping the
+  camera, then the camera rising again) — that block and everything after
+  it moves to the next column. A block with zero rise (an offset in
+  underslung mode) never reverses anything; it stays where it is. Each
+  reversal adds a `connector` at the height where the columns join.
+  `columns` is how many there are.
+- **Margins at the target's edges.** `margins.above` sits at the target's
+  top edge and `margins.below` at its bottom edge, each with the
+  `amount` (straight from 5.2's margin) and `tight` (under 1″, 5.6).
+- **The label lane.** Every block has a label, and the drawing has an
+  insertion point (a "+", 5.9) wherever one is open. Both sit in one lane
+  beside the columns, each as close as possible to the height it belongs
+  to (`anchorPct`) but spread apart so none overlap (`pct`). The caller
+  passes how tall a label and a "+" are, as a percentage of the drawing,
+  and which insertion points are open; the layout does the spreading.
+  Insertion points are identified by slot and index: `base` 0 is the
+  floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on the
+  support, `adapter` *i* on adapter *i*−1.
 
 ### 5.9 What may attach
 
@@ -745,6 +794,35 @@ of it:
 - `defaultPicks` — the first legal rig, for a fresh start.
 - `modeControl` — whether a set of modes is shown as text, a toggle, or a
   dropdown.
+- `insertOptions` — for every insertion point (5.8), what may be added
+  there (7.2's "+").
+- `swapOptions` — for one piece of the rig, what may replace it.
+- `applyEdit` — turn an insert, swap, remove, or mode change into the next
+  picks, which then go through `revalidatePicks` like any other change.
+
+**Picks are kept in stack order.** `revalidatePicks` returns the base items
+and adapters in the order they physically stack, ground up, so the picks,
+the chain, and the drawing agree on what "index 2" is.
+
+**Adding and swapping at a position.** The drawing edits the rig where the
+user tapped, so these are positional, not "anywhere in the stack":
+
+- An item may be **inserted** at an insertion point if, in exactly that
+  position, it mounts and faces right on what's below and what's above
+  mounts and faces right on it; it passes its own rules (apple-box face,
+  family, not already in the rig, no apple box under a dolly); and the rest
+  of the rig survives revalidation without losing a piece. A head mode or
+  camera mount that has to *switch* doesn't disqualify it — that's how an
+  offset flipped to underslung takes the head and camera with it. A
+  multi-mode adapter is offered once per mode that fits.
+- A base item or adapter may be **swapped** for another on the same terms,
+  in its place. A support may be swapped for any other that sits on the
+  base layer; a head for any other with a legal mode. Adapters that no
+  longer fit the new support are removed with a note, as in any change.
+- Base items and adapters can be **removed**; the support and head can
+  only be swapped, never left empty by an edit.
+- Options that don't fit still carry their reason, so the UI can say why
+  something isn't offered.
 
 The slots, ground up, and what each requires of what's beneath it:
 
@@ -805,8 +883,8 @@ Query-side flags: `tightSpace`, `onSlope`, `needsLowTilt`.
   state. No account, no backend, no sync.
 - **Hosted on GitHub Pages** from the repo, deploying on push.
 - **Phone-first layout.** The one screen is check mode (7.2): target
-  height at the top, the live result, the ground-up stack, then the rig
-  picks. One thumb, held at chest height, in a dark room. Large tap
+  height at the top, a one-line verdict, then the rig drawing, which is
+  also where the rig is edited. One thumb, held at chest height, in a dark room. Large tap
   targets, high contrast, no hover states. A package or build selector
   only appears when there is more than one to choose from.
 - **Units:** decimal inches throughout, matching how heights are called on
@@ -822,23 +900,43 @@ have changed and none has been taken in 30 days.
 
 ### 7.2 The check screen
 
-Check mode is the app; solve mode is frozen and not shown (5). One column,
+Check mode is the app; solve mode and delta search are frozen and not
+shown (5). The screen is built around a drawing of the rig. There is no
+submit button: every change to the target or the rig recomputes
+immediately. There is no summary card and no list of fixes. One column,
 top to bottom:
 
-1. **Target** — a single height, or a range (two heights). A range is
-   always a moveable range (5.1); there is nothing to choose.
-2. **Result, live.** There is no submit button: every change to the target
-   or to any pick recomputes immediately. Feasible shows a green border and
-   a check mark, with the interval and margins. Not feasible shows the
-   shortfall (5.2) and the best **three** fixes from delta search (5.7),
-   with a way to expand the rest. Unverified estimates, an inverted camera
-   ("flip image"), and a base layer over the stacking cap are flagged.
-3. **Stack** (5.8) — floor at the bottom, lens at the top, each component
-   labeled with its signed rise, the target marked against it, the moveable
-   portion drawn apart from the fixed pieces.
-4. **Rig picks**, ground up (5.9) — only compatible choices are offered,
-   underslung and inverted modes are toggles, and a change that invalidates a
-   later pick clears it with a plain-language note.
+1. **Target**, compact — a single height, or a range (two heights). A range
+   is always a moveable range (5.1); there is nothing to choose.
+2. **Verdict** — one line (5.6): "✓ Covers 20–32″ · only 0.5″ to spare at
+   top", "✗ 3.5″ too short". Green when feasible, the warning color when
+   feasible but the tightest margin is under 1″, red when not.
+3. **The drawing** (5.8) — the main element. Full width, one true vertical
+   scale, the floor at the bottom. Components stack upward; where the chain
+   reverses direction, the pieces after it move into the next column and
+   hang downward, joined by a short connector. The target (a line) or move
+   (a band) crosses the full width, with both margins labeled at its
+   edges; a margin under 1″ is in the warning color. The reach, and the
+   moveable portion's sweep, run up a rail beside it. The drawing's border
+   takes the status color.
+4. **Edit in the drawing** (5.9). Tapping a piece (its block or its label)
+   opens a sheet to swap it — compatible options only — toggle its mode,
+   or remove it. A "+" at the base and between pieces adds a base-layer
+   item or an adapter, listing only what legally fits there; a "+" with
+   nothing to offer isn't drawn. The camera's sheet holds its mount
+   (upright, inverted, top handle). A change that invalidates another pick
+   clears or switches it with a plain-language note under the verdict.
+   There are no checkbox lists or dropdown sections.
+
+**Information appears once.** Each piece's name and signed rise appear
+only on its label in the drawing — no text legend beside it. Names carry no
+"(placeholder)"; a small dot marks a piece whose measurements are
+estimated (`measured: false`), and a single line under the drawing says
+"Estimated measurements" if any piece has one. "Camera inverted — flip
+image" appears once, on the camera's label. A base layer over the stacking
+cap is noted on that same line. Adjustability is always called
+**moveable / adjustable / fixed** (3.5), in the drawing's key and in the
+words.
 
 **The UI is thin.** `index.html` and `app.js` collect input, call the solver
 and `rules.js`, and render what comes back. All height math (intervals,

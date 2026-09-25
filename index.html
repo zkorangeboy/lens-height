@@ -11,47 +11,42 @@
     <h1>Lens Height</h1>
   </header>
 
-  <main id="app">
+  <main>
     <div id="loading" class="notice">Loading gear…</div>
 
     <!-- No submit button: every change recomputes (SPEC.md 7.2). -->
-    <form id="check-form" hidden>
-      <section class="card target-card" aria-label="Target">
-        <h2>Target height</h2>
-        <div class="segmented" id="target-type-toggle" role="group" aria-label="Target type">
+    <div id="app" hidden>
+      <section class="target" aria-label="Target">
+        <div class="segmented" role="group" aria-label="Target type">
           <button type="button" id="target-fixed" class="segmented-btn is-active" aria-pressed="true">Height</button>
           <button type="button" id="target-range" class="segmented-btn" aria-pressed="false">Range</button>
         </div>
-
-        <div id="fixed-target-fields">
-          <label class="field">
-            <span class="field-label">Lens height (in)</span>
-            <input type="number" id="target-height" inputmode="decimal" step="0.25" placeholder="e.g. 32" />
-          </label>
+        <div id="fixed-target-fields" class="target-fields">
+          <input type="number" id="target-height" inputmode="decimal" step="0.25" placeholder="Lens height" aria-label="Lens height, inches" />
+          <span class="unit">in</span>
         </div>
-
-        <div id="range-target-fields" class="range-fields" hidden>
-          <label class="field">
-            <span class="field-label">From (in)</span>
-            <input type="number" id="target-low" inputmode="decimal" step="0.25" placeholder="e.g. 25" />
-          </label>
-          <label class="field">
-            <span class="field-label">To (in)</span>
-            <input type="number" id="target-high" inputmode="decimal" step="0.25" placeholder="e.g. 40" />
-          </label>
-          <p class="hint">A range is a move during the take, so only gear that can move live counts.</p>
+        <div id="range-target-fields" class="target-fields" hidden>
+          <input type="number" id="target-low" inputmode="decimal" step="0.25" placeholder="From" aria-label="Move from, inches" />
+          <span class="unit">to</span>
+          <input type="number" id="target-high" inputmode="decimal" step="0.25" placeholder="To" aria-label="Move to, inches" />
+          <span class="unit">in</span>
         </div>
       </section>
+      <p id="range-hint" class="hint" hidden>A range is a live move: only moveable gear counts.</p>
 
-      <!-- Sticky, so the answer stays in view while you change picks below. -->
-      <div id="status-bar" class="status-bar" role="status" aria-live="polite"></div>
+      <p id="verdict" class="verdict" role="status" aria-live="polite"></p>
 
-      <section id="result-body" class="result-body" aria-label="Result"></section>
+      <section id="rig" class="rig" aria-label="The rig, floor to lens. Tap a piece to change it, or + to add one."></section>
+      <p id="rig-footer" class="rig-footer"></p>
+    </div>
 
-      <section id="stack-card" class="card" aria-label="Rig, floor to lens"></section>
+    <!-- Why the last change moved something else: a toast, so the drawing doesn't jump. -->
+    <div id="notes" class="notes" role="status" hidden>
+      <ul id="notes-list"></ul>
+      <button type="button" class="notes-close" data-dismiss-notes aria-label="Dismiss">×</button>
+    </div>
 
-      <section id="picks" class="card" aria-label="Rig picks"></section>
-    </form>
+    <dialog id="sheet" class="sheet" aria-label="Change the rig"></dialog>
   </main>
 
   <script type="module" src="app.js"></script>

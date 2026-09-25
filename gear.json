@@ -3,7 +3,7 @@
   "components": [
     {
       "id": "apple-quarter",
-      "name": "Quarter Apple Box (placeholder)",
+      "name": "Quarter Apple Box",
       "category": "base",
       "kind": "apple-box",
       "boxSize": "quarter",
@@ -18,7 +18,7 @@
     },
     {
       "id": "apple-half",
-      "name": "Half Apple Box (placeholder)",
+      "name": "Half Apple Box",
       "category": "base",
       "kind": "apple-box",
       "boxSize": "half",
@@ -33,7 +33,7 @@
     },
     {
       "id": "apple-full",
-      "name": "Full Apple Box (placeholder)",
+      "name": "Full Apple Box",
       "category": "base",
       "kind": "apple-box",
       "boxSize": "full",
@@ -48,7 +48,7 @@
     },
     {
       "id": "apple-full-12in",
-      "name": "Full Apple Box, 12\" face (placeholder)",
+      "name": "Full Apple Box, 12\" face",
       "category": "base",
       "kind": "apple-box",
       "boxSize": "full",
@@ -63,7 +63,7 @@
     },
     {
       "id": "apple-full-20in",
-      "name": "Full Apple Box, 20\" face (placeholder)",
+      "name": "Full Apple Box, 20\" face",
       "category": "base",
       "kind": "apple-box",
       "boxSize": "full",
@@ -78,7 +78,7 @@
     },
     {
       "id": "track-wedges-placeholder",
-      "name": "Track + Wedges (placeholder)",
+      "name": "Track + Wedges",
       "category": "base",
       "bottomMount": "ground",
       "topMount": "dolly-wheels",
@@ -91,7 +91,7 @@
     },
     {
       "id": "tripod-baby-placeholder",
-      "name": "Baby Tripod (placeholder)",
+      "name": "Baby Tripod",
       "category": "support",
       "bottomMount": "ground",
       "topMount": "mitchell",
@@ -110,7 +110,7 @@
     },
     {
       "id": "dolly-placeholder",
-      "name": "Studio Dolly (placeholder)",
+      "name": "Studio Dolly",
       "category": "support",
       "bottomMount": [
         "ground",
@@ -134,7 +134,7 @@
     },
     {
       "id": "hihat-placeholder",
-      "name": "Hi-Hat (placeholder)",
+      "name": "Hi-Hat",
       "category": "support",
       "bottomMount": "ground",
       "topMount": "mitchell",
@@ -146,7 +146,7 @@
     },
     {
       "id": "lohat-placeholder",
-      "name": "Low Hat (placeholder)",
+      "name": "Low Hat",
       "category": "support",
       "bottomMount": "ground",
       "topMount": "mitchell",
@@ -228,7 +228,7 @@
     },
     {
       "id": "dolly-low-mode-placeholder",
-      "name": "Dolly Low Mode (placeholder)",
+      "name": "Dolly Low Mode",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -242,7 +242,7 @@
     },
     {
       "id": "dolly-rotating-offset-placeholder",
-      "name": "Dolly Rotating Offset (placeholder)",
+      "name": "Dolly Rotating Offset",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -256,7 +256,7 @@
     },
     {
       "id": "dolly-broken-neck-placeholder",
-      "name": "Dolly Broken Neck (placeholder)",
+      "name": "Dolly Broken Neck",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -270,7 +270,7 @@
     },
     {
       "id": "head-standard-placeholder",
-      "name": "Standard Fluid Head (placeholder)",
+      "name": "Standard Fluid Head",
       "category": "head",
       "bottomMount": "mitchell",
       "topMount": "flat-38",
@@ -294,7 +294,7 @@
     },
     {
       "id": "head-lambda-placeholder",
-      "name": "Lambda-Style Underslung Head (placeholder)",
+      "name": "Lambda-Style Underslung Head",
       "category": "head",
       "bottomMount": "mitchell",
       "topMount": "flat-38",
@@ -312,7 +312,7 @@
     },
     {
       "id": "baseplate-19-placeholder",
-      "name": "19mm Studio Baseplate (placeholder)",
+      "name": "19mm Studio Baseplate",
       "category": "baseplate",
       "bottomMount": "flat-38",
       "topMount": "dovetail",
@@ -323,7 +323,7 @@
     },
     {
       "id": "riser-1in-placeholder",
-      "name": "1in Riser Block (placeholder)",
+      "name": "1in Riser Block",
       "category": "riser",
       "bottomMount": "dovetail",
       "topMount": "dovetail",
@@ -334,7 +334,7 @@
     },
     {
       "id": "camera-body-placeholder",
-      "name": "Placeholder Camera Body",
+      "name": "Camera Body",
       "category": "camera-body",
       "bottomMount": "camera-base",
       "topMount": "optical-center",
@@ -347,7 +347,7 @@
   "packages": [
     {
       "id": "test-package",
-      "name": "Test Package (placeholder)",
+      "name": "Test Package",
       "componentIds": [
         "apple-quarter",
         "apple-half",
@@ -378,7 +378,7 @@
   "builds": [
     {
       "id": "build-placeholder",
-      "name": "Placeholder A-Cam Build",
+      "name": "A-Cam Build",
       "componentIds": [
         "baseplate-19-placeholder",
         "riser-1in-placeholder",
