@@ -122,6 +122,12 @@ function assembleChain(baseItems, adapters, support, head, mode, build, attach) 
  * the single place that "2" is defined, so nothing else hardcodes it. */
 export const DEFAULT_MAX_BASE_LAYER_ITEMS = 2;
 
+/** Whether a chain's base layer is past the stacking cap (SPEC.md 3.1) —
+ * legal, but flagged. Lives here so no UI compares counts to a cap. */
+export function exceedsBaseLayerCap(chain, cap = DEFAULT_MAX_BASE_LAYER_ITEMS) {
+  return chain.baseItems.length > cap;
+}
+
 /** SPEC.md 5.3: the default cap on adapters stacked between support and
  * head. Configurable per query, like the base-layer cap. */
 export const DEFAULT_MAX_ADAPTERS = 2;
@@ -307,6 +313,23 @@ export function buildChain(
 }
 
 /**
+ * Turn raw form input into a target (SPEC.md 5.1), or null if it isn't a
+ * usable one yet. Values may be strings straight from inputs. A range
+ * entered high-to-low is read low-to-high, so callers never compare heights.
+ */
+export function normalizeTarget({ type, height, low, high }) {
+  const num = (value) => (value === "" || value == null ? NaN : Number(value));
+  if (type === "fixed") {
+    const h = num(height);
+    return Number.isFinite(h) ? { type: "fixed", height: h } : null;
+  }
+  const a = num(low);
+  const b = num(high);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return { type: "range", low: Math.min(a, b), high: Math.max(a, b) };
+}
+
+/**
  * SPEC.md 5.2 step 3. `target.rangeType` (range targets only) defaults to
  * `"moveable"` when omitted (5.1): a range target is a live move. A
  * `"moveable"` range target requires the requested span to fit within the
@@ -362,6 +385,22 @@ function targetPosition(chain, target) {
 }
 
 /**
+ * How far off an infeasible chain is (SPEC.md 5.2), so a UI never subtracts
+ * heights itself. `short`/`tall` come straight from the margins (the one
+ * place they're computed); `span` only when the target is within reach but
+ * a moveable range is wider than the moveable interval can travel.
+ */
+function shortfallOf(chain, target, feasible) {
+  if (feasible) return null;
+  const m = margin(chain, target);
+  if (m.above < 0) return { direction: "short", amount: -m.above };
+  if (m.below < 0) return { direction: "tall", amount: -m.below };
+  const needed = target.high - target.low;
+  const available = chain.moveableInterval.max - chain.moveableInterval.min;
+  return { direction: "span", amount: needed - available, needed, available };
+}
+
+/**
  * The one place feasibility, margin, and target-position math live
  * (SPEC.md 5.2). Both modes call this per chain instead of duplicating
  * it: solve mode once per enumerated chain, check mode once on the
@@ -369,13 +408,15 @@ function targetPosition(chain, target) {
  */
 export function evaluateChain(chain, target, tolerance = 0.5) {
   const m = margin(chain, target);
+  const feasible = isFeasible(chain, target, tolerance);
   return {
     min: chain.min,
     max: chain.max,
     marginBelow: m.below,
     marginAbove: m.above,
-    feasible: isFeasible(chain, target, tolerance),
+    feasible,
     targetPosition: targetPosition(chain, target),
+    shortfall: shortfallOf(chain, target, feasible),
   };
 }
 

@@ -456,6 +456,12 @@ The solver has two modes, and both reduce to the same per-chain evaluation
   delta search against the current rig instead of solve mode's
   general fallback (5.7).
 
+**Solve mode is frozen and hidden from the UI — not removed.** The app's
+one screen is check mode (7.2). The solve-mode code, its tests, and
+`cli.js` stay in the repo and stay passing, and UI work does not touch
+them; nothing in the UI calls solve mode. Shared pieces (5.2's evaluation,
+the chain rules) keep serving both.
+
 ### 5.1 Inputs
 
 - `target`: either `{ type: "fixed", height: H }` or
@@ -467,7 +473,8 @@ The solver has two modes, and both reduce to the same per-chain evaluation
   passing `"adjustable"` explicitly means the height changes *between*
   setups within a scene instead, and both `moveable` and `adjustable`
   range count toward covering it. It is not a required input and no UI
-  needs to ask for it.
+  needs to ask for it. A range entered high-to-low is read low-to-high
+  (`normalizeTarget`), so a UI never has to compare heights.
 - `packageId` — restricts the component pool to gear actually on the show
 - `buildId` — the camera build in use
 - `tolerance` — default **±0.5"**, user-adjustable
@@ -525,8 +532,22 @@ directly for check mode — it is scored the same way:
    chain has no adjustable range (`max === min`).
 
 The output — `{ min, max, marginBelow, marginAbove, feasible,
-targetPosition }` — is what both modes report; solve mode additionally
-uses it to rank (5.3).
+targetPosition, shortfall }` — is what both modes report; solve mode
+additionally uses it to rank (5.3).
+
+`shortfall` is `null` when the chain is feasible. Otherwise it says how far
+off the chain is, in one of three directions, so a UI never has to subtract
+heights itself:
+
+- `short` — the target sits above the chain's reach; `amount` is how far
+  above (`H - max`, or `Hi - max` for a range).
+- `tall` — the target sits below it; `amount` is how far below.
+- `span` — the target is inside the chain's reach but a moveable range is
+  wider than the moveable interval can travel; `amount` is the missing
+  travel, with `needed` (the span) and `available` (the moveable width).
+
+`short` and `tall` are checked first, `span` only when the position is
+fine.
 
 ### 5.3 Solve mode
 
@@ -682,6 +703,81 @@ along with how many there were in all. If no combination of additions or
 swaps reaches the target, say so explicitly, the same way 5.4 does for
 solve mode.
 
+### 5.8 Stack layout
+
+The ground-up picture (7.2) is a computed view model, not something the UI
+derives from raw rises. `stackLayout(chain, target)` returns everything a
+renderer needs, positions included as percentages of the drawing height, so
+the UI does no height math.
+
+- **Blocks, bottom to top:** one per base item, the support, each adapter,
+  the head (in its mode), and the camera build (at its attach point). Each
+  has its signed `rise`, a `kind` (`fixed`, `adjustable`, or `moveable`,
+  3.5), and `bottomPct` / `heightPct`. A block with a negative rise extends
+  downward from where the piece below ended; a zero rise has zero height.
+  The floor is height 0 and the lens sits at the top of the last block.
+- **Rigged to the target.** The chain is drawn set up to put the lens at the
+  target: a fixed target's height, or the low end of a range (the move
+  starts there), clamped into the chain's reach. The support's range is
+  allocated adjustable extension first and moveable extension last, so
+  legs position the rig and the boom takes what's left.
+- **The support is split into parts** — its fixed base, its adjustable
+  extension, its moveable extension — so the moveable portion can be drawn
+  apart from the fixed pieces. Its block carries the support's `range`
+  (min and max rise) alongside the rise at this setup.
+- **Bands:** `reach` is every lens height the chain can reach; `moveable`
+  is the span the moveable portion can sweep from this setup (or `null` if
+  the chain has none); `target` is the target's position — a line for a
+  fixed height, a band for a range. All carry `bottomPct` / `heightPct`.
+
+### 5.9 What may attach
+
+Each slot in check mode offers only what can legally attach to what's
+below it. That logic lives in `rules.js`, built from the same primitives
+chain validation uses (2, 2.1), and the UI calls it rather than knowing any
+of it:
+
+- `slotOptions` — for every slot, every candidate, whether it's available
+  given the picks below it, and if not, a plain-language reason.
+- `revalidatePicks` — after any change, walk the picks ground up and drop
+  or adjust whatever the change made illegal, returning plain-language notes
+  saying why.
+- `defaultPicks` — the first legal rig, for a fresh start.
+- `modeControl` — whether a set of modes is shown as text, a toggle, or a
+  dropdown.
+
+The slots, ground up, and what each requires of what's beneath it:
+
+1. **Base layer** (several): stacks on the base items already picked, from
+   the ground (mounts, one track at most), and passes item rules (an
+   apple-box face that isn't allowed is never offered).
+2. **Support**: accepts the top of the base stack, and isn't a dolly if the
+   base layer has an apple box (2.1).
+3. **Adapters** (several, each in a mode): mounts and faces right on top of
+   the support and the adapters below, matches the support's family (2.1),
+   and isn't already used.
+4. **Head**, with its mode: a head is offered if any mode is legal; a mode
+   is legal if the mount and facing beneath the head suit it (3.3).
+5. **Camera attach point**: mates with the head mode's camera-mount facing
+   (3.3, 3.4).
+
+**When a pick changes.** Picks are revalidated ground up. A base item,
+support, adapter, or head that a change made illegal is *cleared*, and a
+plain note says why ("Dolly can't go on apple boxes, so it was cleared").
+A pick above an empty required slot is kept, and revalidated once that slot
+is filled. A head mode or attach point that became illegal *switches* to the
+first legal option instead — the same as flipping a toggle off — with a
+note.
+
+**Toggles, not dropdowns.** A mode named `underslung`, or an attach point
+that is `inverted`, is offered as an on/off toggle rather than a dropdown,
+and only when both states are legal right now (an underslung head mode needs
+a down-facing mount beneath it, 3.3). When only one state is legal it's
+shown as plain text, with the reason the other isn't available as a hint.
+The camera attach point toggles between inverted and hung-from-the-handle
+for an underslung head; for a normal head only the upright mount is legal,
+so there's nothing to toggle.
+
 ---
 
 ## 6. Non-height constraints (v2, but reserve the fields now)
@@ -708,9 +804,11 @@ Query-side flags: `tightSpace`, `onSlope`, `needsLowTilt`.
 - **Local storage** for overrides, packages, builds, and current rig
   state. No account, no backend, no sync.
 - **Hosted on GitHub Pages** from the repo, deploying on push.
-- **Phone-first layout.** The primary screen is: target height input,
-  package/build selector, results list. One thumb, held at chest height,
-  in a dark room. Large tap targets, high contrast, no hover states.
+- **Phone-first layout.** The one screen is check mode (7.2): target
+  height at the top, the live result, the ground-up stack, then the rig
+  picks. One thumb, held at chest height, in a dark room. Large tap
+  targets, high contrast, no hover states. A package or build selector
+  only appears when there is more than one to choose from.
 - **Units:** decimal inches throughout, matching how heights are called on
   set. Store all values as inches (floating point). A metric display
   toggle is a nice-to-have; the storage unit does not change.
@@ -721,6 +819,32 @@ iOS may evict cached site data after extended non-use. Home-screen PWAs
 are considerably stickier than browser tabs, but the export-to-repo habit
 is the real insurance. The app should prompt for an export if overrides
 have changed and none has been taken in 30 days.
+
+### 7.2 The check screen
+
+Check mode is the app; solve mode is frozen and not shown (5). One column,
+top to bottom:
+
+1. **Target** — a single height, or a range (two heights). A range is
+   always a moveable range (5.1); there is nothing to choose.
+2. **Result, live.** There is no submit button: every change to the target
+   or to any pick recomputes immediately. Feasible shows a green border and
+   a check mark, with the interval and margins. Not feasible shows the
+   shortfall (5.2) and the best **three** fixes from delta search (5.7),
+   with a way to expand the rest. Unverified estimates, an inverted camera
+   ("flip image"), and a base layer over the stacking cap are flagged.
+3. **Stack** (5.8) — floor at the bottom, lens at the top, each component
+   labeled with its signed rise, the target marked against it, the moveable
+   portion drawn apart from the fixed pieces.
+4. **Rig picks**, ground up (5.9) — only compatible choices are offered,
+   underslung and inverted modes are toggles, and a change that invalidates a
+   later pick clears it with a plain-language note.
+
+**The UI is thin.** `index.html` and `app.js` collect input, call the solver
+and `rules.js`, and render what comes back. All height math (intervals,
+margins, shortfalls, stack positions) and all compatibility logic (mounts,
+facing, family, apple boxes) stay in `src/`. Formatting a number for display
+is the only arithmetic allowed in the UI.
 
 ---
 

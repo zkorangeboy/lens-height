@@ -160,6 +160,37 @@ export function supportMoveableInterval(support) {
 }
 
 /**
+ * A support's range as stacked segments, bottom to top (SPEC.md 5.8), so a
+ * renderer can draw the fixed base, the adjustable extension, and the
+ * moveable extension apart. Each segment has a `kind` (SPEC.md 3.5), a
+ * `base` (its rise fully retracted) and an `extent` (how much further it
+ * can extend). The bases sum to supportInterval's min, and bases plus
+ * extents to its max; levelingLoss comes off the top segment's extent.
+ */
+export function supportSegments(support) {
+  const leveling = support.levelingLoss || 0;
+  const extentOf = (min, max, loss = 0) => Math.max(0, max - loss - min);
+
+  if (support.boomRange) {
+    const { practicalMin, practicalMax } = support.boomRange;
+    const below = support.legRange
+      ? {
+          kind: "adjustable",
+          base: support.legRange.practicalMin,
+          extent: extentOf(support.legRange.practicalMin, support.legRange.practicalMax),
+        }
+      : { kind: "fixed", base: support.baseRise || 0, extent: 0 };
+    return [below, { kind: "moveable", base: practicalMin, extent: extentOf(practicalMin, practicalMax, leveling) }];
+  }
+  if (support.riseRange) {
+    const { practicalMin, practicalMax } = support.riseRange;
+    const kind = support.adjustability === "moveable" ? "moveable" : "adjustable";
+    return [{ kind, base: practicalMin, extent: extentOf(practicalMin, practicalMax, leveling) }];
+  }
+  return [{ kind: "fixed", base: support.rise || 0, extent: 0 }];
+}
+
+/**
  * "Mark a chain as built" (SPEC.md 5.5): capture a resolved chain (as
  * produced by solver.js's enumerateChains or buildChain) as the minimal,
  * serializable selection needed to reconstruct it later — the shape

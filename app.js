@@ -1,15 +1,18 @@
-// Lens Height Solver — UI layer (SPEC.md step 3).
+// Lens Height — the check screen (SPEC.md 7.2).
 //
-// Hard rule: no height math here. This file collects input, calls the
-// solver, and renders exactly what comes back. Every interval, margin,
-// feasibility flag, target position, and ranking decision below is read
-// straight off a chain/evaluation/result object produced by src/solver.js
-// or src/model.js — never recomputed. The only arithmetic in this file is
-// presentational (formatting a given number as a string, or clamping an
-// already-computed 0..1 position for CSS) and is called out as such.
+// This file is thin on purpose. It collects input, calls the solver
+// (src/solver.js), the compatibility rules (src/rules.js), and the stack
+// layout (src/stack.js), and renders what they return. There is no height
+// math and no compatibility logic here: intervals, margins, shortfalls, and
+// stack positions come back ready to draw, and which picks are legal comes
+// from slotOptions / revalidatePicks. The only arithmetic is formatting a
+// number for display.
+//
+// Solve mode is frozen and not shown (SPEC.md 5): nothing here calls it.
 
-import { solve, checkChain, DEFAULT_MAX_BASE_LAYER_ITEMS } from "./src/solver.js";
-import { getPackage, getPackageComponents, getBuild, buildAttachPoints, supportInterval } from "./src/model.js";
+import { checkChain, buildChain, normalizeTarget, exceedsBaseLayerCap, DEFAULT_MAX_BASE_LAYER_ITEMS } from "./src/solver.js";
+import { defaultPicks, revalidatePicks, slotOptions, modeControl } from "./src/rules.js";
+import { stackLayout } from "./src/stack.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -18,35 +21,20 @@ import { getPackage, getPackageComponents, getBuild, buildAttachPoints, supportI
 let gear = null;
 
 const state = {
-  mode: "check", // "check" | "solve"
   packageId: null,
   buildId: null,
-  selection: { baseItemIds: [], supportId: null, adapterIds: [], adapterModes: {}, headId: null, modeName: null, attachName: null },
+  picks: null, // always revalidated
+  notes: [], // plain-language "why did that change" messages
   target: { type: "fixed", height: "", low: "", high: "" },
 };
 
-// ---------------------------------------------------------------------------
-// DOM references
-// ---------------------------------------------------------------------------
-
 const el = {
   loading: document.getElementById("loading"),
-  form: document.getElementById("query-form"),
-  results: document.getElementById("results"),
-
-  modeCheck: document.getElementById("mode-check"),
-  modeSolve: document.getElementById("mode-solve"),
-  chainSlotsSection: document.getElementById("chain-slots-section"),
-
-  packageSelect: document.getElementById("package-select"),
-  buildSelect: document.getElementById("build-select"),
-
-  baseLayerCheckboxes: document.getElementById("base-layer-checkboxes"),
-  supportSelect: document.getElementById("support-select"),
-  adapterCheckboxes: document.getElementById("adapter-checkboxes"),
-  headSelect: document.getElementById("head-select"),
-  modeSelect: document.getElementById("mode-select"),
-  attachSelect: document.getElementById("attach-select"),
+  form: document.getElementById("check-form"),
+  statusBar: document.getElementById("status-bar"),
+  resultBody: document.getElementById("result-body"),
+  stackCard: document.getElementById("stack-card"),
+  picks: document.getElementById("picks"),
 
   targetFixedBtn: document.getElementById("target-fixed"),
   targetRangeBtn: document.getElementById("target-range"),
@@ -55,550 +43,502 @@ const el = {
   targetHeight: document.getElementById("target-height"),
   targetLow: document.getElementById("target-low"),
   targetHigh: document.getElementById("target-high"),
-
-  runButton: document.getElementById("run-button"),
 };
 
 // ---------------------------------------------------------------------------
-// Formatting helpers (presentation only — every value passed in already
-// came from the solver; nothing here derives a new height).
+// Formatting (presentation only — every number arrives already computed)
 // ---------------------------------------------------------------------------
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
-
-function fmtSigned(n) {
-  return (n >= 0 ? "+" : "") + n.toFixed(1) + '"';
-}
-
-function fmtPlain(n) {
-  return n.toFixed(1) + '"';
-}
-
-/** Clamp an already-computed 0..1 fraction so a marker never renders
- * off the edge of its track. Not a height computation — targetPosition
- * itself comes straight from evaluateChain(). */
-function clamp01(fraction) {
-  return Math.max(0, Math.min(1, fraction));
-}
+const SIGNED = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "always" });
+const fmtSigned = (n) => `${SIGNED.format(n)}"`;
+const fmtPlain = (n) => `${n.toFixed(1)}"`;
 
 // ---------------------------------------------------------------------------
-// Load gear.json and boot
+// Boot
 // ---------------------------------------------------------------------------
 
 init();
 
 async function init() {
-  const response = await fetch("./gear.json");
-  gear = await response.json();
+  gear = await (await fetch("./gear.json")).json();
+  state.packageId = gear.packages[0].id;
+  state.buildId = gear.builds[0].id;
+  state.picks = defaultPicks(gear, state.packageId, state.buildId);
 
-  populatePackageSelect();
-  populateBuildSelect();
-  onPackageChange();
-  onBuildChange();
-
-  wireEvents();
-  applyModeVisibility();
+  wireTargetEvents();
+  wirePickEvents();
   applyTargetTypeVisibility();
 
   el.loading.hidden = true;
   el.form.hidden = false;
+  renderAll();
+}
+
+function renderAll() {
+  renderPicks();
+  renderResult();
 }
 
 // ---------------------------------------------------------------------------
-// Populate selects from the loaded gear data
+// Target input
 // ---------------------------------------------------------------------------
 
-function populatePackageSelect() {
-  el.packageSelect.innerHTML = gear.packages
-    .map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`)
-    .join("");
-  state.packageId = gear.packages[0].id;
-  el.packageSelect.value = state.packageId;
-}
-
-function populateBuildSelect() {
-  el.buildSelect.innerHTML = gear.builds
-    .map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`)
-    .join("");
-  state.buildId = gear.builds[0].id;
-  el.buildSelect.value = state.buildId;
-}
-
-function onPackageChange() {
-  const components = getPackageComponents(gear, state.packageId);
-  state.pool = {
-    baseItems: components.filter((c) => c.category === "base"),
-    supports: components.filter((c) => c.category === "support"),
-    adapters: components.filter((c) => c.category === "adapter"),
-    heads: components.filter((c) => c.category === "head"),
-  };
-
-  renderBaseLayerCheckboxes();
-  renderSupportSelect();
-  renderAdapterCheckboxes();
-  renderHeadSelect();
-}
-
-function onBuildChange() {
-  const build = getBuild(gear, state.buildId);
-  state.pool = state.pool || {};
-  state.pool.attachPoints = buildAttachPoints(build, gear);
-  renderAttachSelect();
-}
-
-function renderBaseLayerCheckboxes() {
-  state.selection.baseItemIds = [];
-  el.baseLayerCheckboxes.innerHTML = state.pool.baseItems
-    .map(
-      (item) => `
-        <label class="checkbox-row">
-          <input type="checkbox" value="${escapeHtml(item.id)}" />
-          <span>${escapeHtml(item.name)}</span>
-          ${item.measured === false ? '<span class="dot-unmeasured" title="Unverified estimate"></span>' : ""}
-        </label>`
-    )
-    .join("");
-}
-
-function renderAdapterCheckboxes() {
-  state.selection.adapterIds = [];
-  state.selection.adapterModes = {};
-  el.adapterCheckboxes.innerHTML = state.pool.adapters.length
-    ? state.pool.adapters
-        .map((item) => {
-          const modePicker = item.modes
-            ? `<select class="adapter-mode" data-adapter="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.name)} mode">${item.modes
-                .map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)} (top faces ${escapeHtml(m.mountFacing || "up")})</option>`)
-                .join("")}</select>`
-            : "";
-          return `
-        <div class="adapter-row">
-          <label class="checkbox-row">
-            <input type="checkbox" value="${escapeHtml(item.id)}" />
-            <span>${escapeHtml(item.name)}</span>
-            ${item.measured === false ? '<span class="dot-unmeasured" title="Unverified estimate"></span>' : ""}
-          </label>
-          ${modePicker}
-        </div>`;
-        })
-        .join("")
-    : '<span class="hint">No adapters in this package.</span>';
-}
-
-/** Read which adapters are ticked and, for multi-mode ones, the mode chosen. */
-function readAdapterSelection() {
-  const ids = Array.from(el.adapterCheckboxes.querySelectorAll("input:checked")).map((i) => i.value);
-  const modes = {};
-  for (const id of ids) {
-    const picker = el.adapterCheckboxes.querySelector(`select[data-adapter="${id}"]`);
-    if (picker) modes[id] = picker.value;
-  }
-  state.selection.adapterIds = ids;
-  state.selection.adapterModes = modes;
-}
-
-function renderSupportSelect() {
-  el.supportSelect.innerHTML = state.pool.supports
-    .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}${c.measured === false ? " •" : ""}</option>`)
-    .join("");
-  state.selection.supportId = state.pool.supports[0]?.id || null;
-  el.supportSelect.value = state.selection.supportId || "";
-}
-
-function renderHeadSelect() {
-  el.headSelect.innerHTML = state.pool.heads
-    .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}${c.measured === false ? " •" : ""}</option>`)
-    .join("");
-  state.selection.headId = state.pool.heads[0]?.id || null;
-  el.headSelect.value = state.selection.headId || "";
-  renderModeSelect();
-}
-
-function renderModeSelect() {
-  const head = state.pool.heads.find((h) => h.id === state.selection.headId);
-  const modes = head ? head.modes : [];
-  el.modeSelect.innerHTML = modes
-    .map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)} (faces ${escapeHtml(m.cameraMountFacing)})</option>`)
-    .join("");
-  state.selection.modeName = modes[0]?.name || null;
-  el.modeSelect.value = state.selection.modeName || "";
-}
-
-function renderAttachSelect() {
-  el.attachSelect.innerHTML = state.pool.attachPoints
-    .map((a) => `<option value="${escapeHtml(a.name)}">${escapeHtml(a.name)}${a.inverted ? " (inverted)" : ""}</option>`)
-    .join("");
-  state.selection.attachName = state.pool.attachPoints[0]?.name || null;
-  el.attachSelect.value = state.selection.attachName || "";
-}
-
-// ---------------------------------------------------------------------------
-// Event wiring
-// ---------------------------------------------------------------------------
-
-function wireEvents() {
-  el.modeCheck.addEventListener("click", () => setMode("check"));
-  el.modeSolve.addEventListener("click", () => setMode("solve"));
-
-  el.packageSelect.addEventListener("change", () => {
-    state.packageId = el.packageSelect.value;
-    onPackageChange();
-    clearResults();
-  });
-  el.buildSelect.addEventListener("change", () => {
-    state.buildId = el.buildSelect.value;
-    onBuildChange();
-    clearResults();
-  });
-
-  el.baseLayerCheckboxes.addEventListener("change", () => {
-    state.selection.baseItemIds = Array.from(el.baseLayerCheckboxes.querySelectorAll("input:checked")).map((i) => i.value);
-    clearResults();
-  });
-  el.adapterCheckboxes.addEventListener("change", () => {
-    readAdapterSelection();
-    clearResults();
-  });
-  el.supportSelect.addEventListener("change", () => {
-    state.selection.supportId = el.supportSelect.value;
-    clearResults();
-  });
-  el.headSelect.addEventListener("change", () => {
-    state.selection.headId = el.headSelect.value;
-    renderModeSelect();
-    clearResults();
-  });
-  el.modeSelect.addEventListener("change", () => {
-    state.selection.modeName = el.modeSelect.value;
-    clearResults();
-  });
-  el.attachSelect.addEventListener("change", () => {
-    state.selection.attachName = el.attachSelect.value;
-    clearResults();
-  });
+function wireTargetEvents() {
+  el.form.addEventListener("submit", (event) => event.preventDefault());
 
   el.targetFixedBtn.addEventListener("click", () => setTargetType("fixed"));
   el.targetRangeBtn.addEventListener("click", () => setTargetType("range"));
 
-  el.targetHeight.addEventListener("input", () => {
-    state.target.height = el.targetHeight.value;
-    clearResults();
-  });
-  el.targetLow.addEventListener("input", () => {
-    state.target.low = el.targetLow.value;
-    clearResults();
-  });
-  el.targetHigh.addEventListener("input", () => {
-    state.target.high = el.targetHigh.value;
-    clearResults();
-  });
-
-  el.form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    runQuery();
-  });
-}
-
-function setMode(mode) {
-  state.mode = mode;
-  applyModeVisibility();
-  clearResults();
-}
-
-function applyModeVisibility() {
-  const isCheck = state.mode === "check";
-  el.modeCheck.classList.toggle("is-active", isCheck);
-  el.modeCheck.setAttribute("aria-selected", String(isCheck));
-  el.modeSolve.classList.toggle("is-active", !isCheck);
-  el.modeSolve.setAttribute("aria-selected", String(!isCheck));
-  el.chainSlotsSection.hidden = !isCheck;
-  el.runButton.textContent = isCheck ? "Check rig" : "Find configurations";
+  for (const [input, key] of [
+    [el.targetHeight, "height"],
+    [el.targetLow, "low"],
+    [el.targetHigh, "high"],
+  ]) {
+    input.addEventListener("input", () => {
+      state.target[key] = input.value;
+      renderResult();
+    });
+  }
 }
 
 function setTargetType(type) {
   state.target.type = type;
   applyTargetTypeVisibility();
-  clearResults();
+  renderResult();
 }
 
 function applyTargetTypeVisibility() {
   const isFixed = state.target.type === "fixed";
   el.targetFixedBtn.classList.toggle("is-active", isFixed);
-  el.targetFixedBtn.setAttribute("aria-selected", String(isFixed));
+  el.targetFixedBtn.setAttribute("aria-pressed", String(isFixed));
   el.targetRangeBtn.classList.toggle("is-active", !isFixed);
-  el.targetRangeBtn.setAttribute("aria-selected", String(!isFixed));
+  el.targetRangeBtn.setAttribute("aria-pressed", String(!isFixed));
   el.fixedFields.hidden = !isFixed;
   el.rangeFields.hidden = isFixed;
 }
 
-function clearResults() {
-  el.results.innerHTML = "";
+// ---------------------------------------------------------------------------
+// Picks: only what can legally attach, ground up (SPEC.md 5.9)
+// ---------------------------------------------------------------------------
+
+/** Apply a change to the picks: revalidate (rules.js decides what's still
+ * legal and says why), then redraw everything. */
+function applyPicks(next) {
+  const { picks, notes } = revalidatePicks(gear, state.packageId, state.buildId, next);
+  state.picks = picks;
+  state.notes = notes;
+  renderAll();
 }
 
-// ---------------------------------------------------------------------------
-// Building the target from form input (parsing/validation only — the
-// solver decides what these numbers mean, this just reads them in)
-// ---------------------------------------------------------------------------
+const optionsNow = () => slotOptions(gear, state.packageId, state.buildId, state.picks);
 
-function readTarget() {
-  if (state.target.type === "fixed") {
-    const height = Number(state.target.height);
-    if (state.target.height === "" || !Number.isFinite(height)) return null;
-    return { type: "fixed", height };
-  }
-  const low = Number(state.target.low);
-  const high = Number(state.target.high);
-  if (state.target.low === "" || state.target.high === "" || !Number.isFinite(low) || !Number.isFinite(high)) return null;
-  return { type: "range", low, high };
-}
-
-// ---------------------------------------------------------------------------
-// Run the query
-// ---------------------------------------------------------------------------
-
-function runQuery() {
-  const target = readTarget();
-  if (!target) {
-    el.results.innerHTML = `<div class="card error-card">Enter a target height first.</div>`;
-    return;
-  }
-
-  try {
-    if (state.mode === "check") {
-      const result = checkChain(gear, {
-        target,
-        packageId: state.packageId,
-        buildId: state.buildId,
-        chain: { ...state.selection },
-      });
-      renderCheckResult(result);
-    } else {
-      const result = solve(gear, { target, packageId: state.packageId, buildId: state.buildId });
-      renderSolveResults(result);
+function wirePickEvents() {
+  el.picks.addEventListener("change", (event) => {
+    const t = event.target;
+    const p = state.picks;
+    switch (t.dataset.slot) {
+      case "base":
+        applyPicks({
+          ...p,
+          baseItemIds: t.checked ? [...p.baseItemIds, t.value] : p.baseItemIds.filter((id) => id !== t.value),
+        });
+        break;
+      case "support":
+        applyPicks({ ...p, supportId: t.value || null });
+        break;
+      case "adapter": {
+        if (t.checked) {
+          const first = optionsNow().adapters.find((a) => a.id === t.value)?.modes.find((m) => m.available);
+          applyPicks({
+            ...p,
+            adapterIds: [...p.adapterIds, t.value],
+            adapterModes: first && first.name ? { ...p.adapterModes, [t.value]: first.name } : p.adapterModes,
+          });
+        } else {
+          const { [t.value]: _dropped, ...modes } = p.adapterModes;
+          applyPicks({ ...p, adapterIds: p.adapterIds.filter((id) => id !== t.value), adapterModes: modes });
+        }
+        break;
+      }
+      case "adapter-mode":
+        applyPicks({ ...p, adapterModes: { ...p.adapterModes, [t.dataset.id]: t.value } });
+        break;
+      case "head":
+        applyPicks({ ...p, headId: t.value || null, modeName: null, attachName: null });
+        break;
+      case "head-mode":
+        applyPicks({ ...p, modeName: t.value });
+        break;
+      case "attach":
+        applyPicks({ ...p, attachName: t.value });
+        break;
+      case "build":
+        state.buildId = t.value;
+        state.picks = defaultPicks(gear, state.packageId, state.buildId);
+        state.notes = [];
+        renderAll();
+        break;
+      case "package":
+        state.packageId = t.value;
+        state.picks = defaultPicks(gear, state.packageId, state.buildId);
+        state.notes = [];
+        renderAll();
+        break;
     }
-  } catch (err) {
-    el.results.innerHTML = `<div class="card error-card"><strong>Can't evaluate this rig:</strong> ${escapeHtml(err.message)}</div>`;
+  });
+
+  // Toggles: a button that flips between two modes the rules say are legal.
+  el.picks.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-toggle]");
+    if (!btn) return;
+    const p = state.picks;
+    const next = btn.getAttribute("aria-checked") === "true" ? btn.dataset.off : btn.dataset.on;
+    switch (btn.dataset.toggle) {
+      case "adapter-mode":
+        applyPicks({ ...p, adapterModes: { ...p.adapterModes, [btn.dataset.id]: next } });
+        break;
+      case "head-mode":
+        applyPicks({ ...p, modeName: next });
+        break;
+      case "attach":
+        applyPicks({ ...p, attachName: next });
+        break;
+    }
+  });
+}
+
+function toggleHtml({ kind, id, control, isOn, focusKey }) {
+  return `
+    <button type="button" class="toggle" role="switch" aria-checked="${isOn}"
+      data-toggle="${kind}" ${id ? `data-id="${escapeHtml(id)}"` : ""}
+      data-on="${escapeHtml(control.on.name)}" data-off="${escapeHtml(control.off.name)}"
+      data-focus-key="${escapeHtml(focusKey)}">
+      <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      <span class="toggle-text">
+        <span class="toggle-label">${escapeHtml(control.on.label)}</span>
+        <span class="toggle-off">Off: ${escapeHtml(control.off.label)}</span>
+      </span>
+    </button>`;
+}
+
+function selectHtml({ slot, id, entries, current, placeholder, label, focusKey }) {
+  const options = entries
+    .map((e) => `<option value="${escapeHtml(e.value)}"${e.value === current ? " selected" : ""}>${escapeHtml(e.text)}</option>`)
+    .join("");
+  return `<select data-slot="${slot}" ${id ? `data-id="${escapeHtml(id)}"` : ""} aria-label="${escapeHtml(label)}" data-focus-key="${escapeHtml(focusKey)}">
+      ${placeholder ? `<option value=""${current ? "" : " selected"}>${escapeHtml(placeholder)}</option>` : ""}${options}</select>`;
+}
+
+const dot = (component) => (component.measured === false ? ' <span class="dot-unmeasured" title="Unverified estimate"></span>' : "");
+
+/** How to show a component's modes: nothing, text, a toggle, or a dropdown
+ * — rules.js's modeControl decides which. */
+function modeControlHtml({ control, current, kind, id, slot, focusKey, label }) {
+  const hint = control.hint ? `<p class="hint">${escapeHtml(control.hint)}</p>` : "";
+  if (control.type === "toggle") {
+    return toggleHtml({ kind, id, control, isOn: current === control.on.name, focusKey }) + hint;
   }
+  if (control.type === "static") {
+    return `<p class="mode-static">${escapeHtml(control.entry.label)}</p>${hint}`;
+  }
+  if (control.type === "dropdown") {
+    const entries = control.entries.map((e) => ({ value: e.name, text: e.label }));
+    return selectHtml({ slot, id, entries, current, label, focusKey }) + hint;
+  }
+  return hint;
+}
+
+function renderPicks() {
+  const opts = optionsNow();
+  const p = state.picks;
+  const focused = document.activeElement?.dataset?.focusKey;
+  const parts = [];
+
+  parts.push(`<h2>Your rig <span class="subtle">floor up</span></h2>`);
+  if (state.notes.length) {
+    parts.push(`<ul class="notes" role="status">${state.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>`);
+  }
+
+  if (gear.packages.length > 1) {
+    parts.push(`<div class="field"><span class="field-label">Package</span>${selectHtml({
+      slot: "package", label: "Package", current: state.packageId, focusKey: "package",
+      entries: gear.packages.map((x) => ({ value: x.id, text: x.name })),
+    })}</div>`);
+  }
+
+  // 1. Base layer
+  const bases = opts.base.filter((o) => o.available);
+  parts.push(`<div class="field"><span class="field-label">1 · Base layer</span><div class="checkbox-list">${
+    bases.length
+      ? bases
+          .map(
+            (o) => `<label class="checkbox-row"><input type="checkbox" data-slot="base" value="${escapeHtml(o.id)}" data-focus-key="base:${escapeHtml(o.id)}"${
+              p.baseItemIds.includes(o.id) ? " checked" : ""
+            } /><span>${escapeHtml(o.name)}${dot(o.component)}</span></label>`
+          )
+          .join("")
+      : '<span class="hint">No base-layer gear fits here.</span>'
+  }</div></div>`);
+
+  // 2. Support
+  const supports = opts.support.filter((o) => o.available);
+  parts.push(`<div class="field"><span class="field-label">2 · Support</span>${selectHtml({
+    slot: "support", label: "Support", current: p.supportId, focusKey: "support", placeholder: "Choose a support…",
+    entries: supports.map((o) => ({ value: o.id, text: o.name + (o.component.measured === false ? " •" : "") })),
+  })}</div>`);
+
+  // 3. Adapters
+  const adapters = opts.adapters.filter((o) => o.available);
+  parts.push(`<div class="field"><span class="field-label">3 · Adapters</span><div class="checkbox-list">${
+    adapters.length
+      ? adapters
+          .map((o) => {
+            const on = p.adapterIds.includes(o.id);
+            const control = on && o.modes.length > 1 ? modeControl(o.modes) : null;
+            const current = p.adapterModes[o.id];
+            return `<div class="adapter-row"><label class="checkbox-row"><input type="checkbox" data-slot="adapter" value="${escapeHtml(o.id)}" data-focus-key="adapter:${escapeHtml(o.id)}"${
+              on ? " checked" : ""
+            } /><span>${escapeHtml(o.name)}${dot(o.component)}</span></label>${
+              control
+                ? modeControlHtml({ control, current, kind: "adapter-mode", id: o.id, slot: "adapter-mode", focusKey: `adapter-mode:${o.id}`, label: `${o.name} mode` })
+                : ""
+            }</div>`;
+          })
+          .join("")
+      : '<span class="hint">No adapters fit here.</span>'
+  }</div></div>`);
+
+  // 4. Head, and its mode
+  const heads = opts.head.filter((o) => o.available);
+  const pickedHead = opts.head.find((o) => o.id === p.headId);
+  parts.push(`<div class="field"><span class="field-label">4 · Head</span>${selectHtml({
+    slot: "head", label: "Head", current: p.headId, focusKey: "head", placeholder: "Choose a head…",
+    entries: heads.map((o) => ({ value: o.id, text: o.name + (o.component.measured === false ? " •" : "") })),
+  })}${
+    pickedHead
+      ? modeControlHtml({ control: modeControl(pickedHead.modes), current: p.modeName, kind: "head-mode", slot: "head-mode", focusKey: "head-mode", label: "Head mode" })
+      : ""
+  }</div>`);
+
+  // 5. Camera
+  parts.push(`<div class="field"><span class="field-label">5 · Camera</span>${
+    gear.builds.length > 1
+      ? selectHtml({ slot: "build", label: "Camera build", current: state.buildId, focusKey: "build", entries: gear.builds.map((b) => ({ value: b.id, text: b.name })) })
+      : ""
+  }${
+    pickedHead
+      ? modeControlHtml({ control: modeControl(opts.attach), current: p.attachName, kind: "attach", slot: "attach", focusKey: "attach", label: "Camera mount" })
+      : '<p class="hint">Choose a head first.</p>'
+  }</div>`);
+
+  el.picks.innerHTML = parts.join("");
+  if (focused) el.picks.querySelector(`[data-focus-key="${CSS.escape(focused)}"]`)?.focus();
 }
 
 // ---------------------------------------------------------------------------
-// Rendering — every number below is read off the solver's own output
+// The live result
 // ---------------------------------------------------------------------------
 
-/** Components with measured: false, straight off the chain — a flag
- * lookup, not a height computation. */
-function unmeasuredComponentsOf(chain) {
-  return [...chain.baseItems, chain.support, ...chain.adapters, chain.head, chain.build].filter((c) => c.measured === false);
-}
+const unmeasuredComponentsOf = (chain) =>
+  [...chain.baseItems, chain.support, ...chain.adapters, chain.head, chain.build].filter((c) => c.measured === false);
 
-function renderUnverifiedBadge(chain) {
+function badgesHtml(chain) {
+  const badges = [];
   const unmeasured = unmeasuredComponentsOf(chain);
-  if (unmeasured.length === 0) return "";
-  const names = unmeasured.map((c) => escapeHtml(c.name)).join(", ");
-  return `
-    <details class="badge-details">
-      <summary class="badge badge-warning">Unverified ⓘ</summary>
-      <p class="badge-tooltip">Estimated, not yet measured: ${names}</p>
-    </details>`;
-}
-
-function renderInvertedBadge(chain) {
-  if (!chain.attach.inverted) return "";
-  return `<span class="badge badge-info">Camera inverted — flip image</span>`;
-}
-
-function renderCapBadge(chain) {
-  if (chain.baseItems.length <= DEFAULT_MAX_BASE_LAYER_ITEMS) return "";
-  return `<span class="badge badge-danger">Exceeds ${DEFAULT_MAX_BASE_LAYER_ITEMS}-item base-layer cap (${chain.baseItems.length} items)</span>`;
-}
-
-function renderBadgeRow(chain) {
-  const badges = [renderUnverifiedBadge(chain), renderInvertedBadge(chain), renderCapBadge(chain)].filter(Boolean).join("");
-  return badges ? `<div class="badge-row">${badges}</div>` : "";
-}
-
-function renderComponentBreakdown(chain) {
-  const rows = chain.baseItems.map((item) => componentRow("Base", item.name, fmtSigned(item.rise), item.measured === false));
-
-  const supRange = supportInterval(chain.support);
-  rows.push(
-    componentRow(
-      "Support",
-      chain.support.name,
-      `${fmtSigned(supRange.min)} to ${fmtSigned(supRange.max)}`,
-      chain.support.measured === false
-    )
-  );
-  for (const adapter of chain.adapters) {
-    const label = adapter.mode ? `${adapter.name} — ${adapter.mode}, top faces ${adapter.mountFacing}` : adapter.name;
-    rows.push(componentRow("Adapter", label, fmtSigned(adapter.rise), adapter.measured === false));
+  if (unmeasured.length) {
+    badges.push(`<details class="badge-details"><summary class="badge badge-warning">Unverified ⓘ</summary>
+      <p class="badge-tooltip">Estimated, not yet measured: ${unmeasured.map((c) => escapeHtml(c.name)).join(", ")}</p></details>`);
   }
-  rows.push(
-    componentRow(
-      "Head",
-      `${chain.head.name} — ${chain.mode.name}, faces ${chain.mode.cameraMountFacing}`,
-      fmtSigned(chain.mode.rise),
-      chain.head.measured === false
-    )
-  );
-  rows.push(
-    componentRow(
-      "Build",
-      `${chain.build.name} — ${chain.attach.name}${chain.attach.inverted ? " (inverted)" : ""}`,
-      fmtSigned(chain.attach.rise),
-      chain.build.measured === false
-    )
-  );
-
-  return rows.join("");
-}
-
-function componentRow(slot, label, value, unmeasured) {
-  return `
-    <div class="component-row">
-      <span class="component-slot">${escapeHtml(slot)}</span>
-      <span class="component-label">${escapeHtml(label)}${unmeasured ? ' <span class="dot-unmeasured" title="Unverified estimate"></span>' : ""}</span>
-      <span class="component-value">${escapeHtml(value)}</span>
-    </div>`;
-}
-
-function renderMarginRow(evaluation) {
-  return `<div class="stat-row"><span>Margin below / above</span><span>${fmtSigned(evaluation.marginBelow)} / ${fmtSigned(evaluation.marginAbove)}</span></div>`;
-}
-
-/** Renders where the target sits within [chain.min, chain.max], using
- * evaluation.targetPosition exactly as evaluateChain() computed it. The
- * only arithmetic here is *100 to turn a given 0..1 fraction into a CSS
- * percentage, and clamp01 so a tolerance-passing edge case can't push
- * the marker off the visible track. */
-function renderTargetPositionBar(chain, evaluation) {
-  const pos = evaluation.targetPosition;
-  if (!pos) {
-    return `<div class="range-bar-note">This chain has no adjustable range.</div>`;
+  if (chain.attach.inverted) badges.push('<span class="badge badge-info">Camera inverted — flip image</span>');
+  if (exceedsBaseLayerCap(chain)) {
+    badges.push(`<span class="badge badge-danger">Exceeds ${DEFAULT_MAX_BASE_LAYER_ITEMS}-item base-layer cap (${chain.baseItems.length} items)</span>`);
   }
-  const low = clamp01(pos.low) * 100;
-  const high = clamp01(pos.high) * 100;
-  const bandLeft = Math.min(low, high);
-  const bandWidth = Math.max(Math.max(low, high) - bandLeft, 1.5);
-  return `
-    <div class="range-bar">
-      <div class="range-bar-track">
-        <div class="range-bar-band" style="left:${bandLeft}%;width:${bandWidth}%"></div>
-      </div>
-      <div class="range-bar-labels"><span>${fmtPlain(chain.min)}</span><span>${fmtPlain(chain.max)}</span></div>
-    </div>`;
+  return badges.length ? `<div class="badge-row">${badges.join("")}</div>` : "";
 }
 
-function adapterLabel(adapter) {
-  return `${adapter.name}${adapter.mode ? ` (${adapter.mode})` : ""}`;
+const marginRow = (evaluation) =>
+  `<div class="stat-row"><span>Margin below / above</span><span>${fmtSigned(evaluation.marginBelow)} / ${fmtSigned(evaluation.marginAbove)}</span></div>`;
+
+function shortfallText(evaluation) {
+  const s = evaluation.shortfall;
+  if (s.direction === "short") {
+    return { head: `Short by ${fmtPlain(s.amount)}`, detail: `This rig tops out at ${fmtPlain(evaluation.max)}.` };
+  }
+  if (s.direction === "tall") {
+    return { head: `Too tall by ${fmtPlain(s.amount)}`, detail: `This rig bottoms out at ${fmtPlain(evaluation.min)}.` };
+  }
+  return {
+    head: `${fmtPlain(s.amount)} short on live travel`,
+    detail: `The move is ${fmtPlain(s.needed)} wide; this rig can move ${fmtPlain(s.available)} during a take.`,
+  };
 }
 
 function describeChange(change) {
+  const adapter = (a) => `${a.name}${a.mode ? ` (${a.mode})` : ""}`;
   switch (change.kind) {
     case "add":
       return `Add ${change.component.name}`;
     case "add-adapter":
       return `Add ${change.component.name}${change.mode ? ` (${change.mode})` : ""}`;
     case "swap-adapter":
-      return `Swap adapter: ${adapterLabel(change.from)} → ${adapterLabel(change.to)}`;
+      return `Swap ${adapter(change.from)} for ${adapter(change.to)}`;
     case "swap-support":
-      return `Swap support: ${change.from.name} → ${change.to.name}`;
+      return `Swap the support: ${change.from.name} → ${change.to.name}`;
     case "swap-head":
-      return `Swap head: ${change.from.head.name} (${change.from.mode.name}) → ${change.to.head.name} (${change.to.mode.name})`;
+      return `Swap the head: ${change.from.head.name} (${change.from.mode.name}) → ${change.to.head.name} (${change.to.mode.name})`;
     case "swap-attach":
-      return `Swap camera attach: ${change.from.name} → ${change.to.name}`;
+      return `Change the camera mount: ${change.from.name} → ${change.to.name}`;
     default:
       return change.kind;
   }
 }
 
-function renderDeltaCandidate(candidate, index) {
-  const changesHtml = candidate.changes.map((c) => `<li>${escapeHtml(describeChange(c))}</li>`).join("");
-  return `
-    <li class="delta-candidate">
-      <div class="delta-candidate-header">#${index + 1} — ${candidate.changes.length} change${candidate.changes.length === 1 ? "" : "s"}</div>
-      <ul class="change-list">${changesHtml}</ul>
-      <div class="stat-row"><span>Interval</span><span>${fmtPlain(candidate.chain.min)} – ${fmtPlain(candidate.chain.max)}</span></div>
-      ${renderMarginRow(candidate.evaluation)}
-      ${renderBadgeRow(candidate.chain)}
-    </li>`;
+function fixHtml(candidate) {
+  const e = candidate.evaluation;
+  return `<li class="fix">
+    <ul class="change-list">${candidate.changes.map((c) => `<li>${escapeHtml(describeChange(c))}</li>`).join("")}</ul>
+    <div class="fix-lands">Lens reach ${fmtPlain(e.min)} – ${fmtPlain(e.max)} · margin ${fmtSigned(e.marginBelow)} / ${fmtSigned(e.marginAbove)}</div>
+  </li>`;
 }
 
-function renderCheckResult(result) {
-  const feasible = result.evaluation.feasible;
-  const banner = `<div class="feasibility-banner ${feasible ? "is-feasible" : "is-infeasible"}">${feasible ? "Feasible" : "Not feasible"}</div>`;
-
-  const chainCard = `
-    <div class="card result-card">
-      ${renderComponentBreakdown(result.chain)}
-      <div class="stat-row"><span>Interval</span><span>${fmtPlain(result.chain.min)} – ${fmtPlain(result.chain.max)}</span></div>
-      ${renderMarginRow(result.evaluation)}
-      <div class="stat-row"><span>Adjustability</span><span>${escapeHtml(result.chain.adjustability)}</span></div>
-      ${renderTargetPositionBar(result.chain, result.evaluation)}
-      ${renderBadgeRow(result.chain)}
-    </div>`;
-
-  let deltaHtml = "";
-  if (!feasible && result.delta) {
-    if (result.delta.candidates.length === 0) {
-      deltaHtml = `<div class="card"><h3>Closest changes</h3><p>${escapeHtml(result.delta.message)}</p></div>`;
-    } else {
-      deltaHtml = `
-        <div class="card">
-          <h3>Smallest changes that reach the target</h3>
-          ${result.delta.total > result.delta.candidates.length ? `<p class="hint">Showing the best ${result.delta.candidates.length} of ${result.delta.total}.</p>` : ""}
-          <ul class="delta-list">${result.delta.candidates.map(renderDeltaCandidate).join("")}</ul>
-        </div>`;
-    }
+/** The three best fixes, and a way to open the rest. */
+function fixesHtml(delta) {
+  if (!delta) return "";
+  if (delta.candidates.length === 0) {
+    return `<div class="fixes"><h3>Fixes</h3><p>${escapeHtml(delta.message)}</p></div>`;
   }
-
-  el.results.innerHTML = banner + chainCard + deltaHtml;
+  const best = delta.candidates.slice(0, 3);
+  const rest = delta.candidates.slice(3);
+  const more = rest.length
+    ? `<details class="more-fixes"><summary>Show ${rest.length} more fix${rest.length === 1 ? "" : "es"}${
+        delta.total > delta.candidates.length ? ` (best ${delta.candidates.length} of ${delta.total})` : ""
+      }</summary><ul class="fix-list">${rest.map(fixHtml).join("")}</ul></details>`
+    : "";
+  return `<div class="fixes"><h3>Smallest fixes</h3><ul class="fix-list">${best.map(fixHtml).join("")}</ul>${more}</div>`;
 }
 
-/** One line per alternate: what differs (base layer, adapters) and where it lands. */
-function summarizeAlternate(chain) {
-  const parts = [...chain.baseItems.map((i) => i.name), ...chain.adapters.map(adapterLabel)];
-  return `${parts.length ? parts.join(" + ") : "no adapters or base layer"} — ${fmtPlain(chain.min)} to ${fmtPlain(chain.max)}`;
+function setStatus(stateName, icon, text) {
+  el.form.dataset.state = stateName;
+  el.statusBar.innerHTML = `<span class="status-icon" aria-hidden="true">${icon}</span><span class="status-text">${escapeHtml(text)}</span>`;
 }
 
-function renderAlternates(chain) {
-  if (!chain.count || chain.count < 2) return "";
-  const items = chain.alternates.map((alt) => `<li>${escapeHtml(summarizeAlternate(alt))}</li>`).join("");
-  return `
-    <details class="badge-details">
-      <summary class="badge badge-info">+${chain.count - 1} more options</summary>
-      <ul class="change-list badge-tooltip">${items}</ul>
-    </details>`;
-}
+function renderResult() {
+  const p = state.picks;
+  const target = normalizeTarget(state.target);
+  const complete = p.supportId && p.headId && p.modeName && p.attachName;
 
-function renderSolveResults(result) {
-  if (result.feasible.length === 0) {
-    const fb = result.fallback;
-    el.results.innerHTML = `
-      <div class="card">
-        <div class="feasibility-banner is-infeasible">No feasible configuration</div>
-        <p>${escapeHtml(fb.message)}</p>
-      </div>`;
+  if (!complete) {
+    setStatus("waiting", "…", !p.supportId ? "Choose a support" : !p.headId ? "Choose a head" : "Finish the rig");
+    el.resultBody.innerHTML = "";
+    el.stackCard.innerHTML = "";
     return;
   }
 
-  const cards = result.feasible
-    .map(
-      (chain, i) => `
-      <li class="card result-card">
-        <div class="result-rank">#${i + 1}</div>
-        ${renderComponentBreakdown(chain)}
-        <div class="stat-row"><span>Interval</span><span>${fmtPlain(chain.min)} – ${fmtPlain(chain.max)}</span></div>
-        ${renderMarginRow(chain.evaluation)}
-        <div class="stat-row"><span>Adjustability</span><span>${escapeHtml(chain.adjustability)}</span></div>
-        <div class="stat-row"><span>Pieces</span><span>${chain.pieceCount}</span></div>
-        ${renderBadgeRow(chain)}
-        ${renderAlternates(chain)}
-      </li>`
-    )
-    .join("");
+  let chain;
+  let result = null;
+  try {
+    if (target) {
+      result = checkChain(gear, { target, packageId: state.packageId, buildId: state.buildId, chain: p });
+      chain = result.chain;
+    } else {
+      chain = buildChain(gear, { packageId: state.packageId, buildId: state.buildId, ...p });
+    }
+  } catch (err) {
+    // revalidatePicks keeps this from happening; show it rather than fail silently.
+    setStatus("infeasible", "✗", "Can't evaluate this rig");
+    el.resultBody.innerHTML = `<div class="card error-card">${escapeHtml(err.message)}</div>`;
+    el.stackCard.innerHTML = "";
+    return;
+  }
 
-  el.results.innerHTML = `<ul class="result-list">${cards}</ul>`;
+  renderStack(chain, target);
+
+  if (!result) {
+    setStatus("waiting", "…", "Enter a target height");
+    el.resultBody.innerHTML = `<div class="card"><div class="stat-row"><span>Lens reach</span><span>${fmtPlain(chain.min)} – ${fmtPlain(chain.max)}</span></div>${badgesHtml(chain)}</div>`;
+    return;
+  }
+
+  const e = result.evaluation;
+  if (e.feasible) {
+    setStatus("feasible", "✓", `Feasible — reaches ${fmtPlain(e.min)} to ${fmtPlain(e.max)}`);
+    el.resultBody.innerHTML = `<div class="card result-feasible">
+      <div class="stat-row"><span>Lens reach</span><span>${fmtPlain(e.min)} – ${fmtPlain(e.max)}</span></div>
+      ${marginRow(e)}
+      <div class="stat-row"><span>Adjustability</span><span>${escapeHtml(chain.adjustability)}</span></div>
+      ${badgesHtml(chain)}</div>`;
+    return;
+  }
+
+  const text = shortfallText(e);
+  setStatus("infeasible", "✗", text.head);
+  el.resultBody.innerHTML = `<div class="card result-infeasible">
+    <p class="shortfall">${escapeHtml(text.detail)}</p>
+    ${marginRow(e)}
+    ${badgesHtml(chain)}
+    ${fixesHtml(result.delta)}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// The stack, floor to lens (SPEC.md 5.8). stackLayout hands back positions as
+// percentages; this only places them.
+// ---------------------------------------------------------------------------
+
+const pos = (o) => `bottom:${o.bottomPct}%;height:${o.heightPct}%`;
+
+function blockHtml(block) {
+  const parts = block.parts || [block];
+  return parts
+    .map((part) => `<div class="stack-block kind-${part.kind} slot-${block.slot}" style="${pos(part)}"></div>`)
+    .join("");
+}
+
+function rowHtml(block) {
+  const detail = block.mode ? ` — ${block.mode}` : block.attach ? ` — ${block.attach}` : "";
+  const range = block.range ? `<span class="row-range">${fmtPlain(block.range.min)} to ${fmtPlain(block.range.max)}</span>` : "";
+  return `<li class="stack-row">
+    <span class="swatch kind-${block.kind}" aria-hidden="true"></span>
+    <span class="row-name">${escapeHtml(block.name)}${escapeHtml(detail)}${dot(block.component)}${range}</span>
+    <span class="row-rise">${fmtSigned(block.rise)}</span>
+  </li>`;
+}
+
+function renderStack(chain, target) {
+  const layout = stackLayout(chain, target);
+  const rows = [...layout.blocks].reverse();
+
+  const targetRow = layout.target
+    ? `<li class="stack-row row-target"><span class="swatch swatch-target" aria-hidden="true"></span>
+        <span class="row-name">${layout.target.isRange ? "Move" : "Target"}</span>
+        <span class="row-rise">${layout.target.isRange ? `${fmtPlain(layout.target.low)} – ${fmtPlain(layout.target.high)}` : fmtPlain(layout.target.low)}</span></li>`
+    : "";
+
+  el.stackCard.innerHTML = `
+    <h2>Rig <span class="subtle">floor to lens</span></h2>
+    <div class="stack">
+      <div class="stack-strip">
+        <div class="stack-blocks">${layout.blocks.map(blockHtml).join("")}</div>
+        <div class="stack-rail">
+          <div class="stack-band band-reach" style="${pos(layout.reach)}" title="Every lens height this rig can reach"></div>
+          ${layout.moveable ? `<div class="stack-band band-moveable" style="${pos(layout.moveable)}" title="What the moveable part can sweep from this setup"></div>` : ""}
+        </div>
+        <div class="stack-floor" style="bottom:${layout.floor.pct}%"></div>
+        ${layout.target ? `<div class="stack-target${layout.target.isRange ? " is-range" : ""}" style="${pos(layout.target)}"></div>` : ""}
+        <div class="stack-lens" style="bottom:${layout.lens.pct}%"></div>
+      </div>
+      <ol class="stack-rows">
+        <li class="stack-row row-lens"><span class="swatch swatch-lens" aria-hidden="true"></span><span class="row-name">Lens</span><span class="row-rise">${fmtPlain(layout.lens.height)}</span></li>
+        ${targetRow}
+        ${rows.map(rowHtml).join("")}
+        <li class="stack-row row-floor"><span class="swatch swatch-floor" aria-hidden="true"></span><span class="row-name">Floor</span><span class="row-rise">${fmtPlain(layout.floor.height)}</span></li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span><i class="swatch kind-fixed"></i>Fixed</span>
+      <span><i class="swatch kind-adjustable"></i>Set between setups</span>
+      <span><i class="swatch kind-moveable"></i>Moves during the take</span>
+    </div>`;
 }

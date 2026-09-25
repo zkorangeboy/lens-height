@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Lens Height Solver</title>
+  <title>Lens Height</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -14,82 +14,44 @@
   <main id="app">
     <div id="loading" class="notice">Loading gear…</div>
 
-    <form id="query-form" hidden>
-      <div class="segmented" id="mode-toggle" role="tablist" aria-label="Mode">
-        <button type="button" id="mode-check" class="segmented-btn is-active" role="tab" aria-selected="true">Check rig</button>
-        <button type="button" id="mode-solve" class="segmented-btn" role="tab" aria-selected="false">Find configs</button>
-      </div>
-
-      <section class="card">
-        <label class="field">
-          <span class="field-label">Package</span>
-          <select id="package-select"></select>
-        </label>
-        <label class="field">
-          <span class="field-label">Camera build</span>
-          <select id="build-select"></select>
-        </label>
-      </section>
-
-      <section class="card" id="chain-slots-section">
-        <h2>Your rig</h2>
-        <div class="field">
-          <span class="field-label">Base layer</span>
-          <div id="base-layer-checkboxes" class="checkbox-list"></div>
-        </div>
-        <label class="field">
-          <span class="field-label">Support</span>
-          <select id="support-select"></select>
-        </label>
-        <div class="field">
-          <span class="field-label">Adapters</span>
-          <div id="adapter-checkboxes" class="checkbox-list"></div>
-        </div>
-        <label class="field">
-          <span class="field-label">Head</span>
-          <select id="head-select"></select>
-        </label>
-        <label class="field">
-          <span class="field-label">Head mode</span>
-          <select id="mode-select"></select>
-        </label>
-        <label class="field">
-          <span class="field-label">Camera attach point</span>
-          <select id="attach-select"></select>
-        </label>
-      </section>
-
-      <section class="card">
+    <!-- No submit button: every change recomputes (SPEC.md 7.2). -->
+    <form id="check-form" hidden>
+      <section class="card target-card" aria-label="Target">
         <h2>Target height</h2>
-        <div class="segmented" id="target-type-toggle" role="tablist" aria-label="Target type">
-          <button type="button" id="target-fixed" class="segmented-btn is-active" role="tab" aria-selected="true">Fixed</button>
-          <button type="button" id="target-range" class="segmented-btn" role="tab" aria-selected="false">Range</button>
+        <div class="segmented" id="target-type-toggle" role="group" aria-label="Target type">
+          <button type="button" id="target-fixed" class="segmented-btn is-active" aria-pressed="true">Height</button>
+          <button type="button" id="target-range" class="segmented-btn" aria-pressed="false">Range</button>
         </div>
 
         <div id="fixed-target-fields">
           <label class="field">
-            <span class="field-label">Height (in)</span>
+            <span class="field-label">Lens height (in)</span>
             <input type="number" id="target-height" inputmode="decimal" step="0.25" placeholder="e.g. 32" />
           </label>
         </div>
 
-        <div id="range-target-fields" hidden>
+        <div id="range-target-fields" class="range-fields" hidden>
           <label class="field">
-            <span class="field-label">Low (in)</span>
-            <input type="number" id="target-low" inputmode="decimal" step="0.25" placeholder="e.g. 24" />
+            <span class="field-label">From (in)</span>
+            <input type="number" id="target-low" inputmode="decimal" step="0.25" placeholder="e.g. 25" />
           </label>
           <label class="field">
-            <span class="field-label">High (in)</span>
+            <span class="field-label">To (in)</span>
             <input type="number" id="target-high" inputmode="decimal" step="0.25" placeholder="e.g. 40" />
           </label>
           <p class="hint">A range is a move during the take, so only gear that can move live counts.</p>
         </div>
       </section>
 
-      <button type="submit" id="run-button" class="run-button">Check rig</button>
-    </form>
+      <!-- Sticky, so the answer stays in view while you change picks below. -->
+      <div id="status-bar" class="status-bar" role="status" aria-live="polite"></div>
 
-    <section id="results" aria-live="polite"></section>
+      <section id="result-body" class="result-body" aria-label="Result"></section>
+
+      <section id="stack-card" class="card" aria-label="Rig, floor to lens"></section>
+
+      <section id="picks" class="card" aria-label="Rig picks"></section>
+    </form>
   </main>
 
   <script type="module" src="app.js"></script>
