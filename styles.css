@@ -741,3 +741,12 @@ select {
   font-weight: 800;
 }
 
+
+/* The version note (SPEC.md 7): small and quiet, at the very bottom. */
+.version-note {
+  margin: 24px 2px 12px;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  text-align: center;
+}

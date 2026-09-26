@@ -18,6 +18,9 @@ import { checkVerdict } from "./src/verdict.js";
 import { inches, signedInches as fmtSigned } from "./src/format.js";
 import { stackLayout } from "./src/stack.js";
 import { markerSvg, pieceAt, pieceSvg, tagSvg } from "./src/outlines.js";
+import { versionNote } from "./src/version.js";
+
+document.getElementById("version").textContent = versionNote();
 
 // ---------------------------------------------------------------------------
 // State

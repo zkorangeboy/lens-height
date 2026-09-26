@@ -1024,6 +1024,14 @@ Query-side flags: `tightSpace`, `onSlope`, `needsLowTilt`.
   margin is never shown as 0. A metric display toggle is a nice-to-have;
   the storage unit does not change.
 
+- **Version note.** A small line at the very bottom of the screen shows
+  the app's version and when it was last updated: "v0.7.0 · Updated Sep
+  26, 2026, 7:43 AM". Both live in one place, `src/version.js`
+  (`VERSION`, and `UPDATED` as an ISO time); `package.json`'s version
+  matches it. Bump both with every release: minor for new features or
+  gear, patch for fixes. The app stays below 1.0 until the gear editor,
+  overrides, and offline install (7, 7.1) are in.
+
 ### 7.1 Data persistence caveat
 
 iOS may evict cached site data after extended non-use. Home-screen PWAs
