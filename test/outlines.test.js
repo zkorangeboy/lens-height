@@ -10,15 +10,15 @@ import path from "node:path";
 
 import { buildChain } from "../src/solver.js";
 import { stackLayout } from "../src/stack.js";
-import { hitArea, hitLayer, markerSvg, outlineOf, pieceSvg } from "../src/outlines.js";
+import { markerSvg, outlineOf, pieceAt, pieceSvg, tagSvg } from "../src/outlines.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
 const P = { packageId: "test-package", buildId: "build-placeholder" };
 const rig = (over = {}) => ({
   ...P,
-  supportId: "tripod-baby-placeholder",
-  headId: "head-standard-placeholder",
+  supportId: "baby-sticks",
+  headId: "oconnor-2575d",
   modeName: "normal",
   attachName: "base",
   ...over,
@@ -56,7 +56,7 @@ describe("one outline per kind of gear", () => {
     const [tripod] = svgOf(rig());
     assert.match(tripod[1], /leg k-adjustable/, "tripod legs are adjustable");
     const fisherSvg = Object.fromEntries(svgOf(fisher()));
-    assert.match(fisherSvg.dolly, /beam k-moveable/, "the Fisher's beam is moveable");
+    assert.match(fisherSvg.dolly, /k-moveable beam/, "the Fisher's beam is moveable");
     assert.match(fisherSvg.dolly, /o k-fixed/, "its chassis is fixed");
     assert.match(fisherSvg.sle, /k-adjustable/, "the SLE upright is adjustable");
     assert.match(Object.fromEntries(svgOf(fisher({ noseMode: "reversed" }))).sle, /k-fixed/, "reversed, it's fixed");
@@ -72,9 +72,14 @@ describe("one outline per kind of gear", () => {
 
   test("wheels are drawn per wheel mode", () => {
     const dollySvg = (selection) => Object.fromEntries(svgOf(selection)).dolly;
-    assert.match(dollySvg(fisher()), /class="o tire"/);
-    assert.match(dollySvg(fisher({ baseItemIds: ["round-track"], supportMode: "etw" })), /class="o track-wheel"/);
-    assert.match(dollySvg(fisher({ baseItemIds: ["round-track"], supportMode: "skateboard" })), /class="o skate-wheel"/);
+    const pneumatic = dollySvg(fisher());
+    const etw = dollySvg(fisher({ baseItemIds: ["round-track"], supportMode: "etw" }));
+    const skate = dollySvg(fisher({ baseItemIds: ["round-track"], supportMode: "skateboard" }));
+    assert.equal((pneumatic.match(/class="o tire"/g) || []).length, 2, "one wheel at each end, side on");
+    assert.doesNotMatch(pneumatic, /groove|skate/);
+    assert.equal((etw.match(/class="o groove"/g) || []).length, 2, "ETW wheels are grooved for round rail");
+    assert.equal((skate.match(/class="o skate-wheel"/g) || []).length, 4, "two skateboard wheels under each tire");
+    assert.match(skate, /skate-plate/);
   });
 
   test("the beam is drawn from the pivot to the nose; a moveable range adds faint beams at both ends", () => {
@@ -82,13 +87,14 @@ describe("one outline per kind of gear", () => {
     assert.equal((fixed.match(/class="beam-ghost"/g) || []).length, 0);
     const move = Object.fromEntries(svgOf(fisher(), { type: "range", low: 30, high: 50 })).dolly;
     assert.equal((move.match(/class="beam-ghost"/g) || []).length, 2);
-    assert.equal((move.match(/class="beam k-moveable"/g) || []).length, 1);
+    assert.equal((move.match(/k-moveable beam/g) || []).length, 1);
+    assert.match(fixed, /class="o k-fixed post"/, "push posts at the rear");
   });
 
   test("the offset plate marks the side in use", () => {
     const off = Object.fromEntries(svgOf(RIGS.fisherRound)).offset;
-    assert.match(off, /mitchell in-use/);
-    assert.match(off, /mitchell spare/);
+    assert.equal((off.match(/class="o hole"/g) || []).length, 2, "a Mitchell ring at each end");
+    assert.match(off, /class="in-use"/);
   });
 
   test("the camera: body, lens, and the lens dot at the optical center; upside down when inverted", () => {
@@ -96,8 +102,9 @@ describe("one outline per kind of gear", () => {
     const inverted = layoutOf(RIGS.fisherRound).blocks.at(-1);
     for (const camera of [upright, inverted]) {
       const svg = outlineOf(camera);
-      assert.match(svg, new RegExp(`class="lens-dot"`));
-      assert.ok(svg.includes(`cx="${Math.round(camera.shape.lens.x * 10) / 10}"`), "the dot at the lens point");
+      assert.equal((svg.match(/class="o k-fixed camera"/g) || []).length, 1, "one outline, body and lens together");
+      assert.ok(svg.includes(`cx="${Math.round(camera.shape.opticalCenter.x * 10) / 10}"`), "the dot at the optical center");
+      assert.equal(camera.shape.opticalCenter.y, layoutOf(camera === upright ? rig() : RIGS.fisherRound).lens.y);
     }
     assert.equal(upright.shape.inverted, false);
     assert.equal(inverted.shape.inverted, true);
@@ -112,22 +119,52 @@ describe("one outline per kind of gear", () => {
   });
 });
 
-describe("tap targets and markers", () => {
-  test("every piece's whole outline is a tap target, at least 44px each way", () => {
+describe("taps, markers, and tags", () => {
+  // A support is tapped low, on its legs or chassis; anything else at its center.
+  // An SLE, on its body under the plate (its neck runs up behind the head).
+  // A lambda cradle, on its arm just under the mount (its middle holds the camera).
+  const centerOf = (b) =>
+    b.slot === "support" || b.shape.type === "sle"
+      ? { x: b.box.x + b.box.width / 2, y: b.box.y + b.box.height - 6 }
+      : b.shape.type === "lambda"
+        ? { x: b.shape.mount.x, y: b.shape.mount.y + 4 }
+        : { x: b.box.x + b.box.width / 2, y: b.box.y + Math.max(b.box.height, 4) / 2 };
+  const slotAt = (layout, point) => {
+    const i = pieceAt(layout.blocks, point);
+    return i === null ? null : layout.blocks[i].slot;
+  };
+
+  test("a tap anywhere on a piece's outline opens that piece, even where outlines overlap", () => {
     for (const selection of Object.values(RIGS)) {
-      for (const b of layoutOf(selection).blocks) {
-        const [, w, h] = hitArea(b).match(/width="([\d.]+)" height="([\d.]+)"/);
-        assert.ok(Number(w) >= 44 && Number(h) >= 44, `${b.slot}: ${w}×${h}`);
-        assert.ok(Number(w) >= b.box.width - 0.1 && Number(h) >= b.box.height - 0.1, `${b.slot} covers its outline`);
+      const layout = layoutOf(selection, { type: "fixed", height: 30 });
+      for (const b of layout.blocks) {
+        // A bracket's box is mostly the space it hangs around; it has its own test below.
+        if (b.shape.type === "lhe") continue;
+        const hit = slotAt(layout, centerOf(b));
+        // Where outlines overlap (everything on a dolly), the one drawn on top wins.
+        assert.equal(hit, b.slot, `${JSON.stringify(selection).slice(0, 60)}: ${b.slot}`);
       }
     }
   });
 
-  test("tap targets stack largest first, so a small piece on a big one stays tappable", () => {
+  test("the LHE is tappable on its arm, just under the nose", () => {
+    const layout = layoutOf(RIGS.lhe);
+    const lhe = layout.blocks.find((b) => b.slot === "nose");
+    assert.equal(slotAt(layout, { x: lhe.shape.nose.x, y: lhe.shape.nose.y + 4 }), "nose");
+  });
+
+  test("an SLE set down under an offset plate stays tappable", () => {
+    const layout = layoutOf(fisher({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" }), { type: "fixed", height: 5 });
+    const sle = layout.blocks.find((b) => b.slot === "nose");
+    assert.ok(sle.box.height > 4, "the SLE is set below 0");
+    assert.equal(slotAt(layout, centerOf(sle)), "nose");
+  });
+
+  test("a sliver still has a 44px target: 22px around it", () => {
     const layout = layoutOf(RIGS.fisherRound);
-    const order = [...hitLayer(layout.blocks, (b) => `data-piece="${b.slot}"`).matchAll(/data-piece="(\w+)"/g)].map((m) => m[1]);
-    assert.ok(order.indexOf("nose") > order.indexOf("adapter"), "the SLE's target is above the offset plate's");
-    assert.ok(order.indexOf("support") < order.indexOf("nose"));
+    const plate = layout.blocks.find((b) => b.slot === "adapter");
+    assert.equal(slotAt(layout, { x: plate.box.x + plate.box.width - 2, y: plate.box.y - 12 }), "adapter", "just above the plate's far end");
+    assert.equal(slotAt(layout, { x: -100, y: -100 }), null, "far away is no piece");
   });
 
   test("a marker has a 44px hit circle around a visible dot", () => {
@@ -137,10 +174,17 @@ describe("tap targets and markers", () => {
     assert.match(svg, /data-place=/);
   });
 
-  test("a piece's outline and its tap target are separate, so targets can be stacked", () => {
-    const b = layoutOf(rig()).blocks[0];
-    assert.doesNotMatch(pieceSvg(b), /hit-area/);
-    assert.match(hitLayer([b], () => 'data-piece="x"'), /hit-area/);
+  test("a tag draws its lines, escaped, and opens its piece", () => {
+    const tag = { lines: ["Riser 6″", "<b>"], x: 10, y: 20, width: 60, height: 32, warn: true };
+    const svg = tagSvg(tag, 'data-piece="adapter|r"', (t) => t.replace(/</g, "&lt;").replace(/>/g, "&gt;"));
+    assert.match(svg, /data-piece="adapter\|r"/);
+    assert.match(svg, /Riser 6″/);
+    assert.match(svg, /&lt;b&gt;/);
+    assert.match(svg, /class="tag is-warn"/);
+  });
+
+  test("an outline carries no tap target of its own: taps are resolved by pieceAt", () => {
+    assert.doesNotMatch(pieceSvg(layoutOf(rig()).blocks[0]), /data-piece|hit-area/);
   });
 });
 
@@ -154,7 +198,7 @@ describe("the outlines draw; they don't compute heights", () => {
   test("it never reads a height in inches: only pixel boxes and points from the layout", () => {
     for (const field of ["\\.rise\\b", "\\.start\\b", "\\.end\\b", "\\.bottom\\b(?!\\s*[-+])", "\\.top\\b", "\\.height\\b(?=\\s*[-+*/])", "Pct\\b", "riseRange", "(?<!Math)\\.(min|max)\\b"]) {
       const code = source.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
-      assert.doesNotMatch(code.replace(/f\.bottom|f\.top|box\.height|body\.height|c\.height|chassis\.height/g, ""), new RegExp(field), field);
+      assert.doesNotMatch(code.replace(/f\.bottom|f\.top|e\.bottom|e\.top|box\.height|body\.height|c\.height|chassis\.height|posts\.bottom|posts\.top|b\.top|b\.bottom/g, ""), new RegExp(field), field);
     }
   });
 });

@@ -1,7 +1,7 @@
 // Stack layout (SPEC.md 5.8): the drawing of a chain as a view model. All the
 // height math a renderer would need — where each piece sits, how far forward
 // it is, its pixel box and outline points, where the target falls, where each
-// label goes — is done here, so the UI and the outlines (outlines.js) draw
+// tag goes — is done here, so the UI and the outlines (outlines.js) draw
 // numbers they're handed and compute nothing.
 import { riseRangeOf, supportSegments } from "./model.js";
 
@@ -12,48 +12,57 @@ const kindOf = (component) => component.adjustability || "fixed";
  * the boom takes what's left (SPEC.md 5.8). */
 const ALLOCATION_ORDER = { fixed: 0, adjustable: 1, moveable: 2 };
 
-/** How tall a label is, as a percentage of the drawing, unless the caller
- * measured it (labels wrap, so heights vary). */
-const DEFAULT_LABEL_PCT = 7;
-
 /** Room above the highest thing drawn, as a fraction of the drawing. */
-const HEADROOM = 0.06;
+const HEADROOM = 0.05;
 
 /** The drawing's size in pixels when the caller doesn't say (5.8). */
-const DEFAULT_FRAME = { width: 180, height: 520 };
+const DEFAULT_FRAME = { width: 320, height: 520 };
 const FRAME_PAD = 6;
-/** Schematic widths may be drawn down to this fraction to fit across. */
-const SQUEEZE_MIN = 0.25;
 
 /**
- * Schematic horizontal sizes, in inches (5.8, 7.2). Only offset plates are
- * drawn to their real length (their `plateLength`); these just make each
- * outline read as what it is. Vertical sizes always come from the model.
+ * Sizes, in inches, at true scale on both axes (5.8). Real where the gear
+ * gives them — the Fisher 11 from its brochure's side elevation — and
+ * simplified but true-to-size otherwise. Heights of the pieces themselves
+ * always come from the model; these are only what the outlines need
+ * around them.
  */
 const DRAW = {
-  appleWidth: { flat: 20, "12in": 20, "20in": 12 }, // sized by the face it stands on
-  trackWidth: 30,
+  appleWidth: { flat: 20, "12in": 20, "20in": 12 }, // a full apple is 20 × 12 × 8
+  trackLength: 44,
+  spreaderWidth: 36, // wider than baby or standard sticks' feet at full spread
   tripodTop: 4,
   standWidth: { "hi-hat": 16, "lo-hat": 14 },
   dolly: {
-    back: -12, // chassis, relative to its center
-    front: 10,
-    pivotX: -9, // where the beam pivots on the chassis
-    noseX: 14, // the nose: fixed forward of the chassis, whatever the lift
+    rear: -20, // a 40″ chassis, centered on the support
+    front: 20,
+    wheelX: 14, // 28″ wheelbase: one wheel each end
+    tire: 4.25, // pneumatic tire radius
+    skate: { wheel: 1, plate: 2 }, // skateboard wheels under a 2″ plate
+    chassisBottom: 3, // above the wheel datum
+    deck: 12,
+    rearBox: { from: -20, to: -8, top: 20 },
+    posts: { x: -18.5, top: 39.75 }, // push posts, operating height
+    pivot: { x: -4 }, // the beam pivots on the deck
+    noseX: 21, // the nose: forward of the chassis, whatever the lift
     noseRadius: 1.25,
-    chassis: 9, // chassis height, capped so a short dolly still reads
-    wheel: { pneumatic: 3, etw: 1.5, skateboard: 1.25 },
+    beam: 2.5,
   },
-  noseBlock: 6,
-  bracketFoot: 11, // how far forward the LHE's foot sets the Mitchell
-  bracketArm: 1.5,
-  mitchell: 1.5, // a Mitchell stub on an offset plate
+  noseBlock: 5,
+  noseBody: 3, // the SLE's leveling head, under its Mitchell plate
+  bracketFoot: 10, // how far forward the LHE's foot sets the Mitchell (51.75″ overall vs 40″)
+  bracketThickness: 1.5,
+  mitchell: 2.5, // a Mitchell mount's radius
   plateThickness: 1,
-  riser: 5,
-  head: 8,
+  riser: 5.5,
+  swivel: 6,
+  head: 7,
   cradle: 11,
-  camera: { back: -4, front: 3, barrel: 6, lensDot: 6 },
+  camera: { back: -5, front: 6, lens: 5, above: 3 }, // body, lens barrel, body past the optical axis
 };
+
+/** Tag text size, in pixels: an 11px font at about 6.2px a character. */
+const TAG = { char: 6.2, line: 13, padX: 5, padY: 3, gap: 4 };
+const FLIP_IMAGE = "Camera inverted — flip image";
 
 /** Which outline draws a support. */
 const shapeOfSupport = (support) => ({ dolly: "dolly", tripod: "tripod", "hi-hat": "hi-hat", "lo-hat": "lo-hat" })[support.kind] || "hi-hat";
@@ -65,59 +74,13 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const round2 = (n) => Math.round(n * 100) / 100;
 
 /**
- * Place lane entries as close to their anchors as they can go without
- * overlapping: entries that would collide are grouped and the group is
- * centered on its members' anchors, kept inside 0..100.
- * @param {{anchorPct: number, size: number}[]} entries - sorted by anchor
- * @returns {number[]} each entry's center
- */
-function spreadLane(entries) {
-  const groups = [];
-  const settle = (group) => {
-    let offset = 0;
-    let want = 0;
-    for (const e of group.members) {
-      want += e.anchorPct - offset - e.size / 2;
-      offset += e.size;
-    }
-    group.size = offset;
-    group.bottom = clamp(want / group.members.length, 0, Math.max(0, 100 - group.size));
-  };
-  for (const entry of entries) {
-    const group = { members: [entry] };
-    settle(group);
-    groups.push(group);
-    while (groups.length > 1) {
-      const below = groups[groups.length - 2];
-      const above = groups[groups.length - 1];
-      if (below.bottom + below.size <= above.bottom + 1e-9) break;
-      groups.splice(-2, 2, { members: [...below.members, ...above.members] });
-      settle(groups[groups.length - 1]);
-    }
-  }
-  const centers = [];
-  for (const group of groups) {
-    let cursor = group.bottom;
-    for (const e of group.members) {
-      centers.push(cursor + e.size / 2);
-      cursor += e.size;
-    }
-  }
-  return centers;
-}
-
-/**
  * @param {object} chain - a resolved chain (solver.js buildChain)
  * @param {{type:"fixed",height:number}|{type:"range",low:number,high:number}|null} [target]
- * @param {{lane?: {plotPx: number, labelPx: number[]}, frame?: {width: number, height: number}}} [options] -
- *   each block's measured label height and the plot's height, and the
- *   drawing area's size, all in pixels
+ * @param {{frame?: {width: number, height: number}}} [options] - the
+ *   drawing area's size in pixels; the layout's own `frame.height` may be
+ *   less, when the rig is wide and the width sets the scale
  */
 export function stackLayout(chain, target = null, options = {}) {
-  const lane = options.lane;
-  const labelPct = (i) =>
-    lane && lane.plotPx > 0 && lane.labelPx && lane.labelPx[i] > 0 ? (lane.labelPx[i] / lane.plotPx) * 100 : DEFAULT_LABEL_PCT;
-
   // Where to rig it: the target (the low end of a range, where the move
   // starts), clamped into what this chain can reach. No target: fully retracted.
   const reference = !target ? chain.min : target.type === "fixed" ? target.height : target.low;
@@ -145,28 +108,41 @@ export function stackLayout(chain, target = null, options = {}) {
     remaining -= take;
   }
 
-  // Walk the chain from the floor, in heights and in horizontal inches. The
-  // chain moves sideways only where a piece really moves it (5.8): the
-  // Fisher's nose, an offset plate's length, the LHE's foot.
-  //
-  // A horizontal position is kept as two parts: `real` inches (an offset
-  // plate's length, drawn true to the vertical scale) and `schematic` inches
-  // (everything else), which may be drawn narrower so the rig fits.
-  const H = (real, schematic = 0) => ({ real, schematic });
-  const plus = (a, b) => H(a.real + b.real, a.schematic + b.schematic);
+  // Walk the chain from the floor, in heights and horizontal inches. Each
+  // piece sits on the mount of the one below; the chain moves sideways only
+  // where a piece really moves it (5.8). `drawn` is the vertical span of a
+  // piece's outline when it reaches past its own rise (a dolly's push
+  // posts, a camera body past the lens axis, a plate's thickness).
   const raw = [];
   let cursor = 0;
-  let mountX = H(0);
-  const place = (block, rise, extent, nextMountX = mountX) => {
+  let mountX = 0;
+  const place = (block, rise, extent, nextMountX = mountX, drawn = null) => {
     const start = cursor;
     cursor += rise;
-    const [from, to] = extent.map((e) => (typeof e === "number" ? H(0, e) : e));
-    raw.push({ ...block, rise, start, end: cursor, h: mountX, h0: plus(mountX, from), h1: plus(mountX, to), hMount: nextMountX });
+    const low = Math.min(start, cursor);
+    const high = Math.max(start, cursor);
+    raw.push({
+      ...block,
+      rise,
+      start,
+      end: cursor,
+      x: mountX,
+      x0: mountX + extent[0],
+      x1: mountX + extent[1],
+      mountX: nextMountX,
+      drawnLow: drawn ? Math.min(low, drawn[0]) : low,
+      drawnHigh: drawn ? Math.max(high, drawn[1]) : high,
+    });
     mountX = nextMountX;
   };
 
   chain.baseItems.forEach((item, index) => {
-    const width = item.kind === "track" ? DRAW.trackWidth : DRAW.appleWidth[item.orientation] || DRAW.appleWidth.flat;
+    const width =
+      item.kind === "track"
+        ? DRAW.trackLength
+        : item.kind === "spreader"
+          ? DRAW.spreaderWidth
+          : DRAW.appleWidth[item.orientation] || DRAW.appleWidth.flat;
     place(
       { slot: "base", index, name: item.name, component: item, kind: kindOf(item), mode: item.mode, modeLabel: item.modeLabel },
       item.rise,
@@ -185,12 +161,11 @@ export function stackLayout(chain, target = null, options = {}) {
       : "fixed";
   const supportRise = supportParts.reduce((sum, part) => sum + part.rise, 0);
   const supportShape = shapeOfSupport(chain.support);
-  const supportExtent =
-    supportShape === "dolly"
-      ? [DRAW.dolly.back, DRAW.dolly.noseX + DRAW.dolly.noseRadius]
-      : supportShape === "tripod"
-        ? [-tripodSpread(supportRise) / 2, tripodSpread(supportRise) / 2]
-        : [-DRAW.standWidth[supportShape] / 2, DRAW.standWidth[supportShape] / 2];
+  const supportStart = cursor;
+  // The wheels' datum: where a pneumatic tire touches. A wheel mode's rise
+  // (ETW −½″, skateboard +2″) moves the whole dolly by that much.
+  const datum = supportStart + (chain.support.modeRise || 0);
+  const D = DRAW.dolly;
   place(
     {
       slot: "support",
@@ -207,8 +182,13 @@ export function stackLayout(chain, target = null, options = {}) {
       },
     },
     supportRise,
-    supportExtent,
-    supportShape === "dolly" ? H(0, DRAW.dolly.noseX) : H(0)
+    supportShape === "dolly"
+      ? [D.rear, D.noseX + D.noseRadius]
+      : supportShape === "tripod"
+        ? [-tripodSpread(supportRise) / 2, tripodSpread(supportRise) / 2]
+        : [-DRAW.standWidth[supportShape] / 2, DRAW.standWidth[supportShape] / 2],
+    supportShape === "dolly" ? D.noseX : 0,
+    supportShape === "dolly" ? [Math.min(supportStart, datum - 0.5), datum + D.posts.top] : null
   );
 
   if (chain.nose) {
@@ -228,18 +208,22 @@ export function stackLayout(chain, target = null, options = {}) {
         ...(noseSegment.extent > 0 ? { range: { min: noseRange.min, max: noseRange.max } } : {}),
       },
       noseSegment.base + noseAllocation,
-      bracket ? [-DRAW.bracketArm, DRAW.bracketFoot + DRAW.bracketArm] : [-DRAW.noseBlock / 2, DRAW.noseBlock / 2],
-      bracket ? plus(mountX, H(0, DRAW.bracketFoot)) : mountX
+      bracket ? [-DRAW.bracketThickness, DRAW.bracketFoot + DRAW.mitchell] : [-DRAW.noseBlock / 2, DRAW.noseBlock / 2],
+      bracket ? mountX + DRAW.bracketFoot : mountX,
+      // The SLE's head hangs under its plate; the plate carries what's above.
+      bracket ? null : [cursor + noseSegment.base + noseAllocation - DRAW.noseBody, cursor]
     );
   }
 
   chain.adapters.forEach((adapter, index) => {
     const plate = adapter.plateLength;
+    const width = adapter.drawAs === "swivel" ? DRAW.swivel : DRAW.riser;
     place(
       { slot: "adapter", index, name: adapter.name, component: adapter, kind: kindOf(adapter), mode: adapter.mode, modeLabel: adapter.modeLabel },
       adapter.rise,
-      plate ? [H(0, -DRAW.mitchell), H(plate, DRAW.mitchell)] : [-DRAW.riser / 2, DRAW.riser / 2],
-      plate ? plus(mountX, H(plate)) : mountX
+      plate ? [-DRAW.mitchell, plate + DRAW.mitchell] : [-width / 2, width / 2],
+      plate ? mountX + plate : mountX,
+      plate ? [cursor, cursor + DRAW.plateThickness] : null
     );
   });
   const cradles = Boolean(chain.head.cradlesCamera);
@@ -248,6 +232,9 @@ export function stackLayout(chain, target = null, options = {}) {
     chain.mode.rise,
     cradles ? [-DRAW.cradle / 2, DRAW.cradle / 2] : [-DRAW.head / 2, DRAW.head / 2]
   );
+  // The camera: its body reaches past the optical axis, away from the mount.
+  const lensAt = cursor + chain.attach.rise;
+  const bodyPast = chain.attach.rise < 0 ? lensAt - DRAW.camera.above : lensAt + DRAW.camera.above;
   place(
     {
       slot: "build",
@@ -260,7 +247,9 @@ export function stackLayout(chain, target = null, options = {}) {
       cradled: cradles,
     },
     chain.attach.rise,
-    [DRAW.camera.back, DRAW.camera.front + DRAW.camera.barrel]
+    [DRAW.camera.back, DRAW.camera.front + DRAW.camera.lens],
+    mountX,
+    [Math.min(bodyPast, lensAt), Math.max(bodyPast, lensAt)]
   );
 
   // Insertion points (5.8): base i sits on base item i-1 (0 is the floor);
@@ -269,11 +258,11 @@ export function stackLayout(chain, target = null, options = {}) {
   const gapSpots = [];
   for (let i = 0; i <= chain.baseItems.length; i++) {
     const on = i === 0 ? null : raw[i - 1];
-    gapSpots.push({ slot: "base", index: i, h: H(0), height: on ? on.end : 0, on: on && on.name });
+    gapSpots.push({ slot: "base", index: i, x: 0, height: on ? on.end : 0, on: on && on.name });
   }
   for (let j = 0; j <= chain.adapters.length; j++) {
     const on = raw[firstAdapterOn + j];
-    gapSpots.push({ slot: "adapter", index: j, h: on.hMount, height: on.end, on: on.name });
+    gapSpots.push({ slot: "adapter", index: j, x: on.mountX, height: on.end, on: on.name });
   }
 
   // The moveable portion: how far the lens can sweep from this setup with
@@ -293,37 +282,26 @@ export function stackLayout(chain, target = null, options = {}) {
       ? [supportBlock.end, supportBlock.end + clamp(targetHigh - targetLow, 0, sweep.max - cursor)]
       : null;
 
-  // What's drawn beyond a piece's own rise: an offset plate's thickness.
-  const drawnTop = (b) => (b.component.plateLength ? Math.max(b.start, b.end) + DRAW.plateThickness : Math.max(b.start, b.end));
-
-  // The drawing's scale fits the content (5.8): the floor (or a piece hanging
-  // below it) up to just above the highest of the lens, the target, and the
-  // pieces; across every piece. One scale for both axes.
-  const heights = [0, cursor, ...raw.flatMap((b) => [b.start, b.end, drawnTop(b)])];
+  // The scale fits the current rig and the target (5.8): every piece as it's
+  // set now, the target, and the top of a moving beam — at the largest one
+  // scale, in pixels per inch, that fits both ways.
+  const heights = [0, cursor, ...raw.flatMap((b) => [b.drawnLow, b.drawnHigh])];
   if (target) heights.push(targetLow, targetHigh);
   if (moveGhosts) heights.push(...moveGhosts);
   const lo = Math.min(...heights);
   const top = Math.max(...heights);
   const hi = top + (top - lo) * HEADROOM || lo + 1;
-  // Scale (5.8): true vertical scale for the height of the frame. Schematic
-  // widths squeeze (down to SQUEEZE_MIN) so the rig fits across; only if
-  // the real plate lengths still don't fit does the whole drawing shrink.
-  const frame = { width: DEFAULT_FRAME.width, height: DEFAULT_FRAME.height, ...(options.frame || {}) };
-  const across = frame.width - 2 * FRAME_PAD;
-  const spanAt = (k) => {
-    const xs = raw.flatMap((b) => [b.h0, b.h1]).map((h) => h.real + h.schematic * k);
-    return { min: Math.min(...xs), max: Math.max(...xs) };
-  };
-  let scale = frame.height / (hi - lo);
-  let squeeze = 1;
-  while (squeeze > SQUEEZE_MIN && (spanAt(squeeze).max - spanAt(squeeze).min) * scale > across) squeeze = round2(squeeze - 0.05);
-  const width = spanAt(squeeze);
-  scale = Math.min(scale, across / (width.max - width.min || 1));
-  const inchesAcross = (h) => h.real + h.schematic * squeeze;
-  const xMin = width.min;
-  const xOffset = (frame.width - (width.max - width.min) * scale) / 2;
+  const xMin = Math.min(...raw.map((b) => b.x0));
+  const xMax = Math.max(...raw.map((b) => b.x1));
+  const asked = { width: DEFAULT_FRAME.width, height: DEFAULT_FRAME.height, ...(options.frame || {}) };
+  const scale = Math.min(asked.height / (hi - lo), (asked.width - 2 * FRAME_PAD) / (xMax - xMin || 1));
+  // When the width is what limits the scale, the drawing is only as tall as
+  // the rig needs: the caller sizes it to `frame.height`.
+  const frame = { width: asked.width, height: round2(Math.min(asked.height, (hi - lo) * scale)) };
+  const xOffset = (frame.width - (xMax - xMin) * scale) / 2;
   const X = (x) => round2(xOffset + (x - xMin) * scale);
   const Y = (height) => round2(frame.height - (height - lo) * scale);
+  const px = (inches) => round2(inches * scale);
   const pt = (x, height) => ({ x: X(x), y: Y(height) });
   const pct = (height) => round2((((height - lo) * scale) / frame.height) * 100);
   const span = (from, to) => ({ bottomPct: pct(from), topPct: pct(to), heightPct: round2(pct(to) - pct(from)) });
@@ -332,45 +310,41 @@ export function stackLayout(chain, target = null, options = {}) {
     continuesBelow: from < lo,
     continuesAbove: to > hi,
   });
-  for (const b of raw) {
-    b.x = round2(inchesAcross(b.h));
-    b.x0 = inchesAcross(b.h0);
-    b.x1 = inchesAcross(b.h1);
-    b.mountX = round2(inchesAcross(b.hMount));
-  }
-  const box = (x0, x1, from, to) => ({ x: X(x0), y: Y(to), width: round2((x1 - x0) * scale), height: round2((to - from) * scale) });
+  const box = (x0, x1, from, to) => ({ x: X(x0), y: Y(to), width: px(x1 - x0), height: px(to - from) });
 
   // Each piece's outline and its own points (7.2): shapes only, no heights.
-  const sq = (inches) => inches * squeeze; // a schematic width, squeezed
   const shapeOf = (b) => {
-    const bottom = Math.min(b.start, b.end);
-    const upper = Math.max(b.start, b.end);
     const at = b.x;
     switch (b.slot) {
       case "base":
+        if (b.component.kind === "spreader") return { type: "spreader" };
         return b.component.kind === "track"
           ? { type: "track", profile: b.component.topMount === "round-track" ? "round" : "square" }
           : { type: "apple" };
-      case "support":
-        if (supportShape === "dolly") {
-          const chassisTop = b.start + Math.min(DRAW.dolly.chassis, b.rise * 0.6);
-          return {
-            type: "dolly",
-            wheels: b.mode || "pneumatic",
-            wheelRadius: round2(DRAW.dolly.wheel[b.mode] * scale || DRAW.dolly.wheel.pneumatic * scale),
-            chassis: box(sq(DRAW.dolly.back), sq(DRAW.dolly.front), b.start, chassisTop),
-            pivot: pt(sq(DRAW.dolly.pivotX), chassisTop),
-            nose: pt(b.mountX, b.end),
-            noseRadius: round2(DRAW.dolly.noseRadius * scale),
-            ghosts: moveGhosts ? moveGhosts.map((h) => pt(b.mountX, h)) : [],
-          };
-        }
-        if (supportShape === "tripod") return { type: "tripod", mount: pt(at, b.end), topWidth: round2(sq(DRAW.tripodTop) * scale) };
-        return { type: supportShape, mount: pt(at, b.end) };
+      case "support": {
+        if (supportShape === "tripod") return { type: "tripod", mount: pt(at, b.end), topWidth: px(DRAW.tripodTop) };
+        if (supportShape !== "dolly") return { type: supportShape, mount: pt(at, b.end) };
+        const wheels = b.mode || "pneumatic";
+        const tireCenter = datum + D.tire;
+        return {
+          type: "dolly",
+          wheels,
+          tire: { radius: px(D.tire), centers: [pt(-D.wheelX, tireCenter), pt(D.wheelX, tireCenter)] },
+          skate: wheels === "skateboard" ? { radius: px(D.skate.wheel), plateTop: Y(b.start + D.skate.plate), floor: Y(b.start) } : null,
+          chassis: box(D.rear, D.front, datum + D.chassisBottom, datum + D.deck),
+          rearBox: box(D.rearBox.from, D.rearBox.to, datum + D.deck, datum + D.rearBox.top),
+          posts: { x: X(D.posts.x), top: Y(datum + D.posts.top), bottom: Y(datum + D.rearBox.top), width: px(1) },
+          pivot: pt(D.pivot.x, datum + D.deck),
+          nose: pt(D.noseX, b.end),
+          noseRadius: px(D.noseRadius),
+          beam: px(D.beam),
+          ghosts: moveGhosts ? moveGhosts.map((h) => pt(D.noseX, h)) : [],
+        };
+      }
       case "nose":
         return b.bracket
-          ? { type: "lhe", nose: pt(at, b.start), foot: pt(b.mountX, b.end), arm: round2(sq(DRAW.bracketArm) * scale) }
-          : { type: "sle", plate: Y(b.end) };
+          ? { type: "lhe", nose: pt(at, b.start), foot: pt(b.mountX, b.end), thickness: px(DRAW.bracketThickness), mitchell: px(DRAW.mitchell) }
+          : { type: "sle", plate: Y(b.end), nose: Y(b.start) };
       case "adapter":
         if (b.component.plateLength) {
           return {
@@ -380,7 +354,7 @@ export function stackLayout(chain, target = null, options = {}) {
             far: pt(b.mountX, b.start),
             plateTop: Y(b.start + DRAW.plateThickness),
             plateBottom: Y(b.start),
-            mitchell: round2(sq(DRAW.mitchell) * scale),
+            mitchell: px(DRAW.mitchell),
           };
         }
         return { type: b.component.drawAs === "swivel" ? "swivel" : "riser" };
@@ -394,9 +368,13 @@ export function stackLayout(chain, target = null, options = {}) {
           inverted: Boolean(b.inverted),
           handle: b.attach === "top-handle",
           attach: pt(at, b.start),
-          lens: pt(at + sq(DRAW.camera.lensDot), b.end),
-          body: box(at + sq(DRAW.camera.back), at + sq(DRAW.camera.front), bottom, upper),
-          barrel: round2(sq(DRAW.camera.barrel) * scale),
+          body: box(at + DRAW.camera.back, at + DRAW.camera.front, b.drawnLow, b.drawnHigh),
+          lens: {
+            x0: X(at + DRAW.camera.front),
+            x1: X(at + DRAW.camera.front + DRAW.camera.lens),
+            half: px(DRAW.camera.above * 0.7),
+          },
+          opticalCenter: pt(at + DRAW.camera.front + DRAW.camera.lens / 2, b.end),
         };
       default:
         return { type: "block" };
@@ -415,48 +393,53 @@ export function stackLayout(chain, target = null, options = {}) {
         return { kind: part.kind, rise: part.rise, ...span(Math.min(from, partCursor), Math.max(from, partCursor)) };
       });
     }
-    const { start, end, x0, x1, h, h0, h1, hMount, ...rest } = block;
+    const { start, end, x0, x1, drawnLow, drawnHigh, ...rest } = block;
     return {
       ...rest,
       direction: block.rise > 0 ? "up" : block.rise < 0 ? "down" : "flat",
       bottom,
       top: upper,
       ...span(bottom, upper),
-      anchorPct: pct((bottom + upper) / 2),
       anchorY: Y((bottom + upper) / 2),
-      box: box(x0, x1, bottom, block.component.plateLength ? drawnTop(block) : upper),
+      box: box(x0, x1, drawnLow, drawnHigh),
       mount: pt(block.mountX, end),
       shape: shapeOf(block),
       ...(inner ? { parts: inner } : {}),
     };
   });
 
-  // The label lane: every block's label, each near its own height but
-  // never overlapping (5.8).
-  const entries = blocks
-    .map((b, i) => ({ block: i, anchorPct: b.anchorPct, anchorY: b.anchorY, size: labelPct(i) }))
-    .sort((a, b) => a.anchorPct - b.anchorPct || a.block - b.block);
-  const centers = spreadLane(entries);
-  const labels = entries.map((entry, i) => {
-    const at = round2(centers[i]);
-    return {
-      ...entry,
-      size: round2(entry.size),
-      pct: at,
-      leader: { bottomPct: Math.min(at, entry.anchorPct), heightPct: round2(Math.abs(at - entry.anchorPct)) },
-    };
-  });
+  // Tags (5.8): each piece's short name beside it — to its right, or its
+  // left if there's no room — nudged down past any tag it would overlap.
+  const placed = [];
+  const order = blocks.map((b, i) => i).sort((a, c) => blocks[a].anchorY - blocks[c].anchorY);
+  for (const i of order) {
+    const b = blocks[i];
+    const lines = [b.component.shortName || b.name, ...(b.inverted ? [FLIP_IMAGE] : [])];
+    const width = round2(Math.max(...lines.map((l) => l.length)) * TAG.char + 2 * TAG.padX);
+    const height = lines.length * TAG.line + 2 * TAG.padY;
+    // Beside the piece; a piece wider than half the drawing (a dolly) keeps
+    // its tag inside its own outline instead.
+    let x = b.box.width > frame.width / 2 ? b.box.x + TAG.gap : b.box.x + b.box.width + TAG.gap;
+    if (x + width > frame.width) x = b.box.x - TAG.gap - width;
+    x = clamp(x, 0, Math.max(0, frame.width - width));
+    let y = clamp(b.anchorY - height / 2, 0, Math.max(0, frame.height - height));
+    const overlaps = (t) => x < t.x + t.width && t.x < x + width && y < t.y + t.height && t.y < y + height;
+    for (let tries = 0; tries <= placed.length; tries++) {
+      const other = placed.find(overlaps);
+      if (!other) break;
+      y = other.y + other.height + 2;
+    }
+    const tag = { lines, x: round2(x), y: round2(Math.min(y, Math.max(0, frame.height - height))), width, height, warn: Boolean(b.inverted) };
+    placed.push(tag);
+    b.tag = tag;
+  }
 
   return {
     floor: { height: 0, pct: pct(0), y: Y(0) },
-    frame: { width: frame.width, height: frame.height, scale: round2(scale), squeeze },
+    frame: { width: frame.width, height: frame.height, scale: round2(scale) },
     blocks,
-    gaps: gapSpots.map(({ h, height, ...g }) => {
-      const x = round2(inchesAcross(h));
-      return { ...g, height, x, point: pt(x, height), pct: pct(height) };
-    }),
-    lane: labels,
-    lens: { height: cursor, pct: pct(cursor), ...pt(raw[raw.length - 1].x + sq(DRAW.camera.lensDot), cursor) },
+    gaps: gapSpots.map(({ x, height, ...g }) => ({ ...g, height, x, point: pt(x, height), pct: pct(height) })),
+    lens: { height: cursor, pct: pct(cursor), ...blocks[blocks.length - 1].shape.opticalCenter },
     reach: { min: chain.min, max: chain.max, ...clipped(chain.min, chain.max) },
     moveable: sweep && { ...sweep, ...clipped(sweep.min, sweep.max) },
     target: target && {

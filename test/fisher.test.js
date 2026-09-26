@@ -27,7 +27,7 @@ const fisher = (over = {}) => ({
   noseId: "fisher-sle",
   noseMode: "upright",
   adapterIds: [],
-  headId: "head-standard-placeholder",
+  headId: "oconnor-2575d",
   modeName: "normal",
   attachName: "base",
   ...over,
@@ -123,7 +123,7 @@ describe("Fisher wheel modes and track", () => {
   });
 
   test("a tripod can't stand on either track", () => {
-    const tripod = { supportId: "tripod-baby-placeholder", supportMode: undefined, noseId: null, noseMode: undefined };
+    const tripod = { supportId: "baby-sticks", supportMode: undefined, noseId: null, noseMode: undefined };
     for (const track of ["square-track", "round-track"]) {
       assert.throws(() => chainOf({ ...tripod, baseItemIds: [track] }), /doesn't sit on/);
     }
@@ -151,8 +151,8 @@ describe("nose fittings", () => {
 
   test("none anywhere else: a nose fitting on a tripod is a mount mismatch", () => {
     assert.throws(
-      () => chainOf({ supportId: "tripod-baby-placeholder", supportMode: undefined }),
-      /nose fitting "SLE — 4-way Level Head" doesn't mount to support "Baby Tripod"/
+      () => chainOf({ supportId: "baby-sticks", supportMode: undefined }),
+      /nose fitting "SLE — 4-way Level Head" doesn't mount to support "Baby sticks"/
     );
   });
 
@@ -254,11 +254,9 @@ describe("drawing a Fisher", () => {
       assert.equal(dolly.shape.type, "dolly");
       assert.equal(dolly.mountX, blockOf(layout, "nose").x, "the nose is where the chain continues");
       assert.equal(dolly.shape.nose.x, blockOf(layout, "nose").mount.x, "drawn at the fitting");
-      assert.equal(dolly.shape.nose.y, dolly.box.y, "the nose is at the top of the support");
+      assert.equal(dolly.shape.nose.y, dolly.mount.y, "the nose is at the top of the support");
     }
-    // In inches before any squeeze to fit, the nose is at the same place at any lift.
-    const unsqueezed = (layout) => blockOf(layout, "support").mountX / layout.frame.squeeze;
-    assert.ok(Math.abs(unsqueezed(low) - unsqueezed(high)) < 0.2, "the same x at any lift");
+    assert.equal(blockOf(low, "support").mountX, blockOf(high, "support").mountX, "the same x, in inches, at any lift");
     assert.ok(blockOf(high, "support").shape.nose.y < blockOf(low, "support").shape.nose.y, "higher on the page");
     assert.equal(blockOf(low, "support").shape.pivot.y, blockOf(low, "support").shape.chassis.y, "the beam pivots on the chassis");
   });

@@ -53,13 +53,24 @@ function apple(block) {
 }
 
 function track(block) {
+  // Side on: a rail along the top, ties under it.
   const f = frame(block.box);
   const h = Math.max(f.h, MIN_PX);
-  const rail = block.shape.profile === "round" ? { rx: h * 0.3 } : {};
-  return (
-    rect(f.left, f.bottom - h * 0.4, f.w, h * 0.4, "o k-fixed tie") +
-    rect(f.left + f.w * 0.04, f.bottom - h, f.w * 0.92, h * 0.6, fill(block.kind), rail)
-  );
+  const rail = block.shape.profile === "round" ? { rx: h * 0.35 } : {};
+  const ties = [0.1, 0.35, 0.6, 0.85].map((at) => rect(f.left + f.w * at, f.bottom - h * 0.35, f.w * 0.06, h * 0.35, "o k-fixed tie")).join("");
+  return ties + rect(f.left, f.bottom - h, f.w, h * 0.65, fill(block.kind), rail);
+}
+
+function spreader(block) {
+  // Side on: a low bar under the tripod feet, a caster wheel at each end.
+  const f = frame(block.box);
+  const h = Math.max(f.h, MIN_PX);
+  const r = h * 0.3;
+  const bar = rect(f.left, f.bottom - h, f.w, h * 0.35, fill(block.kind), { rx: h * 0.15 });
+  const casters = [f.left + r, f.cx, f.right - r]
+    .map((x) => line(x, f.bottom - h * 0.65, x, f.bottom - 2 * r, "o") + circle(x, f.bottom - r, r, "o k-fixed wheel"))
+    .join("");
+  return casters + bar;
 }
 
 // --- Supports ----------------------------------------------------------------
@@ -90,51 +101,100 @@ function stand(block) {
   );
 }
 
-function wheels(shape, chassis) {
-  // Two wheels always fit side by side under the chassis, however narrow.
-  const r = Math.min(shape.wheelRadius, chassis.width / 5);
-  const y = chassis.y + chassis.height - r;
-  const at = [chassis.x + r * 1.6, chassis.x + chassis.width - r * 1.6];
-  return at
-    .map((x) => {
-      if (shape.wheels === "pneumatic") return circle(x, y, r, "o tire") + circle(x, y, r * 0.45, "o hub");
-      if (shape.wheels === "etw") return circle(x, y, r, "o track-wheel") + circle(x, y, r * 1.35, "o flange");
-      return circle(x, y, r, "o skate-wheel");
-    })
-    .join("");
+/** A side view of one wheel of a wheel mode (SPEC.md 3.2): a pneumatic tire
+ * with its hub; an ETW track wheel, grooved to ride round rail; or a tire
+ * on a plate over skateboard wheels. */
+function wheel(shape, center) {
+  const r = shape.tire.radius;
+  const tire = circle(center.x, center.y, r, "o tire") + circle(center.x, center.y, r * 0.42, "o hub");
+  if (shape.wheels === "etw") {
+    return tire + path(`M ${n(center.x - r * 0.35)} ${n(center.y + r)} a ${n(r * 0.35)} ${n(r * 0.25)} 0 0 1 ${n(r * 0.7)} 0`, "o groove");
+  }
+  if (shape.wheels === "skateboard" && shape.skate) {
+    const { radius, plateTop, floor } = shape.skate;
+    return (
+      tire +
+      rect(center.x - r * 1.1, plateTop, r * 2.2, floor - radius * 2 - plateTop, "o k-fixed skate-plate") +
+      [-0.6, 0.6].map((dx) => circle(center.x + r * dx, floor - radius, radius, "o skate-wheel")).join("")
+    );
+  }
+  return tire;
 }
 
+function beamPolygon(pivot, nose, width, cls) {
+  // The beam as a bar of real width from pivot to nose: offset each end by
+  // half the width, square to the beam.
+  const dx = nose.x - pivot.x;
+  const dy = nose.y - pivot.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const ox = (-dy / len) * (width / 2);
+  const oy = (dx / len) * (width / 2);
+  return poly(
+    [
+      [pivot.x + ox, pivot.y + oy],
+      [nose.x + ox, nose.y + oy],
+      [nose.x - ox, nose.y - oy],
+      [pivot.x - ox, pivot.y - oy],
+    ],
+    cls
+  );
+}
+
+/** The Fisher 11 side elevation (7.2), simplified from the brochure's
+ * dimension drawing: chassis and deck, raised rear box, push posts, a wheel
+ * at each end, and the lift beam from its pivot to the nose. */
 function dolly(block) {
-  const { shape } = block;
-  const c = shape.chassis;
-  const ghosts = shape.ghosts.map((g) => line(shape.pivot.x, shape.pivot.y, g.x, g.y, "beam-ghost")).join("");
+  const s = block.shape;
+  const c = s.chassis;
+  const box = s.rearBox;
+  const ghosts = s.ghosts.map((g) => beamPolygon(s.pivot, g, s.beam, "beam-ghost")).join("");
+  const posts = [0, s.posts.width * 2.2]
+    .map((dx) => rect(s.posts.x + dx - s.posts.width / 2, s.posts.top, s.posts.width, s.posts.bottom - s.posts.top, "o k-fixed post"))
+    .join("");
+  const grip = rect(s.posts.x - s.posts.width, s.posts.top, s.posts.width * 4.4, s.posts.width, "o k-fixed post");
   return (
     ghosts +
-    rect(c.x, c.y, c.width, Math.max(c.height, MIN_PX), "o k-fixed", { rx: 3 }) +
-    wheels(shape, c) +
-    line(shape.pivot.x, shape.pivot.y, shape.nose.x, shape.nose.y, "beam k-moveable") +
-    circle(shape.pivot.x, shape.pivot.y, shape.noseRadius * 0.6, "o k-fixed") +
-    circle(shape.nose.x, shape.nose.y, shape.noseRadius, "o k-fixed")
+    posts +
+    grip +
+    rect(box.x, box.y, box.width, box.height, "o k-fixed", { rx: 2 }) +
+    rect(c.x, c.y, c.width, c.height, "o k-fixed", { rx: 2 }) +
+    s.tire.centers.map((center) => wheel(s, center)).join("") +
+    beamPolygon(s.pivot, s.nose, s.beam, "o k-moveable beam") +
+    circle(s.pivot.x, s.pivot.y, s.beam * 0.7, "o k-fixed") +
+    circle(s.nose.x, s.nose.y, s.noseRadius, "o k-fixed")
   );
 }
 
 // --- Nose fittings -----------------------------------------------------------
 
 function sle(block) {
+  // The leveling head under its Mitchell plate, with a neck up to the nose
+  // when the plate is set below it. What mounts on the plate sits above.
   const f = frame(block.box);
-  // The leveling head hangs from the nose (the box top) with the Mitchell
-  // plate at its foot; set all the way up, it's a sliver under the plate.
-  const plate = block.shape.plate;
-  return rect(f.left, f.top, f.w, Math.max(f.h, 8), fill(block.kind), { rx: 2 }) + rect(f.left - 2, plate - 2, f.w + 4, 3, "o k-fixed plate");
+  const { plate, nose } = block.shape;
+  const neck = plate > nose ? rect(f.cx - 3, nose, 6, plate - nose, fill(block.kind)) : "";
+  return neck + rect(f.left, plate, f.w, f.bottom - plate, fill(block.kind), { rx: 2 }) + rect(f.left - 2, plate - 2, f.w + 4, 3, "o k-fixed plate");
 }
 
 function lhe(block) {
-  const { nose, foot, arm } = block.shape;
-  const t = Math.max(arm, 4);
+  // A bracket hanging from the nose: an arm running down and forward, then
+  // a short foot carrying the Mitchell ring (the brochure's LHE, simplified).
+  const { nose, foot, thickness, mitchell } = block.shape;
+  const t = Math.max(thickness, 3);
+  const elbow = nose.x + (foot.x - nose.x) * 0.45;
   return (
-    rect(nose.x - t / 2, Math.min(nose.y, foot.y), t, Math.abs(foot.y - nose.y), fill(block.kind)) +
-    rect(nose.x - t / 2, foot.y - t / 2, foot.x - nose.x + t, t, fill(block.kind)) +
-    rect(foot.x - t, foot.y - t, t * 2, t / 2, "o k-fixed plate")
+    path(
+      [
+        `M ${n(nose.x - t)} ${n(nose.y)}`,
+        `L ${n(nose.x + t)} ${n(nose.y)}`,
+        `L ${n(elbow + t)} ${n(foot.y)}`,
+        `L ${n(foot.x + mitchell)} ${n(foot.y)}`,
+        `L ${n(foot.x + mitchell)} ${n(foot.y + t)}`,
+        `L ${n(elbow - t)} ${n(foot.y + t)}`,
+        "Z",
+      ].join(" "),
+      fill(block.kind)
+    ) + rect(foot.x - mitchell, foot.y - 2, mitchell * 2, 2, "o k-fixed plate")
   );
 }
 
@@ -159,16 +219,19 @@ function swivel(block) {
 }
 
 function offset(block) {
+  // A plate with a Mitchell ring at each end, all within its thickness — no
+  // stubs: the piece below meets its bottom face, the next piece meets the
+  // face in use at the far end, marked.
   const { near, far, plateTop, plateBottom, mitchell, side } = block.shape;
   const thick = Math.max(plateBottom - plateTop, MIN_PX);
-  const stub = Math.max(mitchell, 4);
-  const plate = rect(near.x - stub, plateBottom - thick, far.x - near.x + stub * 2, thick, fill(block.kind), { rx: 2 });
-  const below = (x, cls) => rect(x - stub / 2, plateBottom, stub, stub * 0.6, cls);
-  const above = (x, cls) => rect(x - stub / 2, plateBottom - thick - stub * 0.6, stub, stub * 0.6, cls);
+  const top = plateBottom - thick;
+  const ring = (x) => rect(x - mitchell * 0.8, top + thick * 0.25, mitchell * 1.6, thick * 0.5, "o hole", { rx: thick * 0.25 });
+  const faceY = side === "bottom" ? plateBottom - 1.5 : top;
   return (
-    plate +
-    below(near.x, "o k-fixed mitchell") +
-    (side === "bottom" ? below(far.x, "o k-fixed mitchell in-use") + above(far.x, "o mitchell spare") : above(far.x, "o k-fixed mitchell in-use") + below(far.x, "o mitchell spare"))
+    rect(near.x - mitchell, top, far.x - near.x + mitchell * 2, thick, fill(block.kind), { rx: Math.min(thick / 2, 4) }) +
+    ring(near.x) +
+    ring(far.x) +
+    rect(far.x - mitchell, faceY, mitchell * 2, 1.5, "in-use")
   );
 }
 
@@ -200,23 +263,34 @@ function lambda(block) {
 // --- Camera --------------------------------------------------------------------
 
 function camera(block) {
-  const { body, lens, barrel, inverted, handle } = block.shape;
-  const h = Math.max(body.height, 10);
-  const top = handle || inverted ? body.y : body.y + body.height - h;
-  const bodyRect = rect(body.x, top, body.width, h, "o k-fixed body", { rx: 3 });
-  const lensHeight = Math.min(h * 0.6, 18);
-  const barrelRect = rect(body.x + body.width, lens.y - lensHeight / 2, barrel, lensHeight, "o k-fixed lens", { rx: 2 });
-  const handleY = inverted ? top + h : top;
-  const handleMark = path(
-    `M ${n(body.x + body.width * 0.2)} ${n(handleY)} v ${inverted ? 4 : -4} h ${n(body.width * 0.6)} v ${inverted ? -4 : 4}`,
+  // One outline, body and lens together, the lens dot at the optical center.
+  // Inverted, the handle is underneath; hung from the handle, it's on top.
+  const { body, lens, opticalCenter, inverted } = block.shape;
+  const b = frame(body);
+  const y = opticalCenter.y;
+  const outline = [
+    `M ${n(b.left)} ${n(b.top)}`,
+    `H ${n(b.right)}`,
+    `V ${n(y - lens.half)}`,
+    `H ${n(lens.x1)}`,
+    `V ${n(y + lens.half)}`,
+    `H ${n(b.right)}`,
+    `V ${n(b.bottom)}`,
+    `H ${n(b.left)}`,
+    "Z",
+  ].join(" ");
+  const handleY = inverted ? b.bottom : b.top;
+  const handle = path(
+    `M ${n(b.left + b.w * 0.2)} ${n(handleY)} v ${inverted ? 4 : -4} h ${n(b.w * 0.6)} v ${inverted ? -4 : 4}`,
     "o handle"
   );
-  return bodyRect + handleMark + barrelRect + circle(lens.x, lens.y, 4, "lens-dot");
+  return path(outline, "o k-fixed camera") + handle + line(b.right, y - lens.half, b.right, y + lens.half, "o") + circle(opticalCenter.x, opticalCenter.y, 3.5, "lens-dot");
 }
 
 const OUTLINES = {
   apple,
   track,
+  spreader,
   tripod,
   "hi-hat": stand,
   "lo-hat": stand,
@@ -237,33 +311,39 @@ export function outlineOf(block) {
   return draw ? draw(block) : rect(block.box.x, block.box.y, block.box.width, block.box.height, fill(block.kind));
 }
 
-/** A tap target covering the whole outline, at least 44px each way. */
-export function hitArea(block) {
-  const f = frame(block.box);
-  const w = Math.max(f.w, 44);
-  const h = Math.max(f.h, 44);
-  return rect(f.cx - w / 2, f.cy - h / 2, w, h, "hit-area");
-}
-
 /** A piece's outline. */
 export function pieceSvg(block) {
   return `<g class="piece shape-${block.shape.type}">${outlineOf(block)}</g>`;
 }
 
 /**
- * The tap targets, one per piece, each covering its whole outline (at least
- * 44px each way). Pieces that share a mount overlap — an SLE under an offset
- * plate, a head on a tripod — so the targets are stacked largest first: a
- * small piece on a big one stays tappable, and the big one is tappable
- * everywhere else. `attrsOf(block)` is the markup that identifies a piece to
- * the UI (for example `data-piece="…"`).
+ * Which piece a tap is on (7.2). Each piece's whole outline is its target,
+ * padded to at least 44px (22px around it). Pieces are drawn in chain order,
+ * each on top of the piece it mounts on, so a tap inside outlines goes to
+ * the topmost one — the SLE over the dolly's nose, a cradled camera over its
+ * cradle, a head over the tripod. A tap just outside goes to the nearest
+ * outline within the padding. Anywhere else is no piece. `point` is in the
+ * drawing's own pixels.
+ * @returns {number|null} the index of the block tapped, or null
  */
-export function hitLayer(blocks, attrsOf) {
-  const area = (b) => Math.max(b.box.width, 44) * Math.max(b.box.height, 44);
-  return [...blocks]
-    .sort((a, b) => area(b) - area(a))
-    .map((b) => `<g class="piece-hit" ${attrsOf(b)}>${hitArea(b)}</g>`)
-    .join("");
+export function pieceAt(blocks, point) {
+  const PAD = 22;
+  const edges = (b) => {
+    // A sliver (a plate) is drawn at least MIN_PX thick, centered on its box.
+    const f = frame(b.box);
+    const grow = Math.max(0, (MIN_PX - f.h) / 2);
+    return { left: f.left, right: f.right, top: f.top - grow, bottom: f.bottom + grow };
+  };
+  const distance = (e) =>
+    Math.hypot(Math.max(e.left - point.x, 0, point.x - e.right), Math.max(e.top - point.y, 0, point.y - e.bottom));
+  let best = null;
+  blocks.forEach((b, i) => {
+    const d = distance(edges(b));
+    if (d > PAD) return;
+    // Nearer wins; on a tie (inside several), the one drawn on top — later in the chain.
+    if (!best || d < best.d || (d === best.d && i > best.i)) best = { i, d };
+  });
+  return best ? best.i : null;
 }
 
 /** An insertion marker: a visible dot with a 44px hit circle. */
@@ -271,7 +351,14 @@ export function markerSvg(point, dataAttrs) {
   return `<g class="marker" ${dataAttrs}>${circle(point.x, point.y, 22, "marker-hit")}${circle(point.x, point.y, 9, "marker-dot")}</g>`;
 }
 
-/** The thin leader from a piece to its label, at the piece's anchor height. */
-export function leaderSvg(block, toX) {
-  return line(block.box.x + block.box.width, block.anchorY, toX, block.anchorY, "leader");
+/**
+ * A piece's tag (7.2): its short name in a small box beside it, placed by
+ * the layout; an inverted camera's tag has a second, warning line.
+ * `dataAttrs` identifies the piece, so the tag opens its sheet too.
+ */
+export function tagSvg(tag, dataAttrs, escape) {
+  const lines = tag.lines
+    .map((text, i) => `<text x="${n(tag.x + 5)}" y="${n(tag.y + 3 + 10 + i * 13)}" class="${i > 0 ? "tag-flag" : "tag-name"}">${escape(text)}</text>`)
+    .join("");
+  return `<g class="tag${tag.warn ? " is-warn" : ""}" ${dataAttrs}>${rect(tag.x, tag.y, tag.width, tag.height, "tag-box", { rx: 4 })}${lines}</g>`;
 }

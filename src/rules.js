@@ -15,6 +15,14 @@ export function acceptsMount(component, mount) {
   return Array.isArray(accepted) ? accepted.includes(mount) : accepted === mount;
 }
 
+/** Whether `item` can sit on `mount`, where `first` means it's the first
+ * piece of the stack. The bare floor presents `floor` as well as `ground`
+ * (SPEC.md 3.1): a `floor` item, like rolling spreaders, only goes first,
+ * since an apple box's top is `ground` alone. */
+export function sitsOn(item, mount, first) {
+  return acceptsMount(item, mount) || (first && mount === "ground" && acceptsMount(item, "floor"));
+}
+
 /** Which way a support's or adapter's top mount faces (default `up`). */
 export function topFacingOf(component) {
   return component.mountFacing || "up";
@@ -107,7 +115,7 @@ export function orderStack(items, startMount, startFacing) {
     if (remaining.length === 0) return { items: placed, topMount: mount, topFacing: facing };
     for (let i = 0; i < remaining.length; i++) {
       const item = remaining[i];
-      if (!acceptsMount(item, mount)) continue;
+      if (!sitsOn(item, mount, placed.length === 0)) continue;
       if (!supportFacingOk(facing, requiredSupportFacingOf(item))) continue;
       const rest = remaining.filter((_, j) => j !== i);
       const found = search(rest, [...placed, item], item.topMount, topFacingOf(item));
@@ -198,6 +206,8 @@ export function ruleViolations(baseItems, adapters, support, nose = null) {
 
 const MOUNT_WORDS = {
   ground: "the floor",
+  floor: "the bare floor",
+  spreader: "rolling spreaders",
   "square-track": "square track",
   "round-track": "round track",
   "fisher-nose": "a Fisher beam nose",
@@ -263,6 +273,7 @@ function whyBaseItem(item, keptBase) {
     return `A ${item.boxSize} apple can't stand on its ${face} face — only a full apple can.`;
   }
   if (orderStack([...keptBase, item], "ground", "up")) return null;
+  if (acceptsMount(item, "floor")) return `${nameOf(item)} sit on the bare floor only — nothing goes underneath them.`;
   const top = orderStack(keptBase, "ground", "up")?.topMount ?? "ground";
   return `${nameOf(item)} needs ${plainMounts(item.bottomMount)} to sit on, but the base layer below already ends in ${plainMount(top)}.`;
 }
@@ -653,8 +664,9 @@ function whyNotInOrder(items, startMount, startFacing, startName) {
   let mount = startMount;
   let facing = startFacing;
   let belowName = startName;
-  for (const item of items) {
-    if (!acceptsMount(item, mount)) {
+  for (const [i, item] of items.entries()) {
+    if (!sitsOn(item, mount, i === 0)) {
+      if (i > 0 && acceptsMount(item, "floor")) return `${withMode(item)} sit on the bare floor only — nothing goes underneath them.`;
       const where = belowName ? `${belowName} ends in ${plainMount(mount)}` : `here it would sit on ${plainMount(mount)}`;
       return `${withMode(item)} needs ${plainMounts(item.bottomMount)} beneath it, but ${where}.`;
     }
@@ -763,7 +775,7 @@ function editContext(gear, packageId, buildId, rawPicks) {
 }
 
 /** Where an insertion point is, in plain words: "on the floor", "on SLE —
- * 4-way Level Head (Upright)", "under Standard Fluid Head". */
+ * 4-way Level Head (Upright)", "under O'Connor 2575D". */
 function positionWords(ctx, slot, index) {
   if (slot === "base") return index === 0 ? "on the floor" : `on ${withMode(ctx.base[index - 1])}`;
   if (index > 0 && index === ctx.adapters.length && ctx.head) return `under ${nameOf(ctx.head)}`;

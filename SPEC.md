@@ -155,6 +155,15 @@ top of the stack is what the support must accept.
   dolly in a wheel mode that rides that track can sit on it (3.2): a tripod
   cannot be put on track. It goes on top of the base stack, and at most one
   fits in a chain.
+- **Rolling spreaders** (`kind: "spreader"`, `floor → spreader`), +3",
+  fixed. They sit on the **bare floor only** — nothing goes underneath
+  them, not an apple box, not track. A base item whose `bottomMount` is
+  `floor` can only be the first item of the base stack: the floor itself
+  presents both `ground` and `floor`, while an apple box's top presents
+  only `ground`. Their top is a `spreader` mount, which **only sticks**
+  accept (baby and standard sticks list it in their `bottomMount`); a
+  hi-hat, low hat, or dolly can't sit on them. Not an apple box, so no
+  apple-box penalty applies.
 - **Wheels** are not a base item: a dolly's wheel set is a *mode of the
   dolly* (3.2), because it decides both the rise and what the dolly can sit
   on.
@@ -166,7 +175,7 @@ configurable. Taller stacks are legal but should be ranked last.
 
 The component with the adjustable range. Tripods, hi-hats, and low hats
 present a `mitchell` top and sit on `ground` only, so sticks can't be put
-on track. The J.L. Fisher 11 presents a `fisher-nose` top that needs a nose
+on track; sticks alone also sit on rolling spreaders (3.1). The J.L. Fisher 11 presents a `fisher-nose` top that needs a nose
 fitting (3.7), and what it sits on depends on its wheel mode.
 
 **Support modes: wheel sets.** A support may declare `modes`, each with a
@@ -187,8 +196,9 @@ A support declares a `kind` — `tripod`, `dolly`, `hi-hat`, or `lo-hat` —
 which the apple-box rules key off (2.1): a dolly forbids apple boxes, a
 tripod on them is penalized in ranking.
 
-- **Tripods** (`kind: "tripod"`; baby, standard, tall). Rise is the bowl
-  height interval.
+- **Tripods** (`kind: "tripod"`; "sticks"). Rise is the bowl height
+  interval, `adjustable`. Seed data: **Baby sticks** 20"–36" and
+  **Standard sticks** 36"–66", both `ground` or `spreader` → `mitchell`.
   Store `specMin`/`specMax` *and* `practicalMin`/`practicalMax` — the
   practical figures account for leveling on a rake and for the legs
   actually clearing the spreader. The solver uses practical figures;
@@ -237,7 +247,8 @@ A head has one or more **modes**. Each mode stores:
 Examples:
 
 - **O'Connor, normal:** positive rise, facing `up`, needs an `up` mount
-  beneath.
+  beneath. Seed data: the **O'Connor 2575D**, Mitchell base, +8.5″ normal;
+  its underslung rise is entered as −8.5″, a placeholder to be corrected.
 - **O'Connor, underslung:** negative rise, facing `down`, needs a `down`
   mount beneath. The plate now faces the floor, so the camera must attach
   either inverted by its base or upright by its top handle (see 3.4).
@@ -329,6 +340,8 @@ the first), and each one's facing requirement (2) is met by the top of the
 one below. Each adapter declares:
 
 - `bottomMount` / `topMount` — usually both `mitchell`.
+- `shortName` — every component (and build) has one, for its tag in the
+  drawing (7.2): "SLE", "LHE", "Riser 6″", "2575".
 - `rise` — signed distance from its bottom mount to its top mount.
   Negative when the top mount sits below the bottom mount.
 - `mountFacing` — `up` or `down`: which way its top mount faces (default
@@ -817,30 +830,42 @@ boxes for a drawing of a given size — so the UI does no height math.
   rise at this setup.
 - **Horizontal position.** Every block carries `x`, its horizontal position
   in inches (0 is the center of the base and support; forward, toward the
-  lens, is positive), and `mountX`, where the next piece mounts. The chain
-  moves sideways only where a piece really moves it: a Fisher's nose sits a
-  fixed distance forward of the chassis and **doesn't move as the beam
-  rises**; an offset plate moves the next piece by its real `plateLength`;
-  the LHE's foot sets the Mitchell forward of the nose. Everything else
-  stacks on the mount below it. Other widths are schematic. Jib arms will
-  later carry their own `x` the same way.
-- **Scale.** The drawing runs vertically from the floor (or the lowest
-  piece, if one hangs below it) to just above the highest of the lens, the
-  top of the target or move band, and the top of any piece; horizontally
-  across every piece. One scale, in pixels per inch, serves both axes, so
-  heights are true to each other and an offset plate is drawn to its real
-  length; if the rig is wide it's drawn smaller rather than squashed. The
-  caller passes the drawing's size in pixels (`frame`); the layout returns
-  each block's pixel `box` (`x`, `y`, `width`, `height`, y measured down
-  from the top), its `mount` point, and a `shape` saying which outline
-  draws it (7.2) with that outline's own pixel points — a tripod's leg
-  spread, a dolly's chassis top, beam pivot, nose, and wheel mode, an
-  offset's side and far end, a camera's lens point and whether it's
-  inverted. The reach does *not* stretch the drawing.
+  lens, is positive), and `mountX`, where the next piece mounts. **Every
+  piece sits on the mount of the piece below it**, with no gap and no
+  connecting part the gear doesn't have. The chain moves sideways only where
+  a piece really moves it: a Fisher's nose sits a fixed distance forward of
+  the chassis and **doesn't move as the beam rises**; an offset plate moves
+  the next piece by its real `plateLength`; the LHE's foot sets the
+  Mitchell forward of the nose. Jib arms will later carry their own `x` the
+  same way.
+- **True scale on both axes.** One inch is the same number of pixels
+  horizontally and vertically, for every piece; nothing is squeezed.
+  Widths are real where the gear gives them (the Fisher 11 from its
+  brochure: 40" long, 28" wheelbase, push posts 39.75" off the floor; an
+  apple box by the face it stands on; an offset plate's length) and
+  simplified but true-to-size otherwise (a head, a riser, a camera).
+- **Scale fits the current rig and the target.** The drawing spans every
+  piece as it's set now (including the Fisher's push posts and chassis),
+  the target or move band, and the beam at the top of a moving range —
+  vertically from the floor (or the lowest piece) to just above the
+  highest of those, horizontally across all of them — at the largest one
+  scale that fits both ways. The full reach does *not* stretch it; the
+  reach rail is clipped. The caller passes the drawing's size in pixels
+  (`frame`); the layout returns each block's pixel `box` (the bounding box
+  of its outline: `x`, `y`, `width`, `height`, y measured down from the
+  top), its `mount` point, and a `shape` saying which outline draws it
+  (7.2) with that outline's own pixel points — a tripod's leg spread; a
+  dolly's wheels (per wheel mode), chassis, deck, rear box, push posts,
+  beam pivot and nose; an offset's side and far end; a camera's body, lens,
+  and optical center, and whether it's inverted.
 - **The Fisher beam.** The beam is drawn from a fixed pivot on the chassis
   to the nose at its current height; its angle is visual only. For a
   moveable range target the layout also gives the nose at the bottom and
   top of the move (`shape.ghosts`), so both ends can be drawn faintly.
+  **The lift beam has zero horizontal travel**: the nose rises straight
+  up. This is confirmed from years of use on the dolly; the brochure's
+  side-elevation drawing implies the nose moves along an arc and is wrong
+  on this point. The drawing does not follow the brochure here.
 - **Bands:** `reach` is every lens height the chain can reach; `moveable`
   is the span the moveable portion can sweep from this setup (or `null` if
   the chain has none); `target` is the target's position — a line for a
@@ -850,12 +875,12 @@ boxes for a drawing of a given size — so the UI does no height math.
   real `min` and `max`, the labels at the rail's bottom and top.
 - **No margin tags.** The margins are stated once, in the verdict (5.6);
   the drawing's rail shows the reach they're measured against.
-- **The label lane.** Every block has a label, in one lane beside the
-  drawing, each as close as possible to the height it belongs to
-  (`anchorPct`, and `anchorY` in pixels for its leader) but spread apart so
-  none overlap (`pct`). Labels wrap rather than truncate, so their heights
-  vary: the caller measures each label and passes the heights in pixels
-  with the drawing's height, and the layout converts and spreads them.
+- **Tags, not labels.** The drawing takes the full width; there is no
+  label column. Each piece has a small `tag` — its `shortName` from the
+  gear ("SLE", "LHE", "Riser 6″", "2575"), and for an inverted camera
+  a second line, "Camera inverted — flip image" — placed beside the piece
+  (to its right, or its left if there's no room), nudged up or down so no
+  two tags overlap. The full name and rise are in the piece's sheet.
 - **Insertion points** (`gaps`) are identified by slot and index: `base` 0
   is the floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on
   the nose fitting (or the support, if it takes none), `adapter` *i* on
@@ -882,7 +907,7 @@ of it:
 - `addOptions` — everything that can legally be added to the rig
   anywhere, one entry per component, each with the positions (slot and
   index, 5.8) where it fits, and a plain-words description of each for
-  accessibility ("on the floor", "under Standard Fluid Head"). An item is
+  accessibility ("on the floor", "under O'Connor 2575D"). An item is
   added in its first mode that fits at the chosen position.
 - `swapOptions` — for one piece of the rig, what may replace it.
 - `applyEdit` — turn an insert, swap, remove, or mode change into the next
@@ -1012,17 +1037,17 @@ top to bottom:
 2. **Verdict** — one line (5.6): "✓ Covers 20–32″ · only ½″ to spare at
    top", "✗ 3½″ too short". Green when feasible, the warning color when
    feasible but the tightest margin is under 1″, red when not.
-3. **The drawing** (5.8) — the main element: a schematic 2D outline of
-   each piece, one kind of outline per kind of gear, at true vertical scale
-   and stretched to each piece's real bottom and top heights. Horizontal
-   proportions are schematic, except offset plates, which are drawn to
-   their real length. The moveable / adjustable / fixed fills sit inside
-   the outlines. **The target line or move band is the one strong line**,
-   across the full width; label leaders are thin and neutral. A rail on
-   the left shows the reach, labeled with its lowest and highest lens
-   heights, and the moveable sweep; where the reach runs past the drawing
-   it is clipped and marked as continuing. The drawing's border takes the
-   status color. Labels wrap to two lines rather than truncating.
+3. **The drawing** (5.8) — the main element, full width: a simplified 2D
+   side view of each piece, one kind of outline per kind of gear, at true
+   scale on both axes and stretched to each piece's real bottom and top
+   heights. Pieces connect: each sits on the mount of the one below. The
+   moveable / adjustable / fixed fills sit inside the outlines. Each piece
+   carries a small tag with its short name beside it; there's no label
+   column. **The target line or move band is the one strong line**,
+   across the full width. A rail on the left shows the reach, labeled
+   with its lowest and highest lens heights, and the moveable sweep; where
+   the reach runs past the drawing it is clipped and marked as continuing.
+   The drawing's border takes the status color.
 
    The outlines (`src/outlines.js`, one module; each draws shapes only,
    inside the pixel box and points the layout hands it, and does no height
@@ -1031,20 +1056,27 @@ top to bottom:
    - **Hi-hat, low hat** — a short stand on a spread base.
    - **Apple box** — a box sized by the face it stands on, with hand holes.
    - **Track** — rails on ties; square or round rails.
-   - **Fisher dolly** — chassis; wheels drawn per wheel mode (pneumatic
-     tires, ETW track wheels, skateboard wheels); the lift beam from a fixed
-     pivot to the nose at its angle for the current lift. The nose stays at
-     one horizontal position as it rises. For a moveable range target,
-     faint outlines of the beam at the bottom and top of the move.
-   - **SLE** — a small block with a plate. **LHE** — an L-bracket.
+   - **Rolling spreaders** — a low spreader with a caster at each end,
+     under the tripod feet.
+   - **Fisher dolly** — a side elevation from the brochure's dimension
+     drawing, simplified, not traced: a low chassis about 40" long with a
+     raised rear box, one wheel at each end on a 28" wheelbase (drawn per
+     wheel mode: pneumatic tires, ETW grooved track wheels, skateboard
+     wheels under a plate), push posts at the rear 39.75" off the floor, and
+     the lift beam pivoting on the chassis and rising forward to the nose.
+     The nose stays at one horizontal position as it rises. For a moveable
+     range target, faint outlines of the beam at the bottom and top of the
+     move.
+   - **SLE** — a small block with a plate. **LHE** — a short L-bracket
+     hanging from the nose, its foot carrying the Mitchell forward.
    - **Riser** — a cage. **Offset** — a plate with a Mitchell on its top and
      bottom, the side in use marked. **Rotating offset** — a swivel.
-   - **Fluid head** — pan base, tilt body, plate; upside down when
+   - **Fluid head** (the O'Connor 2575D) — pan base, tilt body, plate; upside down when
      underslung. **Lambda** — a cradle around the camera.
-   - **Camera** — body and lens, with the lens dot at the optical center;
-     drawn upside down when inverted.
+   - **Camera** — one outline, body and lens together, with the lens dot at
+     the optical center; drawn upside down when inverted.
 4. **Edit in the drawing** (5.9). Tapping a piece — anywhere in its
-   outline, or its label — opens a sheet to swap it, change its mode (a
+   outline, or its tag — opens a sheet to swap it, change its mode (a
    toggle for two states, a segmented choice for more, like a full apple's
    faces), or remove it. **One Add button** under the drawing opens a
    sheet of everything that can legally be added to the rig. Choosing an
@@ -1059,10 +1091,11 @@ top to bottom:
    switches it with a plain-language note. There are no checkbox lists or
    dropdown sections.
 
-**Information appears once.** Each piece's name and signed rise appear
-only on its label in the drawing — no text legend beside it. All gear
-values are treated as correct, so there's no "estimated" marking (4).
-"Camera inverted — flip image" appears once, on the camera's label. A base
+**Information appears once.** Each piece shows only its short name, on its
+tag in the drawing; its full name and signed rise are in its sheet. No
+text legend beside the drawing. All gear values are treated as correct, so
+there's no "estimated" marking (4). "Camera inverted — flip image" appears
+once, on the camera's tag. A base
 layer over the stacking cap is noted in a line under the drawing. Adjustability is always called
 **moveable / adjustable / fixed** (3.5), in the drawing's key and in the
 words.

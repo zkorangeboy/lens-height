@@ -24,8 +24,8 @@
   --moveable-alt: #f3b676;
   --reach: #c3cad6;
 
-  /* The drawing's height. app.js's LANE sizes are the lane entries below
-     as a percentage of this. */
+  /* The drawing's height, in pixels; the drawing area measures itself and
+     hands its size to stackLayout. */
   --plot-height: 520px;
 
   color-scheme: light dark;
@@ -372,30 +372,17 @@ select {
   transform: none;
 }
 
-/* The drawing area (an SVG sized by stackLayout's frame), then the lane. */
+/* The drawing area: an SVG sized by stackLayout's frame, the full width. */
 .drawing {
-  left: 7%;
-  width: 51%;
+  left: 5%;
+  width: 95%;
   top: 0;
   height: 100%;
   overflow: visible;
 }
 
-.leader-v {
-  left: 58.5%;
-  width: 0;
-  border-left: 1px solid var(--text-secondary);
-  opacity: 0.35;
-}
 
-.lane-label {
-  left: 60%;
-}
 
-.lane-label:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 1px;
-}
 
 /* Outlines (src/outlines.js): one kind per gear, fills by adjustability. */
 .drawing .o {
@@ -449,24 +436,11 @@ select {
   stroke-width: 2;
 }
 
-/* The whole outline is the tap target (at least 44px each way). */
-.drawing .hit-area {
+/* The whole drawing takes taps; src/outlines.js's pieceAt says which piece. */
+.drawing .tap-surface {
   fill: transparent;
-  stroke: none;
   pointer-events: all;
   cursor: pointer;
-}
-
-.drawing .piece-hit:focus-visible .hit-area,
-.drawing .piece-hit:active .hit-area {
-  fill: var(--accent-soft);
-  fill-opacity: 0.35;
-}
-
-.drawing .leader {
-  stroke: var(--text-secondary);
-  stroke-width: 1;
-  opacity: 0.35;
 }
 
 /* Placing an item: its legal attach points, 44px tap targets. */
@@ -498,45 +472,27 @@ select {
   font-weight: 700;
 }
 
-/* The lane: labels, placed by stack.js. */
-.lane-label {
-  right: 0;
-  z-index: 4;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  transform: translateY(50%);
+/* Tags: each piece's short name beside it (placed by stack.js). */
+.drawing .tag { cursor: pointer; }
+
+.drawing .tag-box {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1;
 }
 
-/* Labels wrap rather than truncate; stack.js spreads them by their measured heights. */
-.label-name {
-  font-size: 0.78rem;
+.drawing .tag text {
+  font-family: inherit;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
+  fill: var(--text);
 }
 
-.label-rise {
-  font-size: 0.74rem;
-  line-height: 1.2;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.label-flag {
-  overflow: hidden;
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--warning);
-}
+.drawing .tag .tag-flag { fill: var(--warning); }
+.drawing .tag.is-warn .tag-box { stroke: var(--warning); }
+.drawing .groove { fill: var(--surface); }
+.drawing .post { stroke-width: 1; }
+.drawing .camera { fill: var(--fixed); }
 
 /* Under the drawing: the key, and the stacking cap. */
 .rig-footer {
@@ -638,7 +594,6 @@ select {
 }
 
 .option:active,
-.lane-label:active,
 .choice-btn:active,
 .add-button:active {
   opacity: 0.8;

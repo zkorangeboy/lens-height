@@ -21,13 +21,13 @@ const P = ["test-package", "build-placeholder"];
 const picksFor = (over = {}) => ({
   baseItemIds: [],
   baseModes: {},
-  supportId: "tripod-baby-placeholder",
+  supportId: "baby-sticks",
   supportMode: null,
   noseId: null,
   noseMode: null,
   adapterIds: [],
   adapterModes: {},
-  headId: "head-standard-placeholder",
+  headId: "oconnor-2575d",
   modeName: "normal",
   attachName: "base",
   ...over,
@@ -101,15 +101,15 @@ describe("slotOptions: only what can legally attach to what's below", () => {
   test("supports must accept the top of the base stack, and a dolly can't sit on apple boxes", () => {
     const onTrack = opts({ baseItemIds: ["square-track"], supportId: null, adapterIds: [], headId: null, modeName: null, attachName: null });
     assert.equal(byId(onTrack.support, "fisher-11").available, true);
-    for (const id of ["tripod-baby-placeholder", "hihat-placeholder", "lohat-placeholder"]) {
+    for (const id of ["baby-sticks", "hihat-placeholder", "lohat-placeholder"]) {
       assert.equal(byId(onTrack.support, id).available, false, id);
     }
-    assert.match(byId(onTrack.support, "tripod-baby-placeholder").reason, /floor, not on square track/i);
+    assert.match(byId(onTrack.support, "baby-sticks").reason, /floor or rolling spreaders, not on square track/i);
 
     const onApple = opts({ baseItemIds: ["apple-half"], supportId: null, headId: null, modeName: null, attachName: null });
     assert.equal(byId(onApple.support, "fisher-11").available, false);
     assert.match(byId(onApple.support, "fisher-11").reason, /apple boxes can't go under a dolly/i);
-    assert.equal(byId(onApple.support, "tripod-baby-placeholder").available, true, "a tripod on apple boxes is legal");
+    assert.equal(byId(onApple.support, "baby-sticks").available, true, "a tripod on apple boxes is legal");
   });
 
   test("nose fittings only on a Fisher beam nose; risers and offsets anywhere", () => {
@@ -119,7 +119,7 @@ describe("slotOptions: only what can legally attach to what's below", () => {
       assert.equal(byId(onTripod.nose, id).available, false, `${id} on the tripod`);
       assert.equal(byId(onDolly.nose, id).available, true, `${id} on the dolly`);
     }
-    assert.match(byId(onTripod.nose, "fisher-lhe").reason, /mounts on a Fisher beam nose, and Baby Tripod tops out in a Mitchell mount/i);
+    assert.match(byId(onTripod.nose, "fisher-lhe").reason, /mounts on a Fisher beam nose, and Baby sticks tops out in a Mitchell mount/i);
     for (const riser of ["mitchell-riser-6", "mitchell-riser-24", "mitchell-riser-3", "mitchell-offset-10", "mitchell-offset-24", "rotating-offset"]) {
       assert.equal(byId(onTripod.adapters, riser).available, true, `${riser} works anywhere`);
       assert.equal(byId(onDolly.adapters, riser).available, true);
@@ -127,13 +127,13 @@ describe("slotOptions: only what can legally attach to what's below", () => {
   });
 
   test("an underslung head mode isn't offered on a tripod, but is with an offset in underslung mode", () => {
-    const standard = (o) => byId(o.head, "head-standard-placeholder");
+    const standard = (o) => byId(o.head, "oconnor-2575d");
     const modes = (o) => Object.fromEntries(standard(o).modes.map((m) => [m.name, m]));
 
     const plain = modes(opts());
     assert.equal(plain.normal.available, true);
     assert.equal(plain.underslung.available, false);
-    assert.match(plain.underslung.reason, /needs a down-facing mount beneath the head, but the top of Baby Tripod/i);
+    assert.match(plain.underslung.reason, /needs a down-facing mount beneath the head, but the top of Baby sticks/i);
 
     const hung = opts({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" });
     assert.equal(modes(hung).underslung.available, true);
@@ -153,7 +153,7 @@ describe("slotOptions: only what can legally attach to what's below", () => {
     const o = opts({ baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-6"] });
     assert.equal(byId(o.base, "apple-half").available, true);
     assert.equal(byId(o.adapters, "mitchell-riser-6").available, true);
-    assert.equal(byId(o.support, "tripod-baby-placeholder").available, true);
+    assert.equal(byId(o.support, "baby-sticks").available, true);
   });
 
   test("track: only one fits, and a second is refused with a reason", () => {
@@ -178,7 +178,7 @@ describe("slotOptions: only what can legally attach to what's below", () => {
   test("with no support chosen, everything above says so instead of guessing", () => {
     const o = opts({ supportId: null, adapterIds: [], headId: null, modeName: null, attachName: null });
     assert.match(byId(o.adapters, "mitchell-riser-6").reason, /choose a support first/i);
-    assert.match(byId(o.head, "head-standard-placeholder").reason, /choose a support first/i);
+    assert.match(byId(o.head, "oconnor-2575d").reason, /choose a support first/i);
   });
 
   test("every reason is plain language: no field names or nulls leak through", () => {
@@ -219,14 +219,14 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     assert.equal(picks.supportId, null);
     assert.deepEqual(notes, ["Cleared Fisher 11 Dolly. It is a dolly, and apple boxes can't go under a dolly — use track."]);
     assert.deepEqual(picks.adapterIds, ["mitchell-riser-6"], "picks above the empty slot are kept");
-    assert.equal(picks.headId, "head-standard-placeholder");
+    assert.equal(picks.headId, "oconnor-2575d");
   });
 
   test("changing the support to one that takes no nose fitting clears the nose fitting, and keeps the adapters", () => {
     const { picks, notes } = revalidate({ noseId: "fisher-sle", adapterIds: ["mitchell-riser-6"] });
     assert.equal(picks.noseId, null);
     assert.deepEqual(picks.adapterIds, ["mitchell-riser-6"]);
-    assert.deepEqual(notes, ["Cleared SLE — 4-way Level Head. It mounts on a Fisher beam nose, and Baby Tripod tops out in a Mitchell mount — it takes no nose fitting."]);
+    assert.deepEqual(notes, ["Cleared SLE — 4-way Level Head. It mounts on a Fisher beam nose, and Baby sticks tops out in a Mitchell mount — it takes no nose fitting."]);
   });
 
   test("a Fisher with no nose fitting is incomplete, not illegal: what's above is kept", () => {
@@ -251,14 +251,14 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
   test("track under a tripod clears the tripod", () => {
     const { picks, notes } = revalidate({ baseItemIds: ["square-track"] });
     assert.equal(picks.supportId, null);
-    assert.match(notes[0], /^Cleared Baby Tripod\. It sits on the floor, not on square track\.$/);
+    assert.match(notes[0], /^Cleared Baby sticks\. It sits on the floor or rolling spreaders, not on square track\.$/);
   });
 
   test("refilling the empty support revalidates what was kept above it", () => {
     const cleared = revalidate({ supportId: "fisher-11", noseId: "fisher-sle", baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-6"] }).picks;
     assert.equal(cleared.supportId, null);
     assert.equal(cleared.noseId, "fisher-sle", "kept while there's no support to judge it by");
-    const { picks, notes } = revalidatePicks(seed, ...P, { ...cleared, supportId: "tripod-baby-placeholder" });
+    const { picks, notes } = revalidatePicks(seed, ...P, { ...cleared, supportId: "baby-sticks" });
     assert.equal(picks.noseId, null, "the nose fitting is cleared now that a tripod is chosen");
     assert.deepEqual(picks.adapterIds, ["mitchell-riser-6"]);
     assert.match(notes[0], /SLE/);
@@ -345,8 +345,8 @@ describe("modeControl", () => {
 
   test("on the seed: a tripod head gets no toggle, the offset does, and so does the camera when hung", () => {
     const tripodOpts = opts();
-    assert.equal(modeControl(byId(tripodOpts.head, "head-standard-placeholder").modes).type, "static");
-    assert.match(modeControl(byId(tripodOpts.head, "head-standard-placeholder").modes).hint, /underslung mode needs a down-facing mount/i);
+    assert.equal(modeControl(byId(tripodOpts.head, "oconnor-2575d").modes).type, "static");
+    assert.match(modeControl(byId(tripodOpts.head, "oconnor-2575d").modes).hint, /underslung mode needs a down-facing mount/i);
     assert.equal(modeControl(tripodOpts.attach).type, "static", "an upright head only has the upright mount");
 
     const offsetControl = modeControl(byId(tripodOpts.adapters, "mitchell-offset-10").modes);
@@ -360,7 +360,7 @@ describe("modeControl", () => {
     assert.equal(camera.on.name, "base-inverted");
     assert.equal(camera.off.name, "top-handle");
     // With the plate's bottom side taking the normal mode away, the head has nothing to toggle.
-    assert.equal(modeControl(byId(hung.head, "head-standard-placeholder").modes).type, "static");
+    assert.equal(modeControl(byId(hung.head, "oconnor-2575d").modes).type, "static");
   });
 
   test("components with no underslung mode never get a toggle", () => {
@@ -445,7 +445,7 @@ describe("slot rules agree with the solver's own validation", () => {
           () =>
             buildChain(seed, {
               packageId: P[0], buildId: P[1], baseItemIds: base, supportId: option.id, adapterIds: [],
-              headId: "head-standard-placeholder", modeName: "normal", attachName: "base",
+              headId: "oconnor-2575d", modeName: "normal", attachName: "base",
             }),
           undefined,
           `${option.id} on ${base.join("+") || "the floor"}`
@@ -763,7 +763,8 @@ describe("the UI layer", () => {
     for (const c of [...seed.components, ...seed.packages, ...seed.builds]) {
       assert.doesNotMatch(c.name, /placeholder/i, c.id);
     }
-    assert.equal(app.split("Camera inverted — flip image").length - 1, 1, "written once, in the camera's label");
+    const stack = readFileSync(path.join(root, "src/stack.js"), "utf8");
+    assert.equal((app + stack).split("Camera inverted — flip image").length - 1, 1, "written once, for the camera's tag");
     assert.doesNotMatch(app, /[Ee]stimated|measured|class="dot"/, "no measured/estimated marking at all");
   });
 
@@ -778,7 +779,8 @@ describe("the UI layer", () => {
   });
 
   test("the drawing is outlines from src/outlines.js; adding places an item by tapping a marker, not a list", () => {
-    for (const fn of ["pieceSvg(", "hitLayer(", "markerSvg(", "leaderSvg("]) assert.ok(app.includes(fn), fn);
+    for (const fn of ["pieceSvg(", "pieceAt(", "markerSvg(", "tagSvg("]) assert.ok(app.includes(fn), fn);
+    assert.doesNotMatch(app, /lane-label|leader|labelHtml/, "no label column");
     assert.match(app, /data-place=/, "markers insert on tap");
     assert.match(app, /data-place-item=/, "an item with several points goes to the markers");
     assert.doesNotMatch(app, /Where\?|at\.where, null\)/, "no text list of positions");

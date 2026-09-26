@@ -201,13 +201,15 @@ describe("seed: mounts, adapters, track, apple boxes", () => {
     assert.ok(!mounts.has("dolly-wheels"));
   });
 
-  test("square and round track, +2″ each; the tripod stands on the floor only", () => {
+  test("square and round track, +2″ each; sticks stand on the floor or rolling spreaders only", () => {
     const track = seed.components.filter((c) => c.kind === "track");
     assert.deepEqual(track.map((t) => [t.id, t.bottomMount, t.topMount, t.rise]), [
       ["square-track", "ground", "square-track", 2],
       ["round-track", "ground", "round-track", 2],
     ]);
-    assert.equal(seed.components.find((c) => c.id === "tripod-baby-placeholder").bottomMount, "ground");
+    for (const id of ["baby-sticks", "standard-sticks"]) {
+      assert.deepEqual(seed.components.find((c) => c.id === id).bottomMount, ["ground", "spreader"], id);
+    }
   });
 
   test("only a full apple box appears on a 12in or 20in face", () => {
@@ -755,14 +757,14 @@ describe("head support-side facing", () => {
     const seed = JSON.parse(readFileSync(path.join(__dirname, "..", "gear.json"), "utf8"));
     const heads = seed.components.filter((c) => c.category === "head");
     for (const h of heads) for (const m of h.modes) assert.ok(["up", "down"].includes(m.supportMountFacing), `${h.id}/${m.name}`);
-    const standard = heads.find((h) => h.id === "head-standard-placeholder");
+    const standard = heads.find((h) => h.id === "oconnor-2575d");
     assert.equal(standard.modes.find((m) => m.name === "normal").supportMountFacing, "up");
     assert.equal(standard.modes.find((m) => m.name === "underslung").supportMountFacing, "down");
   });
 
   test("seed: the real standard head can't be underslung on the real tripod, and can from the bottom of a U plate", () => {
     const seed = JSON.parse(readFileSync(path.join(__dirname, "..", "gear.json"), "utf8"));
-    const sel = { packageId: "test-package", buildId: "build-placeholder", supportId: "tripod-baby-placeholder", headId: "head-standard-placeholder", modeName: "underslung", attachName: "base-inverted" };
+    const sel = { packageId: "test-package", buildId: "build-placeholder", supportId: "baby-sticks", headId: "oconnor-2575d", modeName: "underslung", attachName: "base-inverted" };
     assert.throws(() => buildChain(seed, sel), /facing mismatch/i);
     const chain = buildChain(seed, { ...sel, adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } });
     assert.equal(chain.adapters[0].mode, "bottom");

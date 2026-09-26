@@ -4,6 +4,7 @@
     {
       "id": "apple-quarter",
       "name": "Quarter Apple Box",
+      "shortName": "Quarter apple",
       "category": "base",
       "kind": "apple-box",
       "boxSize": "quarter",
@@ -17,6 +18,7 @@
     {
       "id": "apple-half",
       "name": "Half Apple Box",
+      "shortName": "Half apple",
       "category": "base",
       "kind": "apple-box",
       "boxSize": "half",
@@ -30,6 +32,7 @@
     {
       "id": "apple-full",
       "name": "Full Apple Box",
+      "shortName": "Full apple",
       "category": "base",
       "kind": "apple-box",
       "boxSize": "full",
@@ -66,6 +69,7 @@
     {
       "id": "square-track",
       "name": "Square Track",
+      "shortName": "Square track",
       "category": "base",
       "kind": "track",
       "bottomMount": "ground",
@@ -78,6 +82,7 @@
     {
       "id": "round-track",
       "name": "Round Track",
+      "shortName": "Round track",
       "category": "base",
       "kind": "track",
       "bottomMount": "ground",
@@ -88,26 +93,66 @@
       "notes": "docs/fisher-11.md: +2″. Needs ETW or skateboard wheels."
     },
     {
-      "id": "tripod-baby-placeholder",
-      "name": "Baby Tripod",
+      "id": "rolling-spreaders",
+      "name": "Rolling spreaders",
+      "shortName": "Spreaders",
+      "category": "base",
+      "kind": "spreader",
+      "bottomMount": "floor",
+      "topMount": "spreader",
+      "rise": 3,
+      "stability": "normal",
+      "adjustability": "fixed",
+      "notes": "SPEC.md 3.1: bare floor only; only sticks sit on it."
+    },
+    {
+      "id": "baby-sticks",
+      "name": "Baby sticks",
+      "shortName": "Baby sticks",
       "category": "support",
-      "bottomMount": "ground",
+      "kind": "tripod",
+      "bottomMount": [
+        "ground",
+        "spreader"
+      ],
       "topMount": "mitchell",
       "riseRange": {
-        "specMin": 10,
-        "specMax": 28,
-        "practicalMin": 11,
-        "practicalMax": 27
+        "specMin": 20,
+        "specMax": 36,
+        "practicalMin": 20,
+        "practicalMax": 36
       },
-      "levelingLoss": 1,
+      "levelingLoss": 0,
       "spreadRequired": true,
       "adjustability": "adjustable",
-      "notes": "Legs are set between setups, not moved during a take.",
-      "kind": "tripod"
+      "notes": "Legs are set between setups, not moved during a take."
+    },
+    {
+      "id": "standard-sticks",
+      "name": "Standard sticks",
+      "shortName": "Standards",
+      "category": "support",
+      "kind": "tripod",
+      "bottomMount": [
+        "ground",
+        "spreader"
+      ],
+      "topMount": "mitchell",
+      "riseRange": {
+        "specMin": 36,
+        "specMax": 66,
+        "practicalMin": 36,
+        "practicalMax": 66
+      },
+      "levelingLoss": 0,
+      "spreadRequired": true,
+      "adjustability": "adjustable",
+      "notes": "Legs are set between setups, not moved during a take."
     },
     {
       "id": "fisher-11",
       "name": "Fisher 11 Dolly",
+      "shortName": "Fisher 11",
       "category": "support",
       "kind": "dolly",
       "family": "fisher",
@@ -154,6 +199,7 @@
     {
       "id": "hihat-placeholder",
       "name": "Hi-Hat",
+      "shortName": "Hi-hat",
       "category": "support",
       "bottomMount": "ground",
       "topMount": "mitchell",
@@ -165,6 +211,7 @@
     {
       "id": "lohat-placeholder",
       "name": "Low Hat",
+      "shortName": "Low hat",
       "category": "support",
       "bottomMount": "ground",
       "topMount": "mitchell",
@@ -176,6 +223,7 @@
     {
       "id": "fisher-sle",
       "name": "SLE — 4-way Level Head",
+      "shortName": "SLE",
       "category": "nose",
       "bottomMount": "fisher-nose",
       "topMount": "mitchell",
@@ -214,6 +262,7 @@
     {
       "id": "fisher-lhe",
       "name": "LHE — 4-way Low Level Head",
+      "shortName": "LHE",
       "category": "nose",
       "bottomMount": "fisher-nose",
       "topMount": "mitchell",
@@ -227,6 +276,7 @@
     {
       "id": "mitchell-riser-3",
       "name": "Mitchell Riser 3\"",
+      "shortName": "Riser 3″",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -238,6 +288,7 @@
     {
       "id": "mitchell-riser-6",
       "name": "Mitchell Riser 6\"",
+      "shortName": "Riser 6″",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -249,6 +300,7 @@
     {
       "id": "mitchell-riser-12",
       "name": "Mitchell Riser 12\"",
+      "shortName": "Riser 12″",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -260,6 +312,7 @@
     {
       "id": "mitchell-riser-18",
       "name": "Mitchell Riser 18\"",
+      "shortName": "Riser 18″",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -271,6 +324,7 @@
     {
       "id": "mitchell-riser-24",
       "name": "Mitchell Riser 24\"",
+      "shortName": "Riser 24″",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -282,6 +336,7 @@
     {
       "id": "mitchell-offset-10",
       "name": "Mitchell Offset, 10″",
+      "shortName": "Offset 10″",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -306,6 +361,7 @@
     {
       "id": "mitchell-offset-24",
       "name": "Mitchell Offset, 24″",
+      "shortName": "Offset 24″",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -330,6 +386,7 @@
     {
       "id": "rotating-offset",
       "name": "Rotating Offset",
+      "shortName": "Rotating offset",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
@@ -340,31 +397,33 @@
       "drawAs": "swivel"
     },
     {
-      "id": "head-standard-placeholder",
-      "name": "Standard Fluid Head",
+      "id": "oconnor-2575d",
+      "name": "O'Connor 2575D",
+      "shortName": "2575",
       "category": "head",
       "bottomMount": "mitchell",
       "topMount": "flat-38",
       "modes": [
         {
           "name": "normal",
-          "rise": 6,
+          "rise": 8.5,
           "cameraMountFacing": "up",
           "supportMountFacing": "up"
         },
         {
           "name": "underslung",
-          "rise": -4,
+          "rise": -8.5,
           "cameraMountFacing": "down",
           "supportMountFacing": "down"
         }
       ],
       "adjustability": "fixed",
-      "notes": "Underslung hangs from a down-facing mount: the bottom side of a Mitchell offset, or an SLE mounted underslung."
+      "notes": "Underslung rise −8.5″ is a placeholder, to be corrected. Underslung hangs from a down-facing mount: the bottom side of a Mitchell offset, or an SLE mounted underslung."
     },
     {
       "id": "head-lambda-placeholder",
       "name": "Lambda Head",
+      "shortName": "Lambda",
       "category": "head",
       "bottomMount": "mitchell",
       "topMount": "flat-38",
@@ -389,6 +448,7 @@
     {
       "id": "baseplate-19-placeholder",
       "name": "19mm Studio Baseplate",
+      "shortName": "Baseplate",
       "category": "baseplate",
       "bottomMount": "flat-38",
       "topMount": "dovetail",
@@ -398,6 +458,7 @@
     {
       "id": "riser-1in-placeholder",
       "name": "1in Riser Block",
+      "shortName": "1″ riser",
       "category": "riser",
       "bottomMount": "dovetail",
       "topMount": "dovetail",
@@ -407,6 +468,7 @@
     {
       "id": "camera-body-placeholder",
       "name": "Camera Body",
+      "shortName": "Camera body",
       "category": "camera-body",
       "bottomMount": "camera-base",
       "topMount": "optical-center",
@@ -424,7 +486,9 @@
         "apple-full",
         "square-track",
         "round-track",
-        "tripod-baby-placeholder",
+        "rolling-spreaders",
+        "baby-sticks",
+        "standard-sticks",
         "fisher-11",
         "hihat-placeholder",
         "lohat-placeholder",
@@ -438,7 +502,7 @@
         "mitchell-offset-10",
         "mitchell-offset-24",
         "rotating-offset",
-        "head-standard-placeholder",
+        "oconnor-2575d",
         "head-lambda-placeholder",
         "baseplate-19-placeholder",
         "riser-1in-placeholder",
@@ -450,6 +514,7 @@
     {
       "id": "build-placeholder",
       "name": "A-Cam Build",
+      "shortName": "Camera",
       "componentIds": [
         "baseplate-19-placeholder",
         "riser-1in-placeholder",

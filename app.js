@@ -17,7 +17,7 @@ import { addOptions, applyEdit, defaultPicks, missingSlot, modeControl, revalida
 import { checkVerdict } from "./src/verdict.js";
 import { inches, signedInches as fmtSigned } from "./src/format.js";
 import { stackLayout } from "./src/stack.js";
-import { hitLayer, leaderSvg, markerSvg, pieceSvg } from "./src/outlines.js";
+import { markerSvg, pieceAt, pieceSvg, tagSvg } from "./src/outlines.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -33,6 +33,7 @@ const state = {
   target: { type: "fixed", height: "", low: "", high: "" },
   sheet: null, // what the open sheet is about: {slot, id} for a piece, {add: true} for the Add sheet
   placing: null, // an item chosen in the Add sheet, waiting for a tap on one of its markers
+  layout: null, // the drawing's layout, to find which piece a tap is on
 };
 
 const el = {
@@ -149,9 +150,19 @@ function wireEdits() {
       else render();
       return;
     }
-    const t = event.target.closest("[data-piece],[data-add],[data-place-item],[data-edit],[data-toggle],[data-build],[data-close],[data-dismiss-notes]");
+    const t = event.target.closest("[data-piece],[data-drawing],[data-add],[data-place-item],[data-edit],[data-toggle],[data-build],[data-close],[data-dismiss-notes]");
     if (!t) return;
-    if (t.dataset.piece) {
+    if (t.dataset.drawing !== undefined) {
+      // A tap on the drawing: src/outlines.js says which piece it's on, from
+      // the tap in the drawing's own coordinates (the SVG's transform).
+      const svg = t.ownerSVGElement;
+      const at = Object.assign(svg.createSVGPoint(), { x: event.clientX, y: event.clientY }).matrixTransform(svg.getScreenCTM().inverse());
+      const hit = pieceAt(state.layout.blocks, at);
+      if (hit !== null) {
+        const [slot, id] = pieceKey(state.layout.blocks[hit]).split("|");
+        openSheet({ slot, id });
+      }
+    } else if (t.dataset.piece) {
       const [slot, id] = t.dataset.piece.split("|");
       openSheet({ slot, id });
     } else if (t.dataset.add !== undefined) {
@@ -220,15 +231,15 @@ function render() {
   const evaluation = target ? evaluateChain(chain, target) : null;
   const verdict = checkVerdict(chain, target, evaluation);
 
-  // Draw once to measure the drawing area and the labels (they wrap, so
-  // their heights vary), then lay out again with those sizes.
+  // Draw once to measure the drawing area, then lay out at that size.
   el.rig.dataset.state = verdict.state;
   el.rig.innerHTML = drawingHtml(stackLayout(chain, target));
   const area = el.rig.querySelector(".drawing");
-  const frame = { width: area.clientWidth, height: area.clientHeight };
-  const lane = { plotPx: el.rig.querySelector(".plot").offsetHeight, labelPx: [] };
-  for (const label of el.rig.querySelectorAll(".lane-label")) lane.labelPx[Number(label.dataset.block)] = label.offsetHeight;
-  el.rig.innerHTML = drawingHtml(stackLayout(chain, target, { lane, frame }), state.placing);
+  // The full drawing height from styles.css; the layout may use less (a wide rig).
+  const tallest = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--plot-height"));
+  const frame = { width: area.clientWidth, height: tallest };
+  state.layout = stackLayout(chain, target, { frame });
+  el.rig.innerHTML = drawingHtml(state.layout, state.placing);
   el.placingHint.hidden = !state.placing;
   if (state.placing) el.placingHint.textContent = `Tap a highlighted point to add ${state.placing.name}. Tap anywhere else to cancel.`;
 
@@ -272,10 +283,11 @@ function drawingHtml(layout, placing = null) {
   const blocks = layout.blocks;
   const { width, height } = layout.frame;
 
-  // Outlines (src/outlines.js), a tap target over each; leaders to the lane.
+  // Outlines (src/outlines.js) and each piece's tag. A tap anywhere on the
+  // drawing is resolved to a piece by pieceAt; tags open their piece directly.
+  const pieceAttrs = (b) => `data-piece="${pieceKey(b)}" role="button" aria-label="${escapeHtml(b.name)}"`;
   const pieces = blocks.map((b) => pieceSvg(b)).join("");
-  const hits = hitLayer(blocks, (b) => `data-piece="${pieceKey(b)}" role="button" aria-label="${escapeHtml(b.name)}"`);
-  const leaders = layout.lane.map((entry) => leaderSvg(blocks[entry.block], width)).join("");
+  const tags = blocks.map((b) => tagSvg(b.tag, pieceAttrs(b), escapeHtml)).join("");
 
   // Placing an item: its legal attach points, as markers (positions from the
   // layout, legality from rules.js via addOptions).
@@ -288,10 +300,6 @@ function drawingHtml(layout, placing = null) {
         })
         .join("")
     : "";
-
-  const lane = layout.lane
-    .map((entry) => `<div class="leader-v" style="${pos(entry.leader)}"></div>${labelHtml(blocks[entry.block], entry)}`)
-    .join("");
 
   const target = layout.target
     ? `<div class="target-mark${layout.target.isRange ? " is-range" : ""}" style="${pos(layout.target)}"></div>`
@@ -307,18 +315,17 @@ function drawingHtml(layout, placing = null) {
     <span class="rail-label rail-top" style="bottom:${reach.topPct}%">${reach.continuesAbove ? "↑ " : ""}${inches(reach.max)}</span>
     <span class="rail-label rail-bottom" style="bottom:${reach.bottomPct}%">${reach.continuesBelow ? "↓ " : ""}${inches(reach.min)}</span>`;
 
-  return `<div class="plot${placing ? " is-placing" : ""}" aria-label="Lens reaches ${inches(reach.min)} to ${inches(reach.max)}">
+  return `<div class="plot${placing ? " is-placing" : ""}" style="height:${height}px" aria-label="Lens reaches ${inches(reach.min)} to ${inches(reach.max)}">
     ${rail}
     <div class="floor" style="bottom:${layout.floor.pct}%"></div>
     ${target}
     <svg class="drawing" viewBox="0 0 ${width} ${height}" aria-hidden="false">
       ${PATTERNS}
-      <g class="leaders">${leaders}</g>
       <g class="pieces">${pieces}</g>
-      <g class="hits">${hits}</g>
+      <rect class="tap-surface" data-drawing x="0" y="0" width="${width}" height="${height}"/>
+      <g class="tags">${tags}</g>
       <g class="markers">${markers}</g>
     </svg>
-    ${lane}
   </div>`;
 }
 
@@ -334,18 +341,6 @@ const PATTERNS = `<defs>
 
 const pieceKey = (block) => `${block.slot}|${block.component.id}`;
 
-function labelHtml(block, entry) {
-  const detail = [
-    block.modeLabel || block.mode,
-    block.attach === "top-handle" ? "top handle" : null,
-    block.parts ? block.kind : null,
-  ].filter(Boolean);
-  return `<button type="button" class="lane-label" style="bottom:${entry.pct}%" data-block="${entry.block}" data-piece="${pieceKey(block)}">
-    <span class="label-name">${escapeHtml(block.name)}</span>
-    <span class="label-rise">${fmtSigned(block.rise)}${detail.length ? ` · ${escapeHtml(detail.join(" · "))}` : ""}</span>
-    ${block.inverted ? '<span class="label-flag">Camera inverted — flip image</span>' : ""}
-  </button>`;
-}
 
 function footerHtml(layout, chain) {
   const key = ["moveable", "adjustable", "fixed"]
