@@ -110,66 +110,82 @@ describe("checkVerdict: one line, the tightest margin in plain words", () => {
 // Columns, heights, margins (SPEC.md 5.8)
 // ---------------------------------------------------------------------------
 
-describe("stackLayout: columns that read like the physical rig", () => {
-  test("an upright rig is one column, every block with its bottom and top height", () => {
+describe("stackLayout: horizontal position and pixel geometry", () => {
+  const close = (a, b, eps = 0.05) => Math.abs(a - b) <= eps;
+  const at = (layout, slot) => layout.blocks.find((b) => b.slot === slot);
+
+  test("an upright rig stacks on one line: every piece at x 0, heights contiguous", () => {
     const layout = stackLayout(chainOf(picksFor({ adapterIds: ["mitchell-riser-6"] })), { type: "fixed", height: 40 });
-    assert.equal(layout.columns, 1);
-    assert.deepEqual(layout.connectors, []);
     for (const b of layout.blocks) {
-      assert.equal(b.column, 0);
+      assert.equal(b.x, 0, b.slot);
+      assert.equal(b.mountX, 0, b.slot);
       assert.ok(b.top >= b.bottom);
-      assert.ok(b.topPct >= b.bottomPct);
     }
-    const riser = layout.blocks.find((b) => b.slot === "adapter");
-    const support = layout.blocks.find((b) => b.slot === "support");
-    assert.equal(riser.bottom, support.top, "the riser starts where the support ends");
-    assert.equal(riser.top, riser.bottom + 6);
+    assert.equal(at(layout, "adapter").bottom, at(layout, "support").top, "the riser starts where the support ends");
+    assert.equal(at(layout, "adapter").top, at(layout, "adapter").bottom + 6);
+    assert.equal(layout.columns, undefined, "no columns: horizontal position replaces them");
   });
 
-  test("underslung: the head and camera move to a second column and hang down, joined at the offset", () => {
-    const layout = stackLayout(chainOf(UNDERSLUNG), { type: "fixed", height: 12 });
-    const at = (slot) => layout.blocks.find((b) => b.slot === slot);
-    assert.equal(layout.columns, 2);
-    assert.equal(at("support").column, 0);
-    assert.equal(at("adapter").column, 0, "a zero-rise offset doesn't reverse anything");
-    assert.equal(at("head").column, 1);
-    assert.equal(at("build").column, 1);
-    assert.equal(at("head").direction, "down");
-    assert.equal(at("head").top, at("support").top, "the head hangs from the top of the support");
-    assert.equal(at("build").top, at("head").bottom, "the camera hangs from the head");
-    assert.deepEqual(layout.connectors.map((c) => [c.fromColumn, c.toColumn, c.height]), [[0, 1, at("support").top]]);
-    assert.equal(layout.lens.column, 1);
-    assert.equal(layout.lens.height, at("build").bottom, "the lens is at the bottom of the hanging camera");
+  test("true vertical scale: every piece's box is its rise at one pixels-per-inch scale", () => {
+    for (const picks of [picksFor({ adapterIds: ["mitchell-riser-6"] }), UNDERSLUNG, LAMBDA]) {
+      const layout = stackLayout(chainOf(picks), { type: "fixed", height: 20 }, { frame: { width: 200, height: 500 } });
+      const { scale } = layout.frame;
+      for (const b of layout.blocks) {
+        if (b.component.plateLength) continue; // drawn with its plate's thickness
+        assert.ok(close(b.box.height, (b.top - b.bottom) * scale, 0.1), `${b.slot}: ${b.box.height} vs ${(b.top - b.bottom) * scale}`);
+        assert.ok(close(b.box.y, layout.floor.y - (b.top * scale), 0.1) || b.bottom < 0, `${b.slot} top at its height`);
+      }
+    }
   });
 
-  test("the lambda cradles its camera: underslung, the camera stays in the head's column", () => {
+  test("an offset plate moves the next piece by its real length, drawn at the vertical scale", () => {
+    const layout = stackLayout(chainOf(UNDERSLUNG), { type: "fixed", height: 12 }, { frame: { width: 240, height: 500 } });
+    const plate = at(layout, "adapter");
+    assert.equal(at(layout, "head").x - plate.x, 10, "10″ forward, exactly");
+    assert.equal(plate.mountX - plate.x, 10);
+    assert.ok(close(plate.shape.far.x - plate.shape.near.x, 10 * layout.frame.scale, 0.2), "and drawn 10″ long at the true scale");
+    assert.equal(plate.shape.side, "bottom");
+    assert.equal(at(layout, "head").top, at(layout, "support").top, "the head hangs from the plate, at the top of the support");
+    assert.equal(at(layout, "build").top, at(layout, "head").bottom, "the camera hangs from the head");
+    assert.equal(layout.lens.height, at(layout, "build").bottom, "the lens is at the bottom of the hanging camera");
+    assert.equal(at(layout, "build").shape.inverted, true);
+  });
+
+  test("a 24″ plate fits by drawing the whole rig smaller, never by shortening the plate", () => {
+    const picks = picksFor({ adapterIds: ["mitchell-offset-24"], adapterModes: { "mitchell-offset-24": "bottom" }, modeName: "underslung", attachName: "base-inverted" });
+    const layout = stackLayout(chainOf(picks), { type: "fixed", height: 12 }, { frame: { width: 180, height: 520 } });
+    const plate = at(layout, "adapter");
+    assert.ok(close(plate.shape.far.x - plate.shape.near.x, 24 * layout.frame.scale, 0.3));
+    for (const b of layout.blocks) {
+      assert.ok(b.box.x >= -0.5 && b.box.x + b.box.width <= 180.5, `${b.slot} inside the frame`);
+    }
+  });
+
+  test("schematic widths squeeze before the drawing shrinks", () => {
+    const tripodRig = stackLayout(chainOf(picksFor()), null, { frame: { width: 180, height: 520 } });
+    const fisherRig = stackLayout(chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" })), null, { frame: { width: 180, height: 520 } });
+    for (const layout of [tripodRig, fisherRig]) {
+      assert.ok(layout.frame.squeeze >= 0.25 && layout.frame.squeeze <= 1);
+      for (const b of layout.blocks) assert.ok(b.box.x >= -0.5 && b.box.x + b.box.width <= 180.5, `${b.slot} inside`);
+    }
+  });
+
+  test("the lambda cradles its camera: same position, the camera on the bracket", () => {
     const layout = stackLayout(chainOf(LAMBDA), { type: "fixed", height: 22 });
-    assert.deepEqual(layout.blocks.map((b) => [b.slot, b.column]), [["support", 0], ["head", 1], ["build", 1]]);
-    assert.equal(layout.columns, 2);
-    assert.equal(layout.connectors.length, 1, "one join, at the top of the support");
     const [, head, camera] = layout.blocks;
+    assert.equal(camera.x, head.x);
     assert.equal(camera.cradled, true);
-    assert.equal(head.rise, -13);
+    assert.equal(head.shape.type, "lambda");
+    assert.equal(head.shape.hangs, true);
     assert.equal(camera.bottom, head.bottom, "the camera sits on the bracket at the bottom of the head");
-  });
-
-  test("the lambda overslung is one upright column", () => {
-    const layout = stackLayout(chainOf({ ...LAMBDA, modeName: "overslung" }), null);
-    assert.equal(layout.columns, 1);
-    assert.equal(layout.blocks[1].rise, 13);
-    assert.equal(layout.blocks[2].cradled, true);
-  });
-
-  test("without the flag, a camera rising out of a dropped head would get its own column", () => {
-    const chain = chainOf(LAMBDA);
-    const uncradled = { ...chain, head: { ...chain.head, cradlesCamera: false } };
-    assert.equal(stackLayout(uncradled, null).columns, 3);
+    const over = stackLayout(chainOf({ ...LAMBDA, modeName: "overslung" }), null);
+    assert.equal(over.blocks[1].shape.hangs, false);
+    assert.equal(over.blocks[2].x, over.blocks[1].x);
   });
 
   test("the scale fits the content: the reach rail is clipped, not the drawing stretched", () => {
     const chain = chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" })); // reach 26.375..63.75
-    const layout = stackLayout(chain, { type: "fixed", height: 30 });
-    // Content: floor to the lens at 30 (and the pieces under it).
+    const layout = stackLayout(chain, { type: "fixed", height: 30 }, { frame: { width: 400, height: 520 } });
     assert.equal(layout.lens.height, 30);
     assert.ok(layout.lens.pct > 90 && layout.lens.pct < 100, "the lens is near the top, not squashed under the reach");
     assert.deepEqual([layout.reach.min, layout.reach.max], [26.375, 63.75], "the rail is labeled with the real reach");
@@ -179,21 +195,24 @@ describe("stackLayout: columns that read like the physical rig", () => {
     assert.equal(layout.moveable.continuesAbove, true);
     assert.equal(layout.margins, undefined, "no margin tags; the verdict states the margin");
 
-    const tall = stackLayout(chain, { type: "fixed", height: 70 });
+    const tall = stackLayout(chain, { type: "fixed", height: 70 }, { frame: { width: 400, height: 520 } });
     assert.equal(tall.reach.continuesAbove, false, "a target above the reach stretches the drawing, so the rail fits");
     assert.ok(tall.target.bottomPct < 100);
   });
 
-  test("insertion points: base 0 is the floor, adapter 0 is the top of the support", () => {
+  test("insertion points carry their pixel point: the floor, and the mount of the piece below", () => {
     const layout = stackLayout(chainOf(picksFor({ baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-6"] })), null);
     const g = (slot, index) => layout.gaps.find((x) => x.slot === slot && x.index === index);
     const [box, support, riser] = layout.blocks;
     assert.equal(g("base", 0).height, 0);
+    assert.equal(g("base", 0).point.y, layout.floor.y);
     assert.equal(g("base", 1).height, box.top);
-    assert.equal(g("adapter", 0).height, support.top);
-    assert.equal(g("adapter", 1).height, riser.top);
+    assert.deepEqual(g("adapter", 0).point, support.mount);
+    assert.deepEqual(g("adapter", 1).point, riser.mount);
     assert.equal(g("adapter", 1).on, riser.name);
     assert.equal(layout.gaps.length, 4);
+    const hung = stackLayout(chainOf(UNDERSLUNG), null);
+    assert.equal(hung.gaps.find((x) => x.slot === "adapter" && x.index === 1).x, 10, "on the far end of the plate");
   });
 
   test("nothing is marked estimated: all gear values are treated as correct", () => {

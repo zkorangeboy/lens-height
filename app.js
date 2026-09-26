@@ -4,7 +4,7 @@
 // (src/solver.js), the compatibility rules (src/rules.js), the verdict
 // (src/verdict.js), and the stack layout (src/stack.js), and draws what they
 // return. There is no height math and no compatibility logic here: margins,
-// shortfalls, positions, columns, and label placement come back ready to
+// shortfalls, positions, pixel boxes, and label placement come back ready to
 // draw, what may be added, swapped, or toggled comes from rules.js, and every
 // number is written by src/format.js (¼″ fractions). There is no arithmetic
 // here at all.
@@ -17,6 +17,7 @@ import { addOptions, applyEdit, defaultPicks, missingSlot, modeControl, revalida
 import { checkVerdict } from "./src/verdict.js";
 import { inches, signedInches as fmtSigned } from "./src/format.js";
 import { stackLayout } from "./src/stack.js";
+import { hitLayer, leaderSvg, markerSvg, pieceSvg } from "./src/outlines.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -30,7 +31,8 @@ const state = {
   picks: null, // always revalidated
   notes: [], // plain-language "why did that change" messages
   target: { type: "fixed", height: "", low: "", high: "" },
-  sheet: null, // what the open sheet is about: {slot, id} for a piece, {add: true} or {add: id} for the Add sheet
+  sheet: null, // what the open sheet is about: {slot, id} for a piece, {add: true} for the Add sheet
+  placing: null, // an item chosen in the Add sheet, waiting for a tap on one of its markers
 };
 
 const el = {
@@ -42,6 +44,7 @@ const el = {
   rig: document.getElementById("rig"),
   footer: document.getElementById("rig-footer"),
   addButton: document.getElementById("add-button"),
+  placingHint: document.getElementById("placing-hint"),
   sheet: document.getElementById("sheet"),
 
   targetFixedBtn: document.getElementById("target-fixed"),
@@ -138,14 +141,27 @@ function commit(next) {
 
 function wireEdits() {
   document.addEventListener("click", (event) => {
-    const t = event.target.closest("[data-piece],[data-add],[data-edit],[data-toggle],[data-build],[data-close],[data-dismiss-notes]");
+    // Placing an item: a marker inserts it; a tap anywhere else cancels.
+    if (state.placing) {
+      const marker = event.target.closest("[data-place]");
+      state.placing = null;
+      if (marker) edit(JSON.parse(marker.dataset.place));
+      else render();
+      return;
+    }
+    const t = event.target.closest("[data-piece],[data-add],[data-place-item],[data-edit],[data-toggle],[data-build],[data-close],[data-dismiss-notes]");
     if (!t) return;
     if (t.dataset.piece) {
       const [slot, id] = t.dataset.piece.split("|");
       openSheet({ slot, id });
     } else if (t.dataset.add !== undefined) {
-      // The Add button (data-add=""), or an item with several positions to choose from.
-      openSheet({ add: t.dataset.add || true });
+      openSheet({ add: true });
+    } else if (t.dataset.placeItem) {
+      // An item with several legal attach points: show them on the drawing.
+      const item = addOptions(gear, state.packageId, state.buildId, state.picks).find((o) => o.id === t.dataset.placeItem);
+      closeSheet();
+      state.placing = item;
+      render();
     } else if (t.dataset.edit) {
       const change = JSON.parse(t.dataset.edit);
       if (change.op !== "mode") closeSheet();
@@ -204,13 +220,17 @@ function render() {
   const evaluation = target ? evaluateChain(chain, target) : null;
   const verdict = checkVerdict(chain, target, evaluation);
 
-  // Draw once to measure the labels (they wrap, so their heights vary), then
-  // lay out again with those heights so none overlap.
+  // Draw once to measure the drawing area and the labels (they wrap, so
+  // their heights vary), then lay out again with those sizes.
   el.rig.dataset.state = verdict.state;
   el.rig.innerHTML = drawingHtml(stackLayout(chain, target));
+  const area = el.rig.querySelector(".drawing");
+  const frame = { width: area.clientWidth, height: area.clientHeight };
   const lane = { plotPx: el.rig.querySelector(".plot").offsetHeight, labelPx: [] };
   for (const label of el.rig.querySelectorAll(".lane-label")) lane.labelPx[Number(label.dataset.block)] = label.offsetHeight;
-  el.rig.innerHTML = drawingHtml(stackLayout(chain, target, { lane }));
+  el.rig.innerHTML = drawingHtml(stackLayout(chain, target, { lane, frame }), state.placing);
+  el.placingHint.hidden = !state.placing;
+  if (state.placing) el.placingHint.textContent = `Tap a highlighted point to add ${state.placing.name}. Tap anywhere else to cancel.`;
 
   setVerdict(verdict.state, verdict.text);
   el.footer.innerHTML = footerHtml(stackLayout(chain, target), chain);
@@ -237,6 +257,7 @@ function renderIncomplete(missing) {
   el.rig.dataset.state = "waiting";
   el.footer.innerHTML = "";
   el.addButton.hidden = true;
+  el.placingHint.hidden = true;
   const choices = missing === "attach" ? [] : opts[missing].filter((o) => o.available);
   el.rig.innerHTML = `<div class="empty-slot">${
     choices.length
@@ -247,33 +268,29 @@ function renderIncomplete(missing) {
 
 // --- The drawing (SPEC.md 5.8, 7.2) ------------------------------------------
 
-function drawingHtml(layout) {
+function drawingHtml(layout, placing = null) {
   const blocks = layout.blocks;
-  // A piece with no rise (an offset plate's bottom side) is drawn as a thin bar; a
-  // camera its head cradles is drawn inside the head; a nose fitting is drawn
-  // as an arm down the inner edge of its column, beside what it carries.
-  const shape = (b) => `${b.direction === "flat" ? " is-flat" : ""}${b.cradled ? " is-cradled" : ""}${b.nose ? " is-nose" : ""}`;
-  const parts = blocks
-    .flatMap((b) =>
-      b.parts
-        ? b.parts.map((part) => `<div class="part col-${b.column} kind-${part.kind}" style="${pos(part)}"></div>`)
-        : [`<div class="part col-${b.column} kind-${b.kind}${shape(b)}" style="${pos(b)}"></div>`]
-    )
-    .join("");
-  const hits = blocks
-    .map((b) => `<button type="button" class="hit col-${b.column}${shape(b)}" style="${pos(b)}" data-piece="${pieceKey(b)}" aria-label="${escapeHtml(b.name)}"></button>`)
-    .join("");
+  const { width, height } = layout.frame;
+
+  // Outlines (src/outlines.js), a tap target over each; leaders to the lane.
+  const pieces = blocks.map((b) => pieceSvg(b)).join("");
+  const hits = hitLayer(blocks, (b) => `data-piece="${pieceKey(b)}" role="button" aria-label="${escapeHtml(b.name)}"`);
+  const leaders = layout.lane.map((entry) => leaderSvg(blocks[entry.block], width)).join("");
+
+  // Placing an item: its legal attach points, as markers (positions from the
+  // layout, legality from rules.js via addOptions).
+  const markers = placing
+    ? placing.positions
+        .map((at) => {
+          const gap = layout.gaps.find((g) => g.slot === at.slot && g.index === at.index);
+          const insert = { op: "insert", slot: at.slot, index: at.index, id: placing.id, mode: at.mode };
+          return gap ? markerSvg(gap.point, `data-place="${escapeHtml(JSON.stringify(insert))}" role="button" aria-label="Add ${escapeHtml(placing.name)} ${escapeHtml(at.where)}"`) : "";
+        })
+        .join("")
+    : "";
 
   const lane = layout.lane
-    .map(
-      (entry) => `<div class="leader-h from-col-${entry.column}" style="bottom:${entry.anchorPct}%"></div>
-        <div class="leader-v" style="${pos(entry.leader)}"></div>
-        ${labelHtml(blocks[entry.block], entry)}`
-    )
-    .join("");
-
-  const connectors = layout.connectors
-    .map((c) => `<div class="connector from-col-${c.fromColumn}" style="bottom:${c.pct}%"></div>`)
+    .map((entry) => `<div class="leader-v" style="${pos(entry.leader)}"></div>${labelHtml(blocks[entry.block], entry)}`)
     .join("");
 
   const target = layout.target
@@ -290,17 +307,30 @@ function drawingHtml(layout) {
     <span class="rail-label rail-top" style="bottom:${reach.topPct}%">${reach.continuesAbove ? "↑ " : ""}${inches(reach.max)}</span>
     <span class="rail-label rail-bottom" style="bottom:${reach.bottomPct}%">${reach.continuesBelow ? "↓ " : ""}${inches(reach.min)}</span>`;
 
-  return `<div class="plot" data-columns="${layout.columns}" aria-label="Lens reaches ${inches(reach.min)} to ${inches(reach.max)}">
+  return `<div class="plot${placing ? " is-placing" : ""}" aria-label="Lens reaches ${inches(reach.min)} to ${inches(reach.max)}">
     ${rail}
     <div class="floor" style="bottom:${layout.floor.pct}%"></div>
     ${target}
-    ${connectors}
-    ${parts}
-    ${hits}
-    <div class="lens col-${layout.lens.column}" style="bottom:${layout.lens.pct}%" aria-hidden="true"><span></span></div>
+    <svg class="drawing" viewBox="0 0 ${width} ${height}" aria-hidden="false">
+      ${PATTERNS}
+      <g class="leaders">${leaders}</g>
+      <g class="pieces">${pieces}</g>
+      <g class="hits">${hits}</g>
+      <g class="markers">${markers}</g>
+    </svg>
     ${lane}
   </div>`;
 }
+
+/** Fills for the three kinds (3.5): adjustable dotted, moveable striped. */
+const PATTERNS = `<defs>
+  <pattern id="fill-moveable" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+    <rect width="8" height="8" class="pat-moveable-bg"/><rect width="4" height="8" class="pat-moveable"/>
+  </pattern>
+  <pattern id="fill-adjustable" width="6" height="6" patternUnits="userSpaceOnUse">
+    <rect width="6" height="6" class="pat-adjustable-bg"/><circle cx="3" cy="3" r="1.1" class="pat-adjustable"/>
+  </pattern>
+</defs>`;
 
 const pieceKey = (block) => `${block.slot}|${block.component.id}`;
 
@@ -374,7 +404,7 @@ function modeHtml(control, change, current) {
 }
 
 function renderSheet() {
-  const html = state.sheet.add ? addSheetHtml(state.sheet.add) : pieceSheetHtml(state.sheet);
+  const html = state.sheet.add ? addSheetHtml() : pieceSheetHtml(state.sheet);
   if (html == null) {
     closeSheet();
     return;
@@ -437,22 +467,17 @@ function pieceSheetHtml({ slot, id }) {
 
 /** The Add sheet: everything that fits; an item with several positions
  * asks which. */
-function addSheetHtml(which) {
+/** The Add sheet: everything that fits. An item with one legal attach point
+ * goes straight there; one with several shows its points on the drawing. */
+function addSheetHtml() {
   const options = addOptions(gear, state.packageId, state.buildId, state.picks);
-  const chosen = options.find((o) => o.id === which);
-  if (chosen) {
-    return `<h2>Add ${escapeHtml(chosen.name)}</h2><p class="sheet-sub">Where?</p>
-      <div class="option-list">${chosen.positions
-        .map((at) => optionButton(editAttr({ op: "insert", slot: at.slot, index: at.index, id: chosen.id, mode: at.mode }), at.where, null))
-        .join("")}</div>`;
-  }
   if (!options.length) return `<h2>Add</h2><p class="hint">Nothing else fits this rig.</p>`;
   const item = (o) => {
     const [only] = o.positions;
     const attrs =
       o.positions.length === 1
         ? editAttr({ op: "insert", slot: only.slot, index: only.index, id: o.id, mode: only.mode })
-        : `data-add="${escapeHtml(o.id)}"`;
+        : `data-place-item="${escapeHtml(o.id)}"`;
     return optionButton(attrs, o.label, o.rise);
   };
   const group = (title, category) => {

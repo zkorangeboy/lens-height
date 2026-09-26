@@ -233,40 +233,84 @@ describe("drawing a Fisher", () => {
     assert.equal(byId("fisher-sle").hangsAsBracket, undefined);
   });
 
-  test("an SLE stays in the dolly's column anywhere in its adjustment", () => {
+  test("the SLE sits on the nose: the head is right above it, anywhere in its adjustment", () => {
     const chain = chainOf();
     const headAndCamera = chain.mode.rise + chain.attach.rise;
     for (const mitchellAt of [13.875, 15, 16.5, 17.875]) {
       const layout = stackLayout(chain, { type: "fixed", height: mitchellAt + headAndCamera });
-      assert.deepEqual(layout.blocks.map((b) => b.column), [0, 0, 0, 0], `Mitchell at ${mitchellAt}`);
-      assert.equal(layout.columns, 1);
-      assert.equal(blockOf(layout, "nose").nose, true, "drawn as a nose fitting");
-      assert.equal(blockOf(layout, "nose").bracket, false);
+      const nose = blockOf(layout, "nose");
+      assert.equal(nose.shape.type, "sle");
+      assert.equal(blockOf(layout, "head").x, nose.x, `Mitchell at ${mitchellAt}`);
+      assert.equal(nose.bracket, false);
     }
-    // Underslung, the SLE itself still doesn't move columns; the head hanging from it does.
-    const hung = stackLayout(chainOf({ noseMode: "underslung", modeName: "underslung", attachName: "base-inverted" }), null);
-    assert.deepEqual(hung.blocks.map((b) => [b.slot, b.column]), [["support", 0], ["nose", 0], ["head", 1], ["build", 1]]);
   });
 
-  test("without the flag, even a fitting that hangs 15″ stays in the dolly's column", () => {
+  test("the nose stays at one horizontal position as the beam lifts it", () => {
+    const chain = chainOf();
+    const low = stackLayout(chain, { type: "fixed", height: 30 }, { frame: { width: 200, height: 520 } });
+    const high = stackLayout(chain, { type: "fixed", height: 60 }, { frame: { width: 200, height: 520 } });
+    for (const layout of [low, high]) {
+      const dolly = blockOf(layout, "support");
+      assert.equal(dolly.shape.type, "dolly");
+      assert.equal(dolly.mountX, blockOf(layout, "nose").x, "the nose is where the chain continues");
+      assert.equal(dolly.shape.nose.x, blockOf(layout, "nose").mount.x, "drawn at the fitting");
+      assert.equal(dolly.shape.nose.y, dolly.box.y, "the nose is at the top of the support");
+    }
+    // In inches before any squeeze to fit, the nose is at the same place at any lift.
+    const unsqueezed = (layout) => blockOf(layout, "support").mountX / layout.frame.squeeze;
+    assert.ok(Math.abs(unsqueezed(low) - unsqueezed(high)) < 0.2, "the same x at any lift");
+    assert.ok(blockOf(high, "support").shape.nose.y < blockOf(low, "support").shape.nose.y, "higher on the page");
+    assert.equal(blockOf(low, "support").shape.pivot.y, blockOf(low, "support").shape.chassis.y, "the beam pivots on the chassis");
+  });
+
+  test("wheels are drawn per wheel mode", () => {
+    const wheelsOf = (over) => blockOf(stackLayout(chainOf(over), null), "support").shape.wheels;
+    assert.equal(wheelsOf({}), "pneumatic");
+    assert.equal(wheelsOf({ baseItemIds: ["round-track"], supportMode: "etw" }), "etw");
+    assert.equal(wheelsOf({ baseItemIds: ["round-track"], supportMode: "skateboard" }), "skateboard");
+    const track = blockOf(stackLayout(chainOf({ baseItemIds: ["round-track"], supportMode: "etw" }), null), "base");
+    assert.deepEqual(track.shape, { type: "track", profile: "round" });
+  });
+
+  test("a moveable range target: the beam at the bottom and top of the move", () => {
+    const chain = chainOf();
+    const move = { type: "range", low: 30, high: 45 };
+    const layout = stackLayout(chain, move, { frame: { width: 200, height: 520 } });
+    const dolly = blockOf(layout, "support");
+    const [bottom, top] = dolly.shape.ghosts;
+    assert.equal(dolly.shape.ghosts.length, 2);
+    assert.deepEqual(bottom, dolly.shape.nose, "rigged at the low end: the move starts where the beam is");
+    assert.equal(top.x, bottom.x, "the nose rises straight up");
+    assert.ok(Math.abs(bottom.y - top.y - 15 * layout.frame.scale) < 0.2, "15″ higher: the whole move");
+    assert.deepEqual(blockOf(stackLayout(chain, { type: "fixed", height: 30 }), "support").shape.ghosts, [], "none for a fixed height");
+  });
+
+  test("the LHE is an L-bracket: its foot sets the Mitchell forward of the nose", () => {
+    const layout = stackLayout(chainOf({ noseId: "fisher-lhe", noseMode: undefined }), null);
+    const nose = blockOf(layout, "nose");
+    assert.equal(nose.shape.type, "lhe");
+    assert.equal(nose.bracket, true);
+    assert.ok(nose.mountX > nose.x, "the foot is forward of the nose");
+    assert.equal(blockOf(layout, "head").x, nose.mountX, "the head stands on the foot");
+    assert.equal(blockOf(layout, "head").bottom, 3, "the head sits on the LHE's Mitchell, 3″ off the floor");
+    const head = blockOf(layout, "head");
+    assert.ok(Math.abs(nose.shape.foot.y - (head.box.y + head.box.height)) < 0.05, "the foot is at the Mitchell height");
+  });
+
+  test("without the flag, even a fitting that hangs 15″ is drawn as a block on the nose", () => {
     const chain = chainOf({ noseId: "fisher-lhe", noseMode: undefined });
     const unflagged = { ...chain, nose: { ...chain.nose, hangsAsBracket: false } };
-    assert.equal(stackLayout(unflagged, null).columns, 1);
+    const layout = stackLayout(unflagged, null);
+    assert.equal(blockOf(layout, "nose").shape.type, "sle");
+    assert.equal(blockOf(layout, "head").x, blockOf(layout, "nose").x);
   });
 
-  test("the LHE is a bracket: it hangs to the next column, and the head stays with it", () => {
-    const layout = stackLayout(chainOf({ noseId: "fisher-lhe", noseMode: undefined }), null);
-    assert.deepEqual(layout.blocks.map((b) => [b.slot, b.column]), [["support", 0], ["nose", 1], ["head", 1], ["build", 1]]);
-    assert.equal(layout.columns, 2);
-    assert.equal(blockOf(layout, "nose").bracket, true);
-    assert.equal(blockOf(layout, "head").bottom, 3, "the head sits on the LHE's Mitchell, 3″ off the floor");
-  });
-
-  test("an underslung head hanging from the bottom of a U plate hangs in the next column", () => {
-    const chain = chainOf({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" });
+  test("an underslung head hanging from the bottom of an offset plate on the SLE", () => {
+    const chain = chainOf({ baseItemIds: ["round-track"], supportMode: "etw", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" });
     const layout = stackLayout(chain, { type: "fixed", height: 30 });
-    assert.deepEqual(layout.blocks.map((b) => [b.slot, b.column]), [["support", 0], ["nose", 0], ["adapter", 0], ["head", 1], ["build", 1]]);
+    assert.equal(blockOf(layout, "head").x - blockOf(layout, "nose").x, 10, "the plate's real length");
     assert.equal(layout.lens.height, 30);
     assert.equal(blockOf(layout, "build").inverted, true);
+    assert.equal(blockOf(layout, "support").shape.wheels, "etw");
   });
 });

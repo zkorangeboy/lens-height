@@ -777,6 +777,14 @@ describe("the UI layer", () => {
     assert.doesNotMatch(css, /dashed/, "the target is the only strong line; nothing dashed");
   });
 
+  test("the drawing is outlines from src/outlines.js; adding places an item by tapping a marker, not a list", () => {
+    for (const fn of ["pieceSvg(", "hitLayer(", "markerSvg(", "leaderSvg("]) assert.ok(app.includes(fn), fn);
+    assert.match(app, /data-place=/, "markers insert on tap");
+    assert.match(app, /data-place-item=/, "an item with several points goes to the markers");
+    assert.doesNotMatch(app, /Where\?|at\.where, null\)/, "no text list of positions");
+    assert.doesNotMatch(app, /col-\$|\.column\b|connector/, "no columns");
+  });
+
   test("moveable / adjustable / fixed, consistently", () => {
     for (const phrase of ["Set between setups", "Moves during the take", "live travel", "move live counts"]) {
       assert.ok(!app.includes(phrase) && !html.includes(phrase), phrase);

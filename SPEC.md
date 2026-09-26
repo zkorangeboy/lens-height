@@ -251,7 +251,7 @@ Examples:
 
 A head that holds the camera inside its own frame (the lambda) declares
 `cradlesCamera: true`. It changes nothing about height or compatibility;
-it tells the drawing (5.8) to draw the camera inside the head's column.
+it tells the drawing (5.8) to draw the camera inside the head's cradle.
 
 Inversion is never a flag on the head. It falls out of matching a
 `down`-facing mount to a camera attach point (3.4). Measure each mode
@@ -361,8 +361,11 @@ Adapters are generic Mitchell gear, not tied to a brand:
   - `top`: rise +1", top mount faces `up`.
   - `bottom`: rise 0", top mount faces `down`.
   The bottom side is what hangs a head: it presents the down-facing mount
-  an underslung head mode requires (3.3).
-- **Rotating offset**: rise +4", faces `up`.
+  an underslung head mode requires (3.3). Each declares its real
+  `plateLength` (10", 24"): the next piece mounts that far forward, and the
+  drawing shows the plate at that length (5.8).
+- **Rotating offset**: rise +4", faces `up`. Drawn as a swivel; it has no
+  plate length in the data, so it doesn't move the chain sideways.
 
 ### 3.7 Nose fitting
 
@@ -386,7 +389,9 @@ fitting, and the fitting provides the Mitchell mount** (docs/fisher-11.md).
   from the brochure).
 - **LHE — 4-way Low Level Head**: rise −14.875", fixed, faces up. It
   declares `hangsAsBracket: true`: it hangs the Mitchell well below the
-  beam, beside the dolly, and is drawn that way (5.8). The SLE doesn't.
+  beam, and is drawn as an L-bracket whose foot sets the Mitchell forward
+  of the nose, so what it carries stands clear of the beam (5.8). The SLE
+  doesn't: it's a block on the nose, and the Mitchell stays right there.
 
 Brochure checks (Mitchell height above the floor, pneumatic tires, on the
 floor): SLE upright 13.875"–17.875" beam down, 47.25"–51.25" beam up; SLE
@@ -787,17 +792,18 @@ solve mode.
 ### 5.8 Stack layout
 
 The ground-up picture (7.2) is a computed view model, not something the UI
-derives from raw rises. `stackLayout(chain, target)` returns everything a
-renderer needs, positions included as percentages of the drawing height, so
-the UI does no height math.
+derives from raw rises. `stackLayout(chain, target, options)` returns
+everything a renderer needs — heights, horizontal positions, and pixel
+boxes for a drawing of a given size — so the UI does no height math.
 
 - **Blocks, bottom to top:** one per base item, the support (in its wheel
   mode), the nose fitting (if any, in its mode), each adapter, the head (in
-  its mode), and the camera build (at its attach point). Each
-  has its signed `rise`, a `kind` (`fixed`, `adjustable`, or `moveable`,
-  3.5), and `bottomPct` / `heightPct`. A block with a negative rise extends
-  downward from where the piece below ended; a zero rise has zero height.
-  The floor is height 0 and the lens sits at the top of the last block.
+  its mode), and the camera build (at its attach point). Each has its signed
+  `rise`, a `kind` (`fixed`, `adjustable`, or `moveable`, 3.5), its
+  `bottom` and `top` in inches (its lower and upper end, whichever way it
+  runs), and `bottomPct` / `topPct` / `heightPct`. A block with a negative
+  rise extends downward from where the piece below ended. The floor is
+  height 0 and the lens is at the end of the last block.
 - **Rigged to the target.** The chain is drawn set up to put the lens at the
   target: a fixed target's height, or the low end of a range (the move
   starts there), clamped into the chain's reach. The extension needed is
@@ -806,13 +812,35 @@ the UI does no height math.
   the rig and the boom takes what's left. A nose fitting with a range is an
   `adjustable` block, and carries its `range`.
 - **The support is split into parts** — its fixed base, its adjustable
-  extension, its moveable extension — so the moveable portion can be drawn
-  apart from the fixed pieces. Its block carries the support's `range`
-  (min and max rise) alongside the rise at this setup.
-- **Scale fits the content.** The drawing runs from the floor (or the
-  lowest piece, if one hangs below it) to just above the highest of the
-  lens, the top of the target or move band, and the top of any piece. The
-  reach does *not* stretch it.
+  extension, its moveable extension — so each can be filled as what it is.
+  Its block carries the support's `range` (min and max rise) alongside the
+  rise at this setup.
+- **Horizontal position.** Every block carries `x`, its horizontal position
+  in inches (0 is the center of the base and support; forward, toward the
+  lens, is positive), and `mountX`, where the next piece mounts. The chain
+  moves sideways only where a piece really moves it: a Fisher's nose sits a
+  fixed distance forward of the chassis and **doesn't move as the beam
+  rises**; an offset plate moves the next piece by its real `plateLength`;
+  the LHE's foot sets the Mitchell forward of the nose. Everything else
+  stacks on the mount below it. Other widths are schematic. Jib arms will
+  later carry their own `x` the same way.
+- **Scale.** The drawing runs vertically from the floor (or the lowest
+  piece, if one hangs below it) to just above the highest of the lens, the
+  top of the target or move band, and the top of any piece; horizontally
+  across every piece. One scale, in pixels per inch, serves both axes, so
+  heights are true to each other and an offset plate is drawn to its real
+  length; if the rig is wide it's drawn smaller rather than squashed. The
+  caller passes the drawing's size in pixels (`frame`); the layout returns
+  each block's pixel `box` (`x`, `y`, `width`, `height`, y measured down
+  from the top), its `mount` point, and a `shape` saying which outline
+  draws it (7.2) with that outline's own pixel points — a tripod's leg
+  spread, a dolly's chassis top, beam pivot, nose, and wheel mode, an
+  offset's side and far end, a camera's lens point and whether it's
+  inverted. The reach does *not* stretch the drawing.
+- **The Fisher beam.** The beam is drawn from a fixed pivot on the chassis
+  to the nose at its current height; its angle is visual only. For a
+  moveable range target the layout also gives the nose at the bottom and
+  top of the move (`shape.ghosts`), so both ends can be drawn faintly.
 - **Bands:** `reach` is every lens height the chain can reach; `moveable`
   is the span the moveable portion can sweep from this setup (or `null` if
   the chain has none); `target` is the target's position — a line for a
@@ -820,39 +848,19 @@ the UI does no height math.
   `heightPct`. `reach` and `moveable` are **clipped** to the drawing, with
   `continuesAbove` / `continuesBelow` saying so; `reach` also carries its
   real `min` and `max`, the labels at the rail's bottom and top.
-- **Every block's heights.** Each block carries its `bottom` and `top` in
-  inches (its lower and upper end, whichever way it runs), the same as
-  percentages (`bottomPct`, `topPct`), and its `column`.
-- **Columns: the rig reads like the physical rig.** Blocks start in column
-  0 and stack upward. Wherever the chain *reverses direction* — a block
-  runs the other way from the last block that had any height (an
-  underslung head hanging below an offset, a lambda dropping its
-  bracket) — that block and everything after it moves to the next column.
-  **Except a cradled camera:** when the head declares `cradlesCamera`
-  (3.3), the camera stays in the head's column, drawn inside it (`cradled:
-  true`), even if it runs the other way. **Nose fittings** (3.7) are
-  drawn as an arm at the inner edge of their column (`nose: true`). One
-  that declares `hangsAsBracket` (the LHE, which hangs the Mitchell well
-  below the beam) moves to the next column like any reversal, and the
-  pieces mounted on it stay in its column even when they run back up
-  (`bracket: true`). One without the flag (the SLE, anywhere in its
-  adjustment) never changes column or direction: it stays in the dolly's
-  column. A block with zero rise (a Mitchell offset used from its bottom
-  side) never reverses anything; it stays where it is. Each
-  reversal adds a `connector` at the height where the columns join.
-  `columns` is how many there are.
 - **No margin tags.** The margins are stated once, in the verdict (5.6);
   the drawing's rail shows the reach they're measured against.
 - **The label lane.** Every block has a label, in one lane beside the
-  columns, each as close as possible to the height it belongs to
-  (`anchorPct`) but spread apart so none overlap (`pct`). Labels wrap
-  rather than truncate, so their heights vary: the caller measures each
-  label and passes the heights in pixels with the drawing's height, and
-  the layout converts and spreads them.
+  drawing, each as close as possible to the height it belongs to
+  (`anchorPct`, and `anchorY` in pixels for its leader) but spread apart so
+  none overlap (`pct`). Labels wrap rather than truncate, so their heights
+  vary: the caller measures each label and passes the heights in pixels
+  with the drawing's height, and the layout converts and spreads them.
 - **Insertion points** (`gaps`) are identified by slot and index: `base` 0
   is the floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on
-  the support, `adapter` *i* on adapter *i*−1. They aren't drawn; they're
-  what the Add sheet's positions (5.9) refer to.
+  the nose fitting (or the support, if it takes none), `adapter` *i* on
+  adapter *i*−1. Each carries its pixel `point`, where the Add flow's
+  marker for it is drawn (7.2).
 
 ### 5.9 What may attach
 
@@ -872,10 +880,10 @@ of it:
 - `insertOptions` — for every insertion point (5.8), what may be added
   there.
 - `addOptions` — everything that can legally be added to the rig
-  anywhere, one entry per component, each with the positions where it
-  fits, described in plain words ("on the floor", "on Studio Dolly",
-  "under Standard Fluid Head"). An item is added in its first mode that
-  fits at the chosen position.
+  anywhere, one entry per component, each with the positions (slot and
+  index, 5.8) where it fits, and a plain-words description of each for
+  accessibility ("on the floor", "under Standard Fluid Head"). An item is
+  added in its first mode that fits at the chosen position.
 - `swapOptions` — for one piece of the rig, what may replace it.
 - `applyEdit` — turn an insert, swap, remove, or mode change into the next
   picks, which then go through `revalidatePicks` like any other change.
@@ -1004,28 +1012,52 @@ top to bottom:
 2. **Verdict** — one line (5.6): "✓ Covers 20–32″ · only ½″ to spare at
    top", "✗ 3½″ too short". Green when feasible, the warning color when
    feasible but the tightest margin is under 1″, red when not.
-3. **The drawing** (5.8) — the main element. Full width, one true vertical
-   scale fitted to the content, the floor at the bottom. Components stack
-   upward; where the chain reverses direction, the pieces after it move
-   into the next column and hang downward, joined by a connector (a
-   cradled camera stays inside its head). **The target line or move band
-   is the one strong line**, across the full width; connectors and label
-   leaders are thin and neutral. A rail on the left shows the reach,
-   labeled with its lowest and highest lens heights, and the moveable
-   sweep; where the reach runs past the drawing it is clipped and marked
-   as continuing. The drawing's border takes the status color. Labels wrap
-   to two lines rather than truncating.
-4. **Edit in the drawing** (5.9). Tapping a piece (its block or its label)
-   opens a sheet to swap it, change its mode (a toggle for two states, a
-   segmented choice for more, like a full apple's faces), or remove it.
-   **One Add button** under the drawing opens a sheet of everything that
-   can legally be added to the rig. An item with exactly one legal
-   position goes there; one with several asks which, as a short list of
-   positions. Sheets show only compatible options, with no list of what
-   doesn't fit. The camera's sheet holds its mount (upright, inverted, top
-   handle). A change that invalidates another pick clears or switches it
-   with a plain-language note. There are no checkbox lists or dropdown
-   sections.
+3. **The drawing** (5.8) — the main element: a schematic 2D outline of
+   each piece, one kind of outline per kind of gear, at true vertical scale
+   and stretched to each piece's real bottom and top heights. Horizontal
+   proportions are schematic, except offset plates, which are drawn to
+   their real length. The moveable / adjustable / fixed fills sit inside
+   the outlines. **The target line or move band is the one strong line**,
+   across the full width; label leaders are thin and neutral. A rail on
+   the left shows the reach, labeled with its lowest and highest lens
+   heights, and the moveable sweep; where the reach runs past the drawing
+   it is clipped and marked as continuing. The drawing's border takes the
+   status color. Labels wrap to two lines rather than truncating.
+
+   The outlines (`src/outlines.js`, one module; each draws shapes only,
+   inside the pixel box and points the layout hands it, and does no height
+   math):
+   - **Tripod** — splayed legs that stretch with the set height.
+   - **Hi-hat, low hat** — a short stand on a spread base.
+   - **Apple box** — a box sized by the face it stands on, with hand holes.
+   - **Track** — rails on ties; square or round rails.
+   - **Fisher dolly** — chassis; wheels drawn per wheel mode (pneumatic
+     tires, ETW track wheels, skateboard wheels); the lift beam from a fixed
+     pivot to the nose at its angle for the current lift. The nose stays at
+     one horizontal position as it rises. For a moveable range target,
+     faint outlines of the beam at the bottom and top of the move.
+   - **SLE** — a small block with a plate. **LHE** — an L-bracket.
+   - **Riser** — a cage. **Offset** — a plate with a Mitchell on its top and
+     bottom, the side in use marked. **Rotating offset** — a swivel.
+   - **Fluid head** — pan base, tilt body, plate; upside down when
+     underslung. **Lambda** — a cradle around the camera.
+   - **Camera** — body and lens, with the lens dot at the optical center;
+     drawn upside down when inverted.
+4. **Edit in the drawing** (5.9). Tapping a piece — anywhere in its
+   outline, or its label — opens a sheet to swap it, change its mode (a
+   toggle for two states, a segmented choice for more, like a full apple's
+   faces), or remove it. **One Add button** under the drawing opens a
+   sheet of everything that can legally be added to the rig. Choosing an
+   item closes the sheet; if it has exactly one legal attach point it goes
+   straight there, and otherwise its legal attach points appear on the
+   drawing as highlighted markers (positions from the layout, 5.8;
+   legality from `rules.js`, 5.9), each with at least a 44px hit area. Tap
+   a marker to insert there; tap anywhere else to cancel. There is no text
+   list of positions. Sheets show only compatible options, with no list of
+   what doesn't fit. The camera's sheet holds its mount (upright,
+   inverted, top handle). A change that invalidates another pick clears or
+   switches it with a plain-language note. There are no checkbox lists or
+   dropdown sections.
 
 **Information appears once.** Each piece's name and signed rise appear
 only on its label in the drawing — no text legend beside it. All gear
