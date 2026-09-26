@@ -283,7 +283,13 @@ A build is an ordered list of its own components:
   mount height of that specific camera
 
 The build's total rise is the sum. Builds are assembled once per show and
-reused across queries.
+reused across queries. A build may also declare `bodyHeight`, the body's
+height for the drawing only (5.8, 7.2); it never enters the math.
+
+Seed data: the **A-Cam build** is its camera body alone, 6" tall with the
+optical center at the middle of that height — `opticalCenterAboveBase`
+3", so the build's rise is **+3"** — with a top handle 3" above the
+optical center (`topHandleOffset` −3").
 
 A build exposes one or more **attach points**, each with its own facing
 and signed offset to optical center:
@@ -856,8 +862,9 @@ boxes for a drawing of a given size — so the UI does no height math.
   top), its `mount` point, and a `shape` saying which outline draws it
   (7.2) with that outline's own pixel points — a tripod's leg spread; a
   dolly's wheels (per wheel mode), chassis, deck, rear box, push posts,
-  beam pivot and nose; an offset's side and far end; a camera's body, lens,
-  and optical center, and whether it's inverted.
+  beam pivot and nose; an offset's side and far end; a camera's body, the
+  forward-facing triangle at its optical center, and whether it's
+  inverted.
 - **The Fisher beam.** The beam is drawn from a fixed pivot on the chassis
   to the nose at its current height; its angle is visual only. For a
   moveable range target the layout also gives the nose at the bottom and
@@ -1073,8 +1080,13 @@ top to bottom:
      bottom, the side in use marked. **Rotating offset** — a swivel.
    - **Fluid head** (the O'Connor 2575D) — pan base, tilt body, plate; upside down when
      underslung. **Lambda** — a cradle around the camera.
-   - **Camera** — one outline, body and lens together, with the lens dot at
-     the optical center; drawn upside down when inverted.
+   - **Camera** — the body, drawn `bodyHeight` tall and centered on the
+     optical center, and a small triangle at the optical center whose
+     opening faces forward, the way the camera shoots. The triangle is
+     centered vertically on the optical center, so it sits exactly on the
+     target line when the rig is on target. Inverted, the body flips (its
+     handle underneath) but the triangle stays at the optical center,
+     still pointing forward.
 4. **Edit in the drawing** (5.9). Tapping a piece — anywhere in its
    outline, or its tag — opens a sheet to swap it, change its mode (a
    toggle for two states, a segmented choice for more, like a full apple's

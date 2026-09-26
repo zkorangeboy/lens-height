@@ -97,19 +97,36 @@ describe("one outline per kind of gear", () => {
     assert.match(off, /class="in-use"/);
   });
 
-  test("the camera: body, lens, and the lens dot at the optical center; upside down when inverted", () => {
+  test("the camera: a 6″ body centered on the optical center, and a forward triangle on it", () => {
     const upright = layoutOf(rig()).blocks.at(-1);
     const inverted = layoutOf(RIGS.fisherRound).blocks.at(-1);
-    for (const camera of [upright, inverted]) {
-      const svg = outlineOf(camera);
-      assert.equal((svg.match(/class="o k-fixed camera"/g) || []).length, 1, "one outline, body and lens together");
-      assert.ok(svg.includes(`cx="${Math.round(camera.shape.opticalCenter.x * 10) / 10}"`), "the dot at the optical center");
-      assert.equal(camera.shape.opticalCenter.y, layoutOf(camera === upright ? rig() : RIGS.fisherRound).lens.y);
+    const handle = layoutOf(RIGS.handle).blocks.at(-1);
+    for (const camera of [upright, inverted, handle]) {
+      const { body, cone, opticalCenter } = camera.shape;
+      const scale = camera.box.height / 6;
+      assert.ok(Math.abs(body.height - 6 * scale) < 0.05, "a 6″ body");
+      assert.ok(Math.abs(body.y + body.height / 2 - opticalCenter.y) < 0.05, "centered on the optical center");
+      const selection = camera === upright ? rig() : camera === inverted ? RIGS.fisherRound : RIGS.handle;
+      assert.equal(opticalCenter.y, layoutOf(selection).lens.y, "on the lens height, so on the target line when on target");
+      // The triangle: its point on the optical center, its opening forward.
+      const points = outlineOf(camera).match(/<polygon points="([^"]+)" class="lens-cone"/)[1].split(" ").map((p) => p.split(",").map(Number));
+      const [[px, py], [ax, ay], [bx, by]] = points;
+      const r = (v) => Math.round(v * 10) / 10;
+      assert.deepEqual([px, py], [r(cone.x0), r(opticalCenter.y)], "the point on the optical center");
+      assert.ok(ax > px && bx > px, "opening forward, the way the camera shoots");
+      assert.ok(Math.abs((ay + by) / 2 - py) < 0.11, "centered vertically on the optical center");
+      assert.ok(ay < py && by > py);
+      assert.doesNotMatch(outlineOf(camera), /lens-dot|<circle/, "no lens square or dot");
     }
     assert.equal(upright.shape.inverted, false);
     assert.equal(inverted.shape.inverted, true);
     assert.match(outlineOf(inverted), /v 4/, "the handle is drawn on the underside");
     assert.match(outlineOf(upright), /v -4/, "and on top when upright");
+    assert.deepEqual(
+      outlineOf(inverted).match(/class="lens-cone"/g).length,
+      1,
+      "inverted, the triangle is not flipped: same forward shape"
+    );
   });
 
   test("an underslung fluid head is drawn upside down", () => {
@@ -122,9 +139,12 @@ describe("one outline per kind of gear", () => {
 describe("taps, markers, and tags", () => {
   // A support is tapped low, on its legs or chassis; anything else at its center.
   // An SLE, on its body under the plate (its neck runs up behind the head).
+  // A base item, near its end (a dolly's wheels sit down into round track).
   // A lambda cradle, on its arm just under the mount (its middle holds the camera).
   const centerOf = (b) =>
-    b.slot === "support" || b.shape.type === "sle"
+    b.slot === "base"
+      ? { x: b.box.x + 3, y: b.box.y + Math.max(b.box.height, 4) / 2 }
+      : b.slot === "support" || b.shape.type === "sle"
       ? { x: b.box.x + b.box.width / 2, y: b.box.y + b.box.height - 6 }
       : b.shape.type === "lambda"
         ? { x: b.shape.mount.x, y: b.shape.mount.y + 4 }

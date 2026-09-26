@@ -263,28 +263,19 @@ function lambda(block) {
 // --- Camera --------------------------------------------------------------------
 
 function camera(block) {
-  // One outline, body and lens together, the lens dot at the optical center.
-  // Inverted, the handle is underneath; hung from the handle, it's on top.
-  const { body, lens, opticalCenter, inverted } = block.shape;
+  // The body, and a triangle at the optical center opening forward, the way
+  // the camera shoots. Inverted, the body flips (handle underneath); the
+  // triangle doesn't — it stays on the optical center, pointing forward.
+  const { body, cone, opticalCenter, inverted } = block.shape;
   const b = frame(body);
   const y = opticalCenter.y;
-  const outline = [
-    `M ${n(b.left)} ${n(b.top)}`,
-    `H ${n(b.right)}`,
-    `V ${n(y - lens.half)}`,
-    `H ${n(lens.x1)}`,
-    `V ${n(y + lens.half)}`,
-    `H ${n(b.right)}`,
-    `V ${n(b.bottom)}`,
-    `H ${n(b.left)}`,
-    "Z",
-  ].join(" ");
   const handleY = inverted ? b.bottom : b.top;
   const handle = path(
     `M ${n(b.left + b.w * 0.2)} ${n(handleY)} v ${inverted ? 4 : -4} h ${n(b.w * 0.6)} v ${inverted ? -4 : 4}`,
     "o handle"
   );
-  return path(outline, "o k-fixed camera") + handle + line(b.right, y - lens.half, b.right, y + lens.half, "o") + circle(opticalCenter.x, opticalCenter.y, 3.5, "lens-dot");
+  const triangle = poly([[cone.x0, y], [cone.x1, y - cone.half], [cone.x1, y + cone.half]], "lens-cone");
+  return rect(b.left, b.top, b.w, b.h, "o k-fixed camera", { rx: 2 }) + handle + triangle;
 }
 
 const OUTLINES = {

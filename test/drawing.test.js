@@ -47,49 +47,49 @@ const gap = (picks, slot, index) => insertOptions(seed, ...P, picks).find((g) =>
 // ---------------------------------------------------------------------------
 
 describe("checkVerdict: one line, the tightest margin in plain words", () => {
-  const chain = chainOf(picksFor()); // reach 35..51
+  const chain = chainOf(picksFor()); // reach 31.5..47.5
   const verdict = (target) => checkVerdict(chain, target, evaluateChain(chain, target));
 
   test("feasible names the tightest margin and which side it's on", () => {
-    const v = verdict({ type: "fixed", height: 42 });
+    const v = verdict({ type: "fixed", height: 38.5 });
     assert.equal(v.state, "feasible");
-    assert.equal(v.text, "Reaches 42″ · 7″ to spare at bottom");
+    assert.equal(v.text, "Reaches 38½″ · 7″ to spare at bottom");
     assert.deepEqual(v.tightest, { side: "bottom", amount: 7 });
-    assert.equal(verdict({ type: "fixed", height: 45 }).text, "Reaches 45″ · 6″ to spare at top");
+    assert.equal(verdict({ type: "fixed", height: 41.5 }).text, "Reaches 41½″ · 6″ to spare at top");
   });
 
   test(`a margin under ${TIGHT_MARGIN}″ is feasible but tight, and says "only"`, () => {
-    const v = verdict({ type: "fixed", height: 50.5 });
+    const v = verdict({ type: "fixed", height: 47 });
     assert.equal(v.state, "tight");
-    assert.equal(v.text, "Reaches 50½″ · only ½″ to spare at top");
-    assert.equal(verdict({ type: "fixed", height: 50 }).state, "feasible", "exactly 1″ is not tight");
+    assert.equal(v.text, "Reaches 47″ · only ½″ to spare at top");
+    assert.equal(verdict({ type: "fixed", height: 46.5 }).state, "feasible", "exactly 1″ is not tight");
   });
 
   test("inside the tolerance but past the end says so", () => {
-    const v = verdict({ type: "fixed", height: 51.25 });
+    const v = verdict({ type: "fixed", height: 47.75 });
     assert.equal(v.state, "tight");
-    assert.equal(v.text, "Reaches 51¼″ · ¼″ past the top, within tolerance");
+    assert.equal(v.text, "Reaches 47¾″ · ¼″ past the top, within tolerance");
   });
 
   test("infeasible gives the shortfall: too short, too tall, or not enough moveable travel", () => {
-    assert.deepEqual(verdict({ type: "fixed", height: 54.5 }), { state: "infeasible", text: "3½″ too short", tightest: null });
-    assert.equal(verdict({ type: "fixed", height: 31.5 }).text, "3½″ too tall");
-    assert.equal(verdict({ type: "range", low: 38, high: 43 }).text, "Needs 5″ more moveable travel", "a tripod can't move live");
+    assert.deepEqual(verdict({ type: "fixed", height: 51 }), { state: "infeasible", text: "3½″ too short", tightest: null });
+    assert.equal(verdict({ type: "fixed", height: 28 }).text, "3½″ too tall");
+    assert.equal(verdict({ type: "range", low: 34.5, high: 39.5 }).text, "Needs 5″ more moveable travel", "a tripod can't move live");
   });
 
   test("a moveable range weighs the travel left over, too", () => {
-    // Fisher 11, SLE upright (−4″ to 0″): reach 28.875..66.25, with 33.375″ of beam.
+    // Fisher 11, SLE upright (−4″ to 0″): reach 25.375..62.75, with 33.375″ of beam.
     const dolly = chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" }));
     const move = (low, high) => ({ type: "range", low, high });
     const verdictFor = (target) => checkVerdict(dolly, target, evaluateChain(dolly, target));
-    assert.equal(verdictFor(move(30.875, 42.5)).text, "Covers 30¾–42½″ · 2″ to spare at bottom");
-    const top = verdictFor(move(33.5, 66.25)); // 32.75″ of 33.375″ of beam, 0″ above
+    assert.equal(verdictFor(move(27.375, 39)).text, "Covers 27¼–39″ · 2″ to spare at bottom");
+    const top = verdictFor(move(30, 62.75)); // 32.75″ of 33.375″ of beam, 0″ above
     assert.equal(top.state, "tight");
-    assert.equal(top.text, "Covers 33½–66¼″ · only 0″ to spare at top");
+    assert.equal(top.text, "Covers 30–62¾″ · only 0″ to spare at top");
     // The SLE's 4″ widens the reach, not the live move: this one barely fits the beam.
-    const wide = verdictFor(move(31.5, 64.125)); // 32.625″ move, 0.75″ of beam left
+    const wide = verdictFor(move(28, 60.625)); // 32.625″ move, 0.75″ of beam left
     assert.deepEqual(wide.tightest, { side: "travel", amount: 0.75 });
-    assert.equal(wide.text, "Covers 31½–64″ · only ¾″ of moveable travel to spare");
+    assert.equal(wide.text, "Covers 28–60½″ · only ¾″ of moveable travel to spare");
 
     // Legs plus a short boom: plenty of reach, but the move barely fits the boom.
     const legsAndBoom = { min: 0, max: 50, moveableInterval: { min: 0, max: 10.5 } };
@@ -102,7 +102,7 @@ describe("checkVerdict: one line, the tightest margin in plain words", () => {
   });
 
   test("no target yet: the reach, and a prompt", () => {
-    assert.deepEqual(checkVerdict(chain, null, null), { state: "waiting", text: "Reaches 35–51″ · enter a target", tightest: null });
+    assert.deepEqual(checkVerdict(chain, null, null), { state: "waiting", text: "Reaches 31½–47½″ · enter a target", tightest: null });
   });
 });
 
@@ -201,12 +201,12 @@ describe("stackLayout: horizontal position and pixel geometry", () => {
   });
 
   test("the scale fits the content: the reach rail is clipped, not the drawing stretched", () => {
-    const chain = chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" })); // reach 28.875..66.25
+    const chain = chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" })); // reach 25.375..62.75
     const layout = stackLayout(chain, { type: "fixed", height: 30 }, { frame: { width: 400, height: 520 } });
     assert.equal(layout.lens.height, 30);
     // The current rig tops out at the push posts, 39¾″: the drawing fits that, not the 63¾″ reach.
     assert.ok(layout.lens.pct > 60 && layout.lens.pct < 90, `the lens at ${layout.lens.pct}%, under the push posts`);
-    assert.deepEqual([layout.reach.min, layout.reach.max], [28.875, 66.25], "the rail is labeled with the real reach");
+    assert.deepEqual([layout.reach.min, layout.reach.max], [25.375, 62.75], "the rail is labeled with the real reach");
     assert.equal(layout.reach.topPct, 100);
     assert.equal(layout.reach.continuesAbove, true);
     assert.equal(layout.reach.continuesBelow, false);

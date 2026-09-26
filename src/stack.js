@@ -57,7 +57,7 @@ const DRAW = {
   swivel: 6,
   head: 7,
   cradle: 11,
-  camera: { back: -5, front: 6, lens: 5, above: 3 }, // body, lens barrel, body past the optical axis
+  camera: { back: -5, front: 6, height: 6, cone: 3, coneHalf: 1.5 }, // body (height if the build gives none), the forward triangle
 };
 
 /** Tag text size, in pixels: an 11px font at about 6.2px a character. */
@@ -232,9 +232,9 @@ export function stackLayout(chain, target = null, options = {}) {
     chain.mode.rise,
     cradles ? [-DRAW.cradle / 2, DRAW.cradle / 2] : [-DRAW.head / 2, DRAW.head / 2]
   );
-  // The camera: its body reaches past the optical axis, away from the mount.
+  // The camera: its body is centered on the optical center, whichever way it's mounted.
   const lensAt = cursor + chain.attach.rise;
-  const bodyPast = chain.attach.rise < 0 ? lensAt - DRAW.camera.above : lensAt + DRAW.camera.above;
+  const bodyHalf = (chain.build.bodyHeight || DRAW.camera.height) / 2;
   place(
     {
       slot: "build",
@@ -247,9 +247,9 @@ export function stackLayout(chain, target = null, options = {}) {
       cradled: cradles,
     },
     chain.attach.rise,
-    [DRAW.camera.back, DRAW.camera.front + DRAW.camera.lens],
+    [DRAW.camera.back, DRAW.camera.front + DRAW.camera.cone],
     mountX,
-    [Math.min(bodyPast, lensAt), Math.max(bodyPast, lensAt)]
+    [lensAt - bodyHalf, lensAt + bodyHalf]
   );
 
   // Insertion points (5.8): base i sits on base item i-1 (0 is the floor);
@@ -369,12 +369,10 @@ export function stackLayout(chain, target = null, options = {}) {
           handle: b.attach === "top-handle",
           attach: pt(at, b.start),
           body: box(at + DRAW.camera.back, at + DRAW.camera.front, b.drawnLow, b.drawnHigh),
-          lens: {
-            x0: X(at + DRAW.camera.front),
-            x1: X(at + DRAW.camera.front + DRAW.camera.lens),
-            half: px(DRAW.camera.above * 0.7),
-          },
-          opticalCenter: pt(at + DRAW.camera.front + DRAW.camera.lens / 2, b.end),
+          // The triangle: its point at the body's front, on the optical
+          // center; its opening forward, the way the camera shoots.
+          cone: { x0: X(at + DRAW.camera.front), x1: X(at + DRAW.camera.front + DRAW.camera.cone), half: px(DRAW.camera.coneHalf) },
+          opticalCenter: pt(at + DRAW.camera.front, b.end),
         };
       default:
         return { type: "block" };

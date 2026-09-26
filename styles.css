@@ -430,10 +430,11 @@ select {
 .drawing .in-use { fill: var(--accent); }
 .drawing .body { fill: var(--fixed); }
 .drawing .lens { fill: var(--surface-alt); }
-.drawing .lens-dot {
+.drawing .lens-cone {
   fill: var(--text);
   stroke: var(--surface);
-  stroke-width: 2;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
 }
 
 /* The whole drawing takes taps; src/outlines.js's pieceAt says which piece. */

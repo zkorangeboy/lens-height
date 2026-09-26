@@ -472,8 +472,9 @@
       "category": "camera-body",
       "bottomMount": "camera-base",
       "topMount": "optical-center",
-      "opticalCenterAboveBase": 4,
-      "adjustability": "fixed"
+      "opticalCenterAboveBase": 3,
+      "adjustability": "fixed",
+      "notes": "6″ tall, optical center at the middle."
     }
   ],
   "packages": [
@@ -516,13 +517,12 @@
       "name": "A-Cam Build",
       "shortName": "Camera",
       "componentIds": [
-        "baseplate-19-placeholder",
-        "riser-1in-placeholder",
         "camera-body-placeholder"
       ],
       "bottomMount": "flat-38",
       "hasRatedTopHandle": true,
-      "topHandleOffset": -3
+      "topHandleOffset": -3,
+      "bodyHeight": 6
     }
   ]
 }
