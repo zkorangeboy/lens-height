@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { supportInterval } from "./src/model.js";
+import { riseRangeOf, supportInterval } from "./src/model.js";
 import { solve, margin } from "./src/solver.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -77,9 +77,14 @@ function printChain(index, chain, target) {
   }
 
   const supportRange = supportInterval(chain.support);
-  console.log(
-    `     support    ${chain.support.name.padEnd(38)} ${signed(supportRange.min)} to ${signed(supportRange.max)}`
-  );
+  const supportLabel = chain.support.mode ? `${chain.support.name} (${chain.support.mode})` : chain.support.name;
+  console.log(`     support    ${supportLabel.padEnd(38)} ${signed(supportRange.min)} to ${signed(supportRange.max)}`);
+  if (chain.nose) {
+    const noseRange = riseRangeOf(chain.nose);
+    const noseLabel = chain.nose.mode ? `${chain.nose.name} (${chain.nose.mode})` : chain.nose.name;
+    const rise = noseRange.min === noseRange.max ? signed(noseRange.min) : `${signed(noseRange.min)} to ${signed(noseRange.max)}`;
+    console.log(`     nose       ${noseLabel.padEnd(38)} ${rise}`);
+  }
   for (const adapter of chain.adapters) {
     const label = adapter.mode ? `${adapter.name} (${adapter.mode})` : adapter.name;
     console.log(`     adapter    ${label.padEnd(38)} ${signed(adapter.rise)}`);

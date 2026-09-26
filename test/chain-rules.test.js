@@ -163,9 +163,12 @@ describe("seed: mounts, adapters, track, apple boxes", () => {
   const seed = JSON.parse(readFileSync(path.join(__dirname, "..", "gear.json"), "utf8"));
   const byCategory = (category) => seed.components.filter((c) => c.category === category);
 
-  test("Mitchell is the standard mount: every head takes it, every support presents it, no bowls left", () => {
+  test("Mitchell is the standard mount: every head takes it, every support or nose fitting presents it, no bowls left", () => {
     for (const h of byCategory("head")) assert.equal(h.bottomMount, "mitchell", h.id);
-    for (const s of byCategory("support")) assert.equal(s.topMount, "mitchell", s.id);
+    for (const s of byCategory("support")) {
+      assert.ok(["mitchell", "fisher-nose"].includes(s.topMount), s.id);
+    }
+    for (const n of byCategory("nose")) assert.equal(n.topMount, "mitchell", n.id);
     for (const c of seed.components) {
       for (const mount of [].concat(c.bottomMount, c.topMount)) {
         assert.ok(!String(mount).startsWith("bowl"), `${c.id} still uses ${mount}`);
@@ -173,32 +176,37 @@ describe("seed: mounts, adapters, track, apple boxes", () => {
     }
   });
 
-  test("Mitchell risers: 6, 12, 18, 24 inches, measured, no family requirement", () => {
+  test("generic Mitchell risers: 3, 6, 12, 18, 24 inches, no family requirement", () => {
     const risers = byCategory("adapter").filter((a) => a.id.startsWith("mitchell-riser"));
-    assert.deepEqual(risers.map((r) => r.rise).sort((a, b) => a - b), [6, 12, 18, 24]);
+    assert.deepEqual(
+      Object.fromEntries(risers.map((r) => [r.id, r.rise])),
+      { "mitchell-riser-3": 3, "mitchell-riser-6": 6, "mitchell-riser-12": 12, "mitchell-riser-18": 18, "mitchell-riser-24": 24 }
+    );
     for (const r of risers) {
-      assert.equal(r.measured, true, r.id);
       assert.equal(r.requiresFamily, undefined, r.id);
       assert.equal(r.bottomMount, "mitchell");
       assert.equal(r.topMount, "mitchell");
     }
   });
 
-  test("dolly configurations are adapters: low mode, rotating offset, broken neck", () => {
-    const configs = byCategory("adapter").filter((a) => a.id.startsWith("dolly-"));
-    assert.equal(configs.length, 3);
-    assert.ok(configs.some((a) => /low mode/i.test(a.name) && a.rise < 0), "low mode has negative rise");
-    assert.ok(configs.some((a) => /rotating offset/i.test(a.name)));
-    assert.ok(configs.some((a) => /broken neck/i.test(a.name)));
-    const dollySupport = seed.components.find((c) => c.id === "dolly-placeholder");
-    for (const a of configs) assert.equal(a.requiresFamily, dollySupport.family);
+  test("the placeholder dolly and its configurations are gone, and so are the brand-specific risers and offsets", () => {
+    for (const id of [
+      "dolly-placeholder", "dolly-low-mode-placeholder", "dolly-rotating-offset-placeholder", "dolly-broken-neck-placeholder",
+      "mitchell-offset", "track-wedges-placeholder",
+      "fisher-r3", "fisher-r6", "fisher-r12", "fisher-rj6", "fisher-rj12", "fisher-rj18", "fisher-u", "fisher-th", "fisher-ro",
+    ]) {
+      assert.ok(!seed.components.some((c) => c.id === id), id);
+    }
+    const mounts = new Set(seed.components.flatMap((c) => [].concat(c.bottomMount, c.topMount, ...(c.modes || []).map((m) => m.bottomMount || []))));
+    assert.ok(!mounts.has("dolly-wheels"));
   });
 
-  test("track tops out at dolly-wheels; the dolly accepts ground or dolly-wheels; the tripod ground only", () => {
-    const trackItem = seed.components.find((c) => c.kind === "track");
-    assert.equal(trackItem.bottomMount, "ground");
-    assert.equal(trackItem.topMount, "dolly-wheels");
-    assert.deepEqual(seed.components.find((c) => c.id === "dolly-placeholder").bottomMount, ["ground", "dolly-wheels"]);
+  test("square and round track, +2″ each; the tripod stands on the floor only", () => {
+    const track = seed.components.filter((c) => c.kind === "track");
+    assert.deepEqual(track.map((t) => [t.id, t.bottomMount, t.topMount, t.rise]), [
+      ["square-track", "ground", "square-track", 2],
+      ["round-track", "ground", "round-track", 2],
+    ]);
     assert.equal(seed.components.find((c) => c.id === "tripod-baby-placeholder").bottomMount, "ground");
   });
 
@@ -660,16 +668,17 @@ describe("multi-mode adapters", () => {
     assert.equal(again.min, chain.min);
   });
 
-  test("seed: the Mitchell offset is measured, with upright (+1, up) and underslung (0, down) modes", () => {
+  test("seed: the 10″ and 24″ Mitchell offsets mount from the top (+1, up) or the bottom (0, down) of the plate; the rotating offset is +4", () => {
     const seed = JSON.parse(readFileSync(path.join(__dirname, "..", "gear.json"), "utf8"));
-    const o = seed.components.find((c) => c.id === "mitchell-offset");
-    assert.equal(o.category, "adapter");
-    assert.equal(o.measured, true);
-    assert.equal(o.requiresFamily, undefined);
-    assert.deepEqual(o.modes, [
-      { name: "upright", rise: 1, mountFacing: "up" },
-      { name: "underslung", rise: 0, mountFacing: "down" },
-    ]);
+    for (const id of ["mitchell-offset-10", "mitchell-offset-24"]) {
+      const o = seed.components.find((c) => c.id === id);
+      assert.equal(o.category, "adapter");
+      assert.equal(o.requiresFamily, undefined);
+      assert.deepEqual(o.modes.map((m) => [m.name, m.rise, m.mountFacing]), [["top", 1, "up"], ["bottom", 0, "down"]]);
+    }
+    assert.deepEqual(["mitchell-offset-10", "mitchell-offset-24"].map((id) => seed.components.find((c) => c.id === id).name), ["Mitchell Offset, 10″", "Mitchell Offset, 24″"]);
+    const ro = seed.components.find((c) => c.id === "rotating-offset");
+    assert.deepEqual([ro.name, ro.rise, ro.mountFacing, ro.modes], ["Rotating Offset", 4, "up", undefined]);
   });
 });
 
@@ -751,12 +760,13 @@ describe("head support-side facing", () => {
     assert.equal(standard.modes.find((m) => m.name === "underslung").supportMountFacing, "down");
   });
 
-  test("seed: the real standard head can't be underslung on the real tripod, and can with the real offset", () => {
+  test("seed: the real standard head can't be underslung on the real tripod, and can from the bottom of a U plate", () => {
     const seed = JSON.parse(readFileSync(path.join(__dirname, "..", "gear.json"), "utf8"));
     const sel = { packageId: "test-package", buildId: "build-placeholder", supportId: "tripod-baby-placeholder", headId: "head-standard-placeholder", modeName: "underslung", attachName: "base-inverted" };
     assert.throws(() => buildChain(seed, sel), /facing mismatch/i);
-    const chain = buildChain(seed, { ...sel, adapterIds: ["mitchell-offset"], adapterModes: { "mitchell-offset": "underslung" } });
-    assert.equal(chain.adapters[0].mode, "underslung");
+    const chain = buildChain(seed, { ...sel, adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } });
+    assert.equal(chain.adapters[0].mode, "bottom");
+    assert.throws(() => buildChain(seed, { ...sel, adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "top" } }), /facing mismatch/i);
   });
 });
 

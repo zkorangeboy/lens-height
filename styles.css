@@ -16,7 +16,6 @@
   --danger-bg: #fbe6e4;
   --warning: #8a5a00;
   --warning-bg: #fdedcf;
-  --dot: #c98a00;
 
   /* Three kinds of piece, told apart by pattern as well as color. */
   --fixed: #6b7383;
@@ -49,7 +48,6 @@
     --danger-bg: #3a1512;
     --warning: #ffc35c;
     --warning-bg: #3a2c05;
-    --dot: #ffc35c;
 
     --fixed: #8b93a3;
     --adjustable: #4fc3b3;
@@ -421,6 +419,19 @@ select {
   transform: scaleX(0.55);
 }
 
+/* A nose fitting: an arm at the inner edge of its column, so what it
+   carries shows beside it. */
+.part.is-nose,
+.hit.is-nose {
+  z-index: 2;
+  transform: scaleX(0.3);
+  transform-origin: left center;
+}
+
+.hit.is-nose {
+  z-index: 3;
+}
+
 .part.is-flat {
   height: 6px !important;
   transform: translateY(50%);
@@ -540,19 +551,7 @@ select {
   color: var(--warning);
 }
 
-/* Unmeasured-value dot, per SPEC.md section 4 */
-.dot {
-  display: inline-block;
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  margin: 0 0 1px 5px;
-  border-radius: 50%;
-  background: var(--dot);
-  vertical-align: middle;
-}
-
-/* Under the drawing: the key, estimated measurements, the cap. */
+/* Under the drawing: the key, and the stacking cap. */
 .rig-footer {
   display: flex;
   flex-wrap: wrap;
@@ -568,9 +567,6 @@ select {
   gap: 5px;
 }
 
-.key .dot {
-  margin: 0;
-}
 
 .key-warning {
   color: var(--warning);
@@ -791,4 +787,9 @@ select {
   color: var(--accent);
   font: inherit;
   font-weight: 800;
+}
+
+.part.is-flat.is-nose,
+.hit.is-flat.is-nose {
+  transform: translateY(50%) scaleX(0.3);
 }

@@ -19,8 +19,11 @@ and contributes a **signed rise** — the vertical distance from its bottom
 mount to its top mount.
 
 ```
-ground → [base layer] → [support] → [adapters] → [head] → [camera build] → optical center
+ground → [base layer] → [support] → [nose fitting] → [adapters] → [head] → [camera build] → optical center
 ```
+
+The nose fitting is present only on a support whose top needs one (a
+J.L. Fisher dolly's beam nose, 3.7).
 
 Lens height = sum of all rises in the chain.
 
@@ -46,14 +49,16 @@ entered into the database must respect this.
 Components declare a `bottomMount` and a `topMount`. Two components may be
 adjacent in a chain only if the lower one's `topMount` matches the upper
 one's `bottomMount`. A component that fits more than one mount declares
-`bottomMount` as a list and accepts any of them (a dolly sits on `ground`
-*or* on `dolly-wheels` track).
+`bottomMount` as a list and accepts any of them (a Fisher 11 on pneumatic
+tires sits on `ground` *or* on `square-track`).
 
 Mount type vocabulary (extend as needed):
 
 - `ground` — rests on the floor
-- `dolly-wheels` — the top of dolly track: what a dolly's wheels ride on.
-  Only dollies accept it.
+- `square-track`, `round-track` — the top of square or round dolly track.
+  Which a dolly can ride on depends on its wheel mode (3.2).
+- `fisher-nose` — the nose of a J.L. Fisher beam. Only a nose fitting
+  (3.7) accepts it; the nose fitting provides the Mitchell mount.
 - `mitchell` — Mitchell mount. **The standard head mount**: supports, heads,
   and adapters all use it unless they're genuinely something else.
 - `bowl-100`, `bowl-150` — tripod/dolly bowls, for gear that really is
@@ -144,23 +149,39 @@ top of the stack is what the support must accept.
   `adapterModes`), defaulting to the first.
   Apple boxes may not go under a dolly (2.1); under a tripod they're legal
   but heavily penalized in ranking.
-- **Track + wedges** (`kind: "track"`, `ground → dolly-wheels`). Contributes
-  a fixed rise (measure it — it is not zero, and it is the most commonly
-  forgotten offset in the chain). Its top is `dolly-wheels`, so only a
-  dolly can sit on it: a tripod cannot be put on track. It goes on top of
-  the base stack, and at most one fits in a chain.
-- **Skate wheels / soft tires** on a dolly: affects the dolly's own base
-  rise; store as a variant rather than a separate base component.
+- **Track** (`kind: "track"`). **Square track** (`ground → square-track`)
+  and **round track** (`ground → round-track`), each +2". Its rise is not
+  zero, and it is the most commonly forgotten offset in the chain. Only a
+  dolly in a wheel mode that rides that track can sit on it (3.2): a tripod
+  cannot be put on track. It goes on top of the base stack, and at most one
+  fits in a chain.
+- **Wheels** are not a base item: a dolly's wheel set is a *mode of the
+  dolly* (3.2), because it decides both the rise and what the dolly can sit
+  on.
 
 Solver constraint: cap base-layer stacking at **2 items** by default,
 configurable. Taller stacks are legal but should be ranked last.
 
 ### 3.2 Support
 
-The component with the adjustable range. Every support presents a
-`mitchell` top (2). Tripods sit on `ground` only, so sticks can't be put on
-track; dollies accept `ground` *or* `dolly-wheels`; hi-hats and low hats sit
-on `ground`.
+The component with the adjustable range. Tripods, hi-hats, and low hats
+present a `mitchell` top and sit on `ground` only, so sticks can't be put
+on track. The J.L. Fisher 11 presents a `fisher-nose` top that needs a nose
+fitting (3.7), and what it sits on depends on its wheel mode.
+
+**Support modes: wheel sets.** A support may declare `modes`, each with a
+`name`, `label`, `rise` (an offset added to the whole support), and its own
+`bottomMount`. A dolly's wheel set is such a mode. The Fisher 11
+(docs/fisher-11.md):
+
+| Wheel mode | Rise | Sits on |
+|---|---:|---|
+| Pneumatic (standard) | 0 | floor, or square track |
+| ETW round track wheels | −0.5" | round track only |
+| Skateboard wheels | +2" | round track only |
+
+A chain selection names the support's mode (`supportMode`), defaulting to
+the first that fits what's beneath it.
 
 A support declares a `kind` — `tripod`, `dolly`, `hi-hat`, or `lo-hat` —
 which the apple-box rules key off (2.1): a dolly forbids apple boxes, a
@@ -174,7 +195,10 @@ tripod on them is penalized in ranking.
   the UI may show spec figures for reference.
 - **Hi-hat / low hat** (`kind: "hi-hat"`, `"lo-hat"`). Fixed rise, no range.
 - **Dollies** (`kind: "dolly"`). Rise is `baseRise + boomRange`, where `baseRise` is floor
-  (or track) to the boom's zero point. The boom interval is usually the
+  (or track) to the boom's zero point. For the Fisher 11, `baseRise` 17.875"
+  is the floor to the nose with the beam fully down on pneumatic tires,
+  measured so that an SLE nose fitting at 0 puts the Mitchell there, and
+  `boomRange` is the 33.375" beam travel, with `levelingLoss` 0. The boom interval is usually the
   widest range in the system and is what makes a dolly answer a range
   query by itself. When the column itself telescopes, declare `legRange`
   (same shape as `riseRange`) instead of a fixed `baseRise`: an
@@ -187,8 +211,8 @@ Each support declares `levelingLoss` — inches of usable range sacrificed
 to level on uneven ground (default 1"). Subtract from the top of the
 interval.
 
-A support may declare a `family` (2.1) — the dolly family adapters can
-require.
+A support may declare a `family` (2.1) — the dolly family nose fittings
+and adapters can require.
 
 ### 3.3 Head
 
@@ -206,8 +230,8 @@ A head has one or more **modes**. Each mode stores:
   head must face in that mode (2). Every mode declares it. A normal mode
   needs an up-facing mount beneath it. An underslung mode hangs the head
   from a down-facing mount, so it needs one — and a tripod, riser, or
-  hi-hat top all face up, so in practice the only thing that supplies it
-  is an offset in underslung mode (3.6). An underslung mode is therefore
+  hi-hat top all face up, so what supplies it is the bottom side of a
+  Mitchell offset (3.6), or an SLE nose fitting mounted underslung (3.7). An underslung mode is therefore
   rejected directly on a tripod. (If omitted, `up`.)
 
 Examples:
@@ -324,22 +348,49 @@ doesn't say which mode, the first one is used.
 Adapters are `fixed`; they add their rise to both ends of the chain's
 interval (5.2) and count as a piece of gear.
 
-Three kinds are modeled:
+Kinds modeled:
 
-- **Mitchell risers** — 6", 12", 18", 24". Measured. `mitchell → mitchell`,
+Adapters are generic Mitchell gear, not tied to a brand:
+
+- **Mitchell risers** — 3", 6", 12", 18", 24". `mitchell → mitchell`,
   positive rise, no `requiresFamily`, so they work on any support the
   mounts allow. Their top always faces `up`.
-- **Mitchell offset** — measured, `mitchell → mitchell`, two modes:
-  - `upright`: rise +1", top mount faces `up`.
-  - `underslung`: rise 0", top mount faces `down`.
-  The underslung mode is what hangs a head: it presents the down-facing
-  mount an underslung head mode requires (3.3), and nothing else in the
-  gear model does. Upright, it's just a 1" riser.
-- **Dolly configurations** — low mode, rotating offset, broken neck. Each
-  is a way of rigging the dolly's head position, modeled as an adapter with
-  its own signed rise (low mode is negative). They're family-specific:
-  each declares `requiresFamily`, and the dolly declares the matching
-  `family`.
+- **Mitchell offsets, 10" and 24"** — flat plates with a Mitchell mount on
+  both the top and the bottom of the offset end. There's no flipping; the
+  mode is which side the next piece mounts to:
+  - `top`: rise +1", top mount faces `up`.
+  - `bottom`: rise 0", top mount faces `down`.
+  The bottom side is what hangs a head: it presents the down-facing mount
+  an underslung head mode requires (3.3).
+- **Rotating offset**: rise +4", faces `up`.
+
+### 3.7 Nose fitting
+
+`category: "nose"`. **A J.L. Fisher beam ends in a nose that takes a nose
+fitting, and the fitting provides the Mitchell mount** (docs/fisher-11.md).
+`fisher-nose → mitchell`, `requiresFamily: "fisher"`.
+
+- A support whose top is `fisher-nose` needs **exactly one** nose fitting,
+  the way every chain needs exactly one head. Without one the rig is
+  *incomplete*, not illegal: check mode asks for one. Any other support
+  takes none.
+- Nose fittings have modes, like heads. A mode has either a fixed `rise`
+  or an adjustable `riseRange` (`min`, `max`) with `adjustability:
+  "adjustable"` (a hand screw, set between setups), plus `mountFacing` for
+  its Mitchell. **This is the first adjustable range on a component other
+  than the support**: it widens the chain's interval (5.2) and is drawn as
+  adjustable (5.8).
+- **SLE — 4-way Level Head**: `upright` rise −4" to 0", adjustable, faces
+  up; `reversed` rise 0, fixed, faces up; `underslung` (mounted upside
+  down) rise −8" to −4", adjustable, faces **down** (an assumed value, not
+  from the brochure).
+- **LHE — 4-way Low Level Head**: rise −14.875", fixed, faces up. It
+  declares `hangsAsBracket: true`: it hangs the Mitchell well below the
+  beam, beside the dolly, and is drawn that way (5.8). The SLE doesn't.
+
+Brochure checks (Mitchell height above the floor, pneumatic tires, on the
+floor): SLE upright 13.875"–17.875" beam down, 47.25"–51.25" beam up; SLE
+reversed 17.875" / 51.25"; LHE 3" / 36.375".
 
 ---
 
@@ -362,8 +413,7 @@ the **seed layer**. It is read-only at runtime.
         { "name": "normal",     "rise": 6.75, "cameraMountFacing": "up" },
         { "name": "underslung", "rise": -4.5, "cameraMountFacing": "down" }
       ],
-      "measured": true,
-      "notes": "Measured mount seat to top of plate, 2024-xx-xx"
+      "notes": "Mount seat to top of plate"
     },
     {
       "id": "sachtler-baby-150",
@@ -374,8 +424,7 @@ the **seed layer**. It is read-only at runtime.
       "riseRange": { "specMin": 10.0, "specMax": 28.0,
                      "practicalMin": 11.0, "practicalMax": 27.0 },
       "levelingLoss": 1.0,
-      "spreadRequired": true,
-      "measured": false
+      "spreadRequired": true
     },
     {
       "id": "mitchell-riser-6",
@@ -384,19 +433,16 @@ the **seed layer**. It is read-only at runtime.
       "bottomMount": "mitchell",
       "topMount": "mitchell",
       "rise": 6.0,
-      "mountFacing": "up",
-      "measured": true
+      "mountFacing": "up"
     },
     {
-      "id": "dolly-low-mode",
-      "name": "Dolly low mode",
-      "category": "adapter",
-      "bottomMount": "mitchell",
+      "id": "fisher-lhe",
+      "name": "LHE — 4-way Low Level Head",
+      "category": "nose",
+      "bottomMount": "fisher-nose",
       "topMount": "mitchell",
-      "rise": -4.0,
-      "mountFacing": "up",
       "requiresFamily": "fisher",
-      "measured": false
+      "modes": [{ "name": "fixed", "rise": -14.875, "mountFacing": "up" }]
     }
   ],
   "packages": [
@@ -416,11 +462,9 @@ the **seed layer**. It is read-only at runtime.
 }
 ```
 
-**Every numeric field carries a `measured` flag on its component.** Values
-that came from manufacturer specs or estimates must be marked
-`measured: false` and displayed in the UI with a visible indicator (a dot
-next to the value). The user needs to know at a glance which numbers have
-been verified with a tape.
+**All gear values are treated as correct.** There is no "measured" or
+"estimated" flag: a number that turns out wrong is corrected by hand, in
+the seed or in the override layer below.
 
 ### 4.1 Override layer
 
@@ -431,9 +475,8 @@ object in local storage, keyed by component id and field:
 {
   "schemaVersion": 1,
   "overrides": {
-    "oconnor-2575": { "rise": 6.5, "measured": true },
-    "sachtler-baby-150": { "riseRange": { "practicalMax": 26.0 },
-                           "measured": true }
+    "oconnor-2575": { "rise": 6.5 },
+    "sachtler-baby-150": { "riseRange": { "practicalMax": 26.0 } }
   },
   "customComponents": [ /* full component objects, same schema */ ]
 }
@@ -496,9 +539,10 @@ suggested fixes: the user edits the rig in the drawing instead (7.2).
 - `mode` — `"solve"` (default) or `"check"`
 - Solve mode also takes `dropDominated` (default on, 5.3 step 4) and
   `collapse` (default on, 5.3 step 5).
-- Check mode additionally takes a `chain` selection (base item ids,
-  support id, adapter ids with the mode each is used in, head id + mode
-  name, build attach name). If omitted, it
+- Check mode additionally takes a `chain` selection (base item ids with
+  their modes, support id and wheel mode, nose fitting id and mode, adapter
+  ids with the mode each is used in, head id + mode name, build attach
+  name). If omitted, it
   defaults to the current rig (5.5); if there is no current rig either,
   check mode has nothing to evaluate.
 
@@ -510,11 +554,13 @@ directly for check mode — it is scored the same way:
 1. **Compute the interval.** Total rise is an interval `[min, max]`: sum
    of fixed rises (base layer, adapters, head mode, build attach point), plus the
    support's full adjustable range (using practical figures, minus
-   `levelingLoss` from the top). Alongside it, compute the chain's
+   `levelingLoss` from the top, plus its wheel mode's offset), plus the nose
+   fitting's range (its `riseRange`, or its fixed `rise` at both ends). Alongside it, compute the chain's
    **moveable interval** `[moveableMin, moveableMax]` the same way, but
    summing only range contributed by `moveable` components (3.5) — an
-   `adjustable` sub-range like `legRange` (3.2) counts toward `[min,
-   max]` but not toward the moveable interval. A chain with no `moveable`
+   `adjustable` sub-range like `legRange` (3.2) or a nose fitting's
+   `riseRange` (3.7) counts toward `[min, max]` but not toward the
+   moveable interval. A chain with no `moveable`
    component anywhere in it has a zero-width moveable interval.
 2. **Compute margin.** Two values, not one:
    - Fixed target `H`: `marginBelow = H - min`, `marginAbove = max - H`.
@@ -668,9 +714,9 @@ depends on in two places, not a deferred nicety:
 - **Check mode** (5.6) defaults to it when no explicit chain is given, and
   **delta search** (5.7) measures every candidate against it.
 
-The current rig is stored as a full chain selection — base item ids,
-support id, adapter ids and each adapter's mode, head id and mode name,
-build attach name — not just a
+The current rig is stored as a full chain selection — base item ids and
+modes, support id and wheel mode, nose fitting id and mode, adapter ids and
+each adapter's mode, head id and mode name, build attach name — not just a
 support/head pair, so it can be reconstructed and evaluated exactly, not
 approximated.
 
@@ -692,16 +738,16 @@ UI, 5).
 (`checkVerdict` in `src/verdict.js`), so the UI never compares heights:
 
 - **Feasible** — what the rig does and its *tightest* margin in plain
-  words: "Reaches 32″ · 4″ to spare at bottom", "Covers 20–32″ · only 0.5″
+  words: "Reaches 32″ · 4″ to spare at bottom", "Covers 20–32″ · only ½″
   to spare at top". The tightest of `marginBelow` ("at bottom"),
   `marginAbove` ("at top"), and — for a moveable range — the moveable
   travel left over once the move fits ("of moveable travel"). A margin
-  inside the tolerance but below zero reads "0.3″ past the top, within
+  inside the tolerance but below zero reads "¼″ past the top, within
   tolerance".
 - **Tight** — feasible, but the tightest margin is under **1″**. Same
   words, prefixed "only", and shown in the warning color.
-- **Infeasible** — the shortfall (5.2) in plain words: "3.5″ too short",
-  "3.5″ too tall", "Needs 4″ more moveable travel".
+- **Infeasible** — the shortfall (5.2) in plain words: "3½″ too short",
+  "3½″ too tall", "Needs 4″ more moveable travel".
 - **Waiting** — no target yet: the rig's reach, and a prompt for a target.
 
 The verdict is the only place margins are stated; the drawing has no
@@ -745,17 +791,20 @@ derives from raw rises. `stackLayout(chain, target)` returns everything a
 renderer needs, positions included as percentages of the drawing height, so
 the UI does no height math.
 
-- **Blocks, bottom to top:** one per base item, the support, each adapter,
-  the head (in its mode), and the camera build (at its attach point). Each
+- **Blocks, bottom to top:** one per base item, the support (in its wheel
+  mode), the nose fitting (if any, in its mode), each adapter, the head (in
+  its mode), and the camera build (at its attach point). Each
   has its signed `rise`, a `kind` (`fixed`, `adjustable`, or `moveable`,
   3.5), and `bottomPct` / `heightPct`. A block with a negative rise extends
   downward from where the piece below ended; a zero rise has zero height.
   The floor is height 0 and the lens sits at the top of the last block.
 - **Rigged to the target.** The chain is drawn set up to put the lens at the
   target: a fixed target's height, or the low end of a range (the move
-  starts there), clamped into the chain's reach. The support's range is
-  allocated adjustable extension first and moveable extension last, so
-  legs position the rig and the boom takes what's left.
+  starts there), clamped into the chain's reach. The extension needed is
+  allocated adjustable first — the support's legs, then a nose fitting's
+  range — and moveable last, so everything set between setups positions
+  the rig and the boom takes what's left. A nose fitting with a range is an
+  `adjustable` block, and carries its `range`.
 - **The support is split into parts** — its fixed base, its adjustable
   extension, its moveable extension — so the moveable portion can be drawn
   apart from the fixed pieces. Its block carries the support's `range`
@@ -781,8 +830,15 @@ the UI does no height math.
   bracket) — that block and everything after it moves to the next column.
   **Except a cradled camera:** when the head declares `cradlesCamera`
   (3.3), the camera stays in the head's column, drawn inside it (`cradled:
-  true`), even if it runs the other way. A block with zero rise (an offset in
-  underslung mode) never reverses anything; it stays where it is. Each
+  true`), even if it runs the other way. **Nose fittings** (3.7) are
+  drawn as an arm at the inner edge of their column (`nose: true`). One
+  that declares `hangsAsBracket` (the LHE, which hangs the Mitchell well
+  below the beam) moves to the next column like any reversal, and the
+  pieces mounted on it stay in its column even when they run back up
+  (`bracket: true`). One without the flag (the SLE, anywhere in its
+  adjustment) never changes column or direction: it stays in the dolly's
+  column. A block with zero rise (a Mitchell offset used from its bottom
+  side) never reverses anything; it stays where it is. Each
   reversal adds a `connector` at the height where the columns join.
   `columns` is how many there are.
 - **No margin tags.** The margins are stated once, in the verdict (5.6);
@@ -837,7 +893,7 @@ user tapped, so these are positional, not "anywhere in the stack":
   family, not already in the rig, no apple box under a dolly); and the rest
   of the rig survives revalidation without losing a piece. A head mode or
   camera mount that has to *switch* doesn't disqualify it — that's how an
-  offset flipped to underslung takes the head and camera with it. A
+  offset switched to its bottom side takes the head and camera with it. A
   multi-mode item fits a position if any of its modes does.
 - A base item or adapter may be **swapped** for another on the same terms,
   in its place. A support may be swapped for any other that sits on the
@@ -853,14 +909,21 @@ The slots, ground up, and what each requires of what's beneath it:
 1. **Base layer** (several): stacks on the base items already picked, from
    the ground (mounts, one track at most), and passes item rules (an
    apple-box face that isn't allowed is never offered).
-2. **Support**: accepts the top of the base stack, and isn't a dolly if the
-   base layer has an apple box (2.1).
-3. **Adapters** (several, each in a mode): mounts and faces right on top of
-   the support and the adapters below, matches the support's family (2.1),
-   and isn't already used.
-4. **Head**, with its mode: a head is offered if any mode is legal; a mode
+2. **Support**, with its wheel mode: a support is offered if any mode sits
+   on the top of the base stack, and it isn't a dolly if the base layer has
+   an apple box (2.1). A wheel mode that stopped fitting switches to one
+   that does, with a note.
+3. **Nose fitting**, with its mode — only when the support's top is
+   `fisher-nose` (3.7), and then exactly one. It must match the support's
+   family. Missing, the rig is incomplete and check mode asks for one, as
+   for a missing head. A nose fitting on a support that doesn't take one is
+   cleared.
+4. **Adapters** (several, each in a mode): mounts and faces right on top of
+   the nose fitting, or the support if there is none, and the adapters
+   below; matches the support's family (2.1), and isn't already used.
+5. **Head**, with its mode: a head is offered if any mode is legal; a mode
    is legal if the mount and facing beneath the head suit it (3.3).
-5. **Camera attach point**: mates with the head mode's camera-mount facing
+6. **Camera attach point**: mates with the head mode's camera-mount facing
    (3.3, 3.4).
 
 **When a pick changes.** Picks are revalidated ground up. A base item,
@@ -911,9 +974,15 @@ Query-side flags: `tightSpace`, `onSlope`, `needsLowTilt`.
   also where the rig is edited. One thumb, held at chest height, in a dark room. Large tap
   targets, high contrast, no hover states. A package or build selector
   only appears when there is more than one to choose from.
-- **Units:** decimal inches throughout, matching how heights are called on
-  set. Store all values as inches (floating point). A metric display
-  toggle is a nice-to-have; the storage unit does not change.
+- **Units:** inches throughout. Store all values as inches (floating
+  point) and keep full precision in all math. **Display** every height,
+  rise, and margin rounded to the nearest ¼" and written as a fraction —
+  17¾", 6", 13¾", −¼" — the way heights are called on set. Rounding is
+  display-only and lives in one formatting function in `src/`
+  (`src/format.js`) that the UI and the verdict call. A value that isn't
+  zero but rounds to zero displays as "<¼"", so a shortfall or a
+  margin is never shown as 0. A metric display toggle is a nice-to-have;
+  the storage unit does not change.
 
 ### 7.1 Data persistence caveat
 
@@ -932,8 +1001,8 @@ top to bottom:
 
 1. **Target**, compact — a single height, or a range (two heights). A range
    is always a moveable range (5.1); there is nothing to choose.
-2. **Verdict** — one line (5.6): "✓ Covers 20–32″ · only 0.5″ to spare at
-   top", "✗ 3.5″ too short". Green when feasible, the warning color when
+2. **Verdict** — one line (5.6): "✓ Covers 20–32″ · only ½″ to spare at
+   top", "✗ 3½″ too short". Green when feasible, the warning color when
    feasible but the tightest margin is under 1″, red when not.
 3. **The drawing** (5.8) — the main element. Full width, one true vertical
    scale fitted to the content, the floor at the bottom. Components stack
@@ -959,26 +1028,25 @@ top to bottom:
    sections.
 
 **Information appears once.** Each piece's name and signed rise appear
-only on its label in the drawing — no text legend beside it. Names carry no
-"(placeholder)"; a small dot marks a piece whose measurements are
-estimated (`measured: false`), and a single line under the drawing says
-"Estimated measurements" if any piece has one. "Camera inverted — flip
-image" appears once, on the camera's label. A base layer over the stacking
-cap is noted on that same line. Adjustability is always called
+only on its label in the drawing — no text legend beside it. All gear
+values are treated as correct, so there's no "estimated" marking (4).
+"Camera inverted — flip image" appears once, on the camera's label. A base
+layer over the stacking cap is noted in a line under the drawing. Adjustability is always called
 **moveable / adjustable / fixed** (3.5), in the drawing's key and in the
 words.
 
 **The UI is thin.** `index.html` and `app.js` collect input, call the solver
 and `rules.js`, and render what comes back. All height math (intervals,
 margins, shortfalls, stack positions) and all compatibility logic (mounts,
-facing, family, apple boxes) stay in `src/`. Formatting a number for display
-is the only arithmetic allowed in the UI.
+facing, family, apple boxes) stay in `src/`, and so does formatting a
+number as a fraction (7): the UI calls it rather than rounding anything
+itself.
 
 ---
 
 ## 8. Build order
 
-1. Data model + seed JSON with a handful of real, measured components.
+1. Data model + seed JSON with a handful of real components.
 2. Solver, with unit tests covering: fixed target, range target,
    underslung head (negative rise, both camera attach options), lambda underslung (negative head, upright camera), dolly boom, base-layer stacking,
    infeasible-with-suggestion.

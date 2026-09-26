@@ -5,15 +5,17 @@
 // (src/verdict.js), and the stack layout (src/stack.js), and draws what they
 // return. There is no height math and no compatibility logic here: margins,
 // shortfalls, positions, columns, and label placement come back ready to
-// draw, and what may be added, swapped, or toggled comes from rules.js. The
-// only arithmetic is formatting a number for display.
+// draw, what may be added, swapped, or toggled comes from rules.js, and every
+// number is written by src/format.js (¼″ fractions). There is no arithmetic
+// here at all.
 //
 // Solve mode and delta search are frozen and not shown (SPEC.md 5): nothing
 // here calls them.
 
 import { buildChain, evaluateChain, normalizeTarget, exceedsBaseLayerCap, DEFAULT_MAX_BASE_LAYER_ITEMS } from "./src/solver.js";
-import { addOptions, applyEdit, defaultPicks, modeControl, revalidatePicks, slotOptions, swapOptions } from "./src/rules.js";
-import { checkVerdict, inches } from "./src/verdict.js";
+import { addOptions, applyEdit, defaultPicks, missingSlot, modeControl, revalidatePicks, slotOptions, swapOptions } from "./src/rules.js";
+import { checkVerdict } from "./src/verdict.js";
+import { inches, signedInches as fmtSigned } from "./src/format.js";
 import { stackLayout } from "./src/stack.js";
 
 // ---------------------------------------------------------------------------
@@ -53,16 +55,12 @@ const el = {
 };
 
 // ---------------------------------------------------------------------------
-// Formatting (presentation only — every number arrives already computed)
+// Formatting (every number arrives computed; src/format.js writes it)
 // ---------------------------------------------------------------------------
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
-const SIGNED = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2, signDisplay: "exceptZero" });
-const fmtSigned = (n) => `${SIGNED.format(n).replace("-", "−")}″`;
-const dot = (estimated) => (estimated ? '<span class="dot" title="Estimated measurement" aria-label="estimated"></span>' : "");
-const isEstimated = (component) => component.measured === false;
 const pos = (o) => `bottom:${o.bottomPct}%;height:${o.heightPct}%`;
 const ICONS = { feasible: "✓", tight: "✓", infeasible: "✗", waiting: "…" };
 
@@ -196,8 +194,9 @@ function render() {
   const target = normalizeTarget(state.target);
   renderNotes();
 
-  if (!p.supportId || !p.headId || !p.modeName || !p.attachName) {
-    renderIncomplete();
+  const missing = missingSlot(gear, state.packageId, state.buildId, p);
+  if (missing) {
+    renderIncomplete(missing);
     return;
   }
 
@@ -231,18 +230,17 @@ function renderNotes() {
 }
 
 /** A rig with an empty required slot: offer what fits there. */
-function renderIncomplete() {
-  const p = state.picks;
-  const opts = slotOptions(gear, state.packageId, state.buildId, p);
-  const slot = !p.supportId ? "support" : "head";
-  const choices = opts[slot].filter((o) => o.available);
-  setVerdict("waiting", !p.supportId ? "Choose a support" : !p.headId ? "Choose a head" : "Nothing on this camera fits the head");
+function renderIncomplete(missing) {
+  const opts = slotOptions(gear, state.packageId, state.buildId, state.picks);
+  const words = { support: "Choose a support", nose: "Choose a nose fitting", head: "Choose a head", attach: "Nothing on this camera fits the head" };
+  setVerdict("waiting", words[missing]);
   el.rig.dataset.state = "waiting";
   el.footer.innerHTML = "";
   el.addButton.hidden = true;
+  const choices = missing === "attach" ? [] : opts[missing].filter((o) => o.available);
   el.rig.innerHTML = `<div class="empty-slot">${
-    choices.length && (!p.supportId || !p.headId)
-      ? `<div class="option-list">${choices.map((o) => optionButton({ op: "swap", slot, id: o.id }, o.name, null, isEstimated(o.component))).join("")}</div>`
+    choices.length
+      ? `<div class="option-list">${choices.map((o) => optionButton(editAttr({ op: "swap", slot: missing, id: o.id }), o.name, null)).join("")}</div>`
       : `<p class="hint">${escapeHtml(opts.attach.find((a) => a.reason)?.reason || "Nothing fits here.")}</p>`
   }</div>`;
 }
@@ -251,9 +249,10 @@ function renderIncomplete() {
 
 function drawingHtml(layout) {
   const blocks = layout.blocks;
-  // A piece with no rise (an offset in underslung mode) is drawn as a thin bar;
-  // a camera its head cradles is drawn inside the head.
-  const shape = (b) => `${b.direction === "flat" ? " is-flat" : ""}${b.cradled ? " is-cradled" : ""}`;
+  // A piece with no rise (an offset plate's bottom side) is drawn as a thin bar; a
+  // camera its head cradles is drawn inside the head; a nose fitting is drawn
+  // as an arm down the inner edge of its column, beside what it carries.
+  const shape = (b) => `${b.direction === "flat" ? " is-flat" : ""}${b.cradled ? " is-cradled" : ""}${b.nose ? " is-nose" : ""}`;
   const parts = blocks
     .flatMap((b) =>
       b.parts
@@ -312,7 +311,7 @@ function labelHtml(block, entry) {
     block.parts ? block.kind : null,
   ].filter(Boolean);
   return `<button type="button" class="lane-label" style="bottom:${entry.pct}%" data-block="${entry.block}" data-piece="${pieceKey(block)}">
-    <span class="label-name">${escapeHtml(block.name)}${dot(block.estimated)}</span>
+    <span class="label-name">${escapeHtml(block.name)}</span>
     <span class="label-rise">${fmtSigned(block.rise)}${detail.length ? ` · ${escapeHtml(detail.join(" · "))}` : ""}</span>
     ${block.inverted ? '<span class="label-flag">Camera inverted — flip image</span>' : ""}
   </button>`;
@@ -322,18 +321,17 @@ function footerHtml(layout, chain) {
   const key = ["moveable", "adjustable", "fixed"]
     .map((kind) => `<span class="key"><i class="swatch kind-${kind}"></i>${kind[0].toUpperCase()}${kind.slice(1)}</span>`)
     .join("");
-  const estimated = layout.estimated ? `<span class="key">${dot(true)}Estimated measurements</span>` : "";
   const cap = exceedsBaseLayerCap(chain)
     ? `<span class="key key-warning">${chain.baseItems.length} base items, over the ${DEFAULT_MAX_BASE_LAYER_ITEMS}-item stacking cap</span>`
     : "";
-  return key + estimated + cap;
+  return key + cap;
 }
 
 // --- The sheets: change one piece, or add one ----------------------------------
 
-function optionButton(attrs, label, rise, estimated) {
+function optionButton(attrs, label, rise) {
   return `<button type="button" class="option" ${attrs}>
-    <span>${escapeHtml(label)}${dot(estimated)}</span>${rise == null ? "" : `<span class="option-rise">${fmtSigned(rise)}</span>`}
+    <span>${escapeHtml(label)}</span>${rise == null ? "" : `<span class="option-rise">${fmtSigned(rise)}</span>`}
   </button>`;
 }
 const editAttr = (change) => `data-edit="${escapeHtml(JSON.stringify(change))}"`;
@@ -342,7 +340,7 @@ const editAttr = (change) => `data-edit="${escapeHtml(JSON.stringify(change))}"`
 function optionsHtml(options, toChange, emptyText) {
   const fits = options.filter((o) => o.available);
   return fits.length
-    ? `<div class="option-list">${fits.map((o) => optionButton(editAttr(toChange(o)), o.label, o.rise, isEstimated(o.component))).join("")}</div>`
+    ? `<div class="option-list">${fits.map((o) => optionButton(editAttr(toChange(o)), o.label, o.rise)).join("")}</div>`
     : `<p class="hint">${escapeHtml(emptyText)}</p>`;
 }
 
@@ -395,8 +393,8 @@ function pieceSheetHtml({ slot, id }) {
   if (!block) return null;
 
   const range = block.range ? ` · adjusts ${inches(block.range.min)} to ${inches(block.range.max)}` : "";
-  const head = `<h2>${escapeHtml(block.name)}${dot(block.estimated)}</h2>
-    <p class="sheet-sub">${fmtSigned(block.rise)} at this setup${range}${block.estimated ? " · estimated measurement" : ""}</p>`;
+  const head = `<h2>${escapeHtml(block.name)}</h2>
+    <p class="sheet-sub">${fmtSigned(block.rise)} at this setup${range}</p>`;
 
   if (slot === "build") {
     const control = modeControl(opts.attach);
@@ -404,7 +402,7 @@ function pieceSheetHtml({ slot, id }) {
       gear.builds.length > 1
         ? `<h3>Camera build</h3><div class="option-list">${gear.builds
             .filter((b) => b.id !== state.buildId)
-            .map((b) => optionButton(`data-build="${escapeHtml(b.id)}"`, b.name, null, false))
+            .map((b) => optionButton(`data-build="${escapeHtml(b.id)}"`, b.name, null))
             .join("")}</div>`
         : "";
     return `${head}<h3>Camera mount</h3>${modeHtml(control, { op: "mode", slot: "build" }, p.attachName)}${builds}`;
@@ -414,11 +412,14 @@ function pieceSheetHtml({ slot, id }) {
   if (slot === "head") {
     const entry = opts.head.find((o) => o.id === p.headId);
     mode = `<h3>Mode</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot: "head" }, p.modeName)}`;
-  } else if (slot === "adapter" || slot === "base") {
-    const entry = (slot === "base" ? opts.base : opts.adapters).find((o) => o.id === id);
+  } else {
+    // A full apple's face, an offset plate's side, a wheel set, a nose fitting's mode.
+    const list = { base: opts.base, adapter: opts.adapters, support: opts.support, nose: opts.nose }[slot];
+    const entry = list.find((o) => o.id === id);
     if (entry.modes.length > 1) {
-      const current = (slot === "base" ? p.baseModes : p.adapterModes)[id];
-      mode = `<h3>${slot === "base" ? "Face" : "Mode"}</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot, index }, current)}`;
+      const current = { base: p.baseModes[id], adapter: p.adapterModes[id], support: p.supportMode, nose: p.noseMode }[slot];
+      const title = { base: "Face", support: "Wheels" }[slot] || "Mode";
+      mode = `<h3>${title}</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot, index }, current)}`;
     }
   }
 
@@ -442,7 +443,7 @@ function addSheetHtml(which) {
   if (chosen) {
     return `<h2>Add ${escapeHtml(chosen.name)}</h2><p class="sheet-sub">Where?</p>
       <div class="option-list">${chosen.positions
-        .map((at) => optionButton(editAttr({ op: "insert", slot: at.slot, index: at.index, id: chosen.id, mode: at.mode }), at.where, null, false))
+        .map((at) => optionButton(editAttr({ op: "insert", slot: at.slot, index: at.index, id: chosen.id, mode: at.mode }), at.where, null))
         .join("")}</div>`;
   }
   if (!options.length) return `<h2>Add</h2><p class="hint">Nothing else fits this rig.</p>`;
@@ -452,7 +453,7 @@ function addSheetHtml(which) {
       o.positions.length === 1
         ? editAttr({ op: "insert", slot: only.slot, index: only.index, id: o.id, mode: only.mode })
         : `data-add="${escapeHtml(o.id)}"`;
-    return optionButton(attrs, o.label, o.rise, isEstimated(o.component));
+    return optionButton(attrs, o.label, o.rise);
   };
   const group = (title, category) => {
     const list = options.filter((o) => o.component.category === category);

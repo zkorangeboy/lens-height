@@ -5,10 +5,7 @@
 /** A margin under this many inches is tight: feasible, but flagged. */
 export const TIGHT_MARGIN = 1;
 
-const NUMBER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-/** 32 -> "32″", 0.5 -> "0.5″" (and never "-0″"). */
-export const inches = (n) => `${NUMBER.format(n === 0 ? 0 : n).replace("-", "−")}″`;
-const span = (low, high) => `${NUMBER.format(low)}–${inches(high)}`;
+import { inches, inchesSpan as span } from "./format.js";
 
 export const isTight = (amount) => amount < TIGHT_MARGIN;
 

@@ -1,14 +1,16 @@
 // Solver for the Lens Height Solver. See SPEC.md section 5.
-import { getPackage, getBuild, buildAttachPoints, supportInterval, supportMoveableInterval } from "./model.js";
+import { getPackage, getBuild, buildAttachPoints, riseRangeOf, supportInterval, supportMoveableInterval } from "./model.js";
 import {
   acceptsMount,
   adapterVariants,
   appleBoxCount,
   facingsMate,
+  needsNoseFitting,
   orderStack,
   ruleViolations,
+  stackBaseOf,
   supportFacingOk,
-  topFacingOf,
+  supportVariants,
   tripodOnAppleBoxes,
 } from "./rules.js";
 
@@ -43,14 +45,17 @@ function packagePool(gear, packageId) {
  * computeMoveableInterval (moveable range only) apply, so they can't
  * drift from each other on how base/head/build rises get folded in.
  */
-function foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportRange) {
+function foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportRange, noseRange) {
   const fixedRise =
     baseItems.reduce((sum, c) => sum + c.rise, 0) + adapters.reduce((sum, c) => sum + c.rise, 0);
   return {
-    min: fixedRise + supportRange.min + mode.rise + attach.rise,
-    max: fixedRise + supportRange.max + mode.rise + attach.rise,
+    min: fixedRise + supportRange.min + noseRange.min + mode.rise + attach.rise,
+    max: fixedRise + supportRange.max + noseRange.max + mode.rise + attach.rise,
   };
 }
+
+/** A nose fitting's rise range (SPEC.md 3.7), or nothing when there's none. */
+const noseRangeOf = (nose) => (nose ? riseRangeOf(nose) : { min: 0, max: 0 });
 
 /**
  * A chain's rise interval (SPEC.md 5.2 step 1): sum of fixed rises (base
@@ -58,8 +63,8 @@ function foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportRan
  * adjustable range. Shared by every way a chain gets built so the
  * arithmetic lives in exactly one place.
  */
-function computeInterval(baseItems, adapters, support, mode, attach) {
-  return foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportInterval(support));
+function computeInterval(baseItems, adapters, support, nose, mode, attach) {
+  return foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportInterval(support), noseRangeOf(nose));
 }
 
 /**
@@ -68,8 +73,10 @@ function computeInterval(baseItems, adapters, support, mode, attach) {
  * contributes — an `adjustable` sub-range like `legRange` (3.2) is
  * excluded. Zero-width when the chain has no moveable component at all.
  */
-function computeMoveableInterval(baseItems, adapters, support, mode, attach) {
-  return foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportMoveableInterval(support));
+function computeMoveableInterval(baseItems, adapters, support, nose, mode, attach) {
+  // A nose fitting's range is adjustable, not moveable: it adds no width here.
+  const noseLow = noseRangeOf(nose).min;
+  return foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportMoveableInterval(support), { min: noseLow, max: noseLow });
 }
 
 /**
@@ -86,8 +93,8 @@ const ADJUSTABILITY_BY_RANK = ["fixed", "adjustable", "moveable"];
  * the only component that carries a range, but this scans every slot so
  * a future part with its own range needs no change here.
  */
-function chainAdjustability({ baseItems, adapters, support, head, build }) {
-  const components = [...baseItems, ...adapters, support, head, build];
+function chainAdjustability({ baseItems, adapters, support, nose, head, build }) {
+  const components = [...baseItems, ...adapters, support, ...(nose ? [nose] : []), head, build];
   const maxRank = Math.max(...components.map((c) => ADJUSTABILITY_RANK[c.adjustability] ?? ADJUSTABILITY_RANK.fixed));
   return ADJUSTABILITY_BY_RANK[maxRank];
 }
@@ -98,13 +105,14 @@ function chainAdjustability({ baseItems, adapters, support, head, build }) {
  * object is built, so enumerateChains, buildChain, and deltaSearch can't
  * drift from each other on what a chain even is.
  */
-function assembleChain(baseItems, adapters, support, head, mode, build, attach) {
-  const { min, max } = computeInterval(baseItems, adapters, support, mode, attach);
-  const moveableInterval = computeMoveableInterval(baseItems, adapters, support, mode, attach);
+function assembleChain({ baseItems, adapters, support, nose, head, mode, build, attach }) {
+  const { min, max } = computeInterval(baseItems, adapters, support, nose, mode, attach);
+  const moveableInterval = computeMoveableInterval(baseItems, adapters, support, nose, mode, attach);
   return {
     baseItems,
     adapters,
     support,
+    nose,
     head,
     mode,
     build,
@@ -112,8 +120,8 @@ function assembleChain(baseItems, adapters, support, head, mode, build, attach) 
     min,
     max,
     moveableInterval,
-    pieceCount: baseItems.length + adapters.length + 3, // + support + head + build
-    adjustability: chainAdjustability({ baseItems, adapters, support, head, build }),
+    pieceCount: baseItems.length + adapters.length + (nose ? 4 : 3), // + support, nose fitting, head, build
+    adjustability: chainAdjustability({ baseItems, adapters, support, nose, head, build }),
   };
 }
 
@@ -141,7 +149,7 @@ export const DEFAULT_MAX_ADAPTERS = 2;
  * enumerateChains drops violating chains; buildChain throws; deltaSearch
  * skips them.
  */
-function resolveChain({ baseItems, adapters, support, head, mode, build, attach }) {
+function resolveChain({ baseItems, adapters, support, nose = null, head, mode, build, attach }) {
   const violations = [];
 
   const baseStack = orderStack(baseItems, "ground", "up");
@@ -153,10 +161,20 @@ function resolveChain({ baseItems, adapters, support, head, mode, build, attach 
     );
   }
 
-  const adapterStack = orderStack(adapters, support.topMount, topFacingOf(support));
+  // The nose fitting (SPEC.md 3.7): exactly one on a beam nose, none elsewhere.
+  if (needsNoseFitting(support) && !nose) {
+    violations.push(`Missing nose fitting: support "${support.name || support.id}" needs one`);
+  } else if (nose && !acceptsMount(nose, support.topMount)) {
+    violations.push(
+      `Mount mismatch: nose fitting "${nose.name || nose.id}" doesn't mount to support "${support.name || support.id}" (top mount "${support.topMount}")`
+    );
+  }
+
+  const base = stackBaseOf(support, nose);
+  const adapterStack = orderStack(adapters, base.topMount, base.topFacing);
   if (!adapterStack) {
     violations.push(
-      `Mount or facing mismatch: adapters ${names(adapters)} can't be stacked on support "${support.name || support.id}" (top mount "${support.topMount}") in any order`
+      `Mount or facing mismatch: adapters ${names(adapters)} can't be stacked on "${base.piece.name || base.piece.id}" (top mount "${base.topMount}") in any order`
     );
   } else {
     if (!acceptsMount(head, adapterStack.topMount)) {
@@ -166,7 +184,7 @@ function resolveChain({ baseItems, adapters, support, head, mode, build, attach 
     } else if (!supportFacingOk(adapterStack.topFacing, mode.supportMountFacing || "up")) {
       const beneath = adapterStack.items.length
         ? adapterStack.items[adapterStack.items.length - 1]
-        : support;
+        : base.piece;
       violations.push(
         `Facing mismatch: head "${head.name || head.id}" in ${mode.name} mode needs ${(mode.supportMountFacing || "up") === "up" ? "an up" : "a down"}-facing mount beneath it, but "${beneath.name || beneath.id}"${beneath.mode ? ` (${beneath.mode} mode)` : ""} has its top mount facing ${adapterStack.topFacing}`
       );
@@ -183,10 +201,12 @@ function resolveChain({ baseItems, adapters, support, head, mode, build, attach 
     );
   }
 
-  violations.push(...ruleViolations(baseItems, adapters, support));
+  violations.push(...ruleViolations(baseItems, adapters, support, nose));
 
   if (violations.length > 0) return { violations };
-  return { chain: assembleChain(baseStack.items, adapterStack.items, support, head, mode, build, attach) };
+  return {
+    chain: assembleChain({ baseItems: baseStack.items, adapters: adapterStack.items, support, nose, head, mode, build, attach }),
+  };
 }
 
 function names(items) {
@@ -214,7 +234,10 @@ export function enumerateChains(
   // Base items and adapters in each of their modes (a full apple's faces).
   const baseVariantPool = pool.filter((c) => c.category === "base").flatMap(adapterVariants);
   const adapterVariantPool = pool.filter((c) => c.category === "adapter").flatMap(adapterVariants);
-  const supports = pool.filter((c) => c.category === "support");
+  // Supports in each wheel mode; nose fittings in each of their modes.
+  const supports = pool.filter((c) => c.category === "support").flatMap(supportVariants);
+  const noseVariantPool = pool.filter((c) => c.category === "nose").flatMap(adapterVariants);
+  const nosesFor = (support) => (needsNoseFitting(support) ? noseVariantPool : [null]);
   const heads = pool.filter((c) => c.category === "head");
   const attachPoints = buildAttachPoints(build, gear);
 
@@ -231,6 +254,7 @@ export function enumerateChains(
 
   for (const baseCombo of baseCombos) {
     for (const support of supports) {
+      for (const nose of nosesFor(support)) {
       for (const adapterCombo of adapterCombos) {
         for (const head of heads) {
           for (const mode of head.modes) {
@@ -239,6 +263,7 @@ export function enumerateChains(
                 baseItems: baseCombo,
                 adapters: adapterCombo,
                 support,
+                nose,
                 head,
                 mode,
                 build,
@@ -248,6 +273,7 @@ export function enumerateChains(
             }
           }
         }
+      }
       }
     }
   }
@@ -277,7 +303,21 @@ export function enumerateChains(
  */
 export function buildChain(
   gear,
-  { packageId, buildId, baseItemIds = [], baseModes = {}, supportId, adapterIds = [], adapterModes = {}, headId, modeName, attachName }
+  {
+    packageId,
+    buildId,
+    baseItemIds = [],
+    baseModes = {},
+    supportId,
+    supportMode,
+    noseId = null,
+    noseMode,
+    adapterIds = [],
+    adapterModes = {},
+    headId,
+    modeName,
+    attachName,
+  }
 ) {
   const pkg = getPackage(gear, packageId);
   const poolIds = new Set(pkg.componentIds);
@@ -291,8 +331,8 @@ export function buildChain(
   if (new Set(adapterIds).size !== adapterIds.length) {
     throw new Error("The same adapter can't be used twice in one chain");
   }
-  const inMode = (component, wanted, label) => {
-    const variants = adapterVariants(component);
+  const inMode = (component, wanted, label, variantsOf = adapterVariants) => {
+    const variants = variantsOf(component);
     if (wanted === undefined) return variants[0];
     const variant = variants.find((v) => v.mode === wanted);
     if (!variant) throw new Error(`${label} "${component.id}" has no mode "${wanted}"`);
@@ -302,7 +342,8 @@ export function buildChain(
     throw new Error("The same base item can't be used twice in one chain");
   }
   const baseItems = baseItemIds.map((id) => inMode(resolveInPool(id, "base item"), baseModes[id], "Base item"));
-  const support = resolveInPool(supportId, "support");
+  const support = inMode(resolveInPool(supportId, "support"), supportMode ?? undefined, "Support", supportVariants);
+  const nose = noseId ? inMode(resolveInPool(noseId, "nose fitting"), noseMode ?? undefined, "Nose fitting") : null;
   const adapters = adapterIds.map((id) => {
     const adapter = resolveInPool(id, "adapter");
     const variants = adapterVariants(adapter);
@@ -321,7 +362,7 @@ export function buildChain(
   const attach = buildAttachPoints(build, gear).find((a) => a.name === attachName);
   if (!attach) throw new Error(`Build "${buildId}" has no attach point "${attachName}"`);
 
-  const { chain, violations } = resolveChain({ baseItems, adapters, support, head, mode, build, attach });
+  const { chain, violations } = resolveChain({ baseItems, adapters, support, nose, head, mode, build, attach });
   if (violations) throw new Error(violations.join("; "));
   return chain;
 }
@@ -593,8 +634,8 @@ function formatFallbackMessage(nearest, target, gap, direction, suggestion) {
 
 /** A resolved chain's parts, in the shape resolveChain takes. */
 function partsOf(chain) {
-  const { baseItems, adapters, support, head, mode, build, attach } = chain;
-  return { baseItems, adapters, support, head, mode, build, attach };
+  const { baseItems, adapters, support, nose, head, mode, build, attach } = chain;
+  return { baseItems, adapters, support, nose, head, mode, build, attach };
 }
 
 function buildFallback(gear, target, packageId, buildId) {
@@ -782,7 +823,7 @@ function deltaSearch(
 
   const currentBaseIds = new Set(currentChain.baseItems.map((c) => c.id));
   const currentAdapterIds = new Set(currentChain.adapters.map((c) => c.id));
-  const supports = pool.filter((c) => c.category === "support");
+  const supports = pool.filter((c) => c.category === "support").flatMap(supportVariants);
   const heads = pool.filter((c) => c.category === "head");
   const adapterVariantPool = pool.filter((c) => c.category === "adapter").flatMap(adapterVariants);
 
@@ -803,7 +844,9 @@ function deltaSearch(
   // the change to report.
   const swapOptions = [{ changes: [], parts: {} }];
   for (const support of supports) {
-    if (support.id === currentChain.support.id) continue;
+    // Another support, or the same one in another wheel mode. The nose
+    // fitting comes along unchanged, so only swaps it still fits count.
+    if (support.id === currentChain.support.id && support.mode === currentChain.support.mode) continue;
     swapOptions.push({ changes: [{ kind: "swap-support", from: currentChain.support, to: support }], parts: { support } });
   }
   for (const head of heads) {

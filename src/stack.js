@@ -3,7 +3,7 @@
 // hangs in, where the target falls, where each label goes — is
 // done here, so the UI draws percentages and numbers it is handed and
 // computes nothing.
-import { supportSegments } from "./model.js";
+import { riseRangeOf, supportSegments } from "./model.js";
 
 /** Which kind a piece's own adjustability puts it in (SPEC.md 3.5). */
 const kindOf = (component) => component.adjustability || "fixed";
@@ -81,11 +81,20 @@ export function stackLayout(chain, target = null, options = {}) {
   const reference = !target ? chain.min : target.type === "fixed" ? target.height : target.low;
   const rigged = clamp(reference, chain.min, chain.max);
 
-  // Spread the extension needed over the support's segments.
+  // Spread the extension needed over the support's segments and the nose
+  // fitting's range (SPEC.md 5.8): adjustable first — legs, then the nose
+  // fitting's hand screw — moveable last.
   const segments = supportSegments(chain.support);
-  const allocation = segments.map(() => 0);
+  const noseRange = chain.nose ? riseRangeOf(chain.nose) : null;
+  const noseSegment = noseRange && {
+    kind: noseRange.max > noseRange.min ? chain.nose.adjustability || "adjustable" : "fixed",
+    base: noseRange.min,
+    extent: noseRange.max - noseRange.min,
+  };
+  const allSegments = noseSegment ? [...segments, noseSegment] : segments;
+  const allocation = allSegments.map(() => 0);
   let remaining = rigged - chain.min;
-  const byPriority = segments
+  const byPriority = allSegments
     .map((segment, index) => ({ segment, index }))
     .sort((a, b) => ALLOCATION_ORDER[a.segment.kind] - ALLOCATION_ORDER[b.segment.kind]);
   for (const { segment, index } of byPriority) {
@@ -96,26 +105,32 @@ export function stackLayout(chain, target = null, options = {}) {
 
   // Walk the chain from the floor, in heights. A block that runs the other
   // way from the last one with any height starts a new column (5.8) —
-  // except a camera cradled by its head, which stays in the head's column.
+  // except a camera cradled by its head, which stays in the head's column; a
+  // nose fitting that doesn't hang as a bracket (the SLE), which stays in the
+  // dolly's column; and the first piece mounted on one that does (the LHE),
+  // which stays in the bracket's column.
   const raw = [];
   const connectors = [];
   let cursor = 0;
   let column = 0;
   let direction = 0;
+  let onBracket = false;
   const place = (block, rise) => {
     const start = cursor;
     cursor += rise;
     const runs = sign(rise);
-    if (block.cradled) {
-      // Drawn inside the head; the direction the chain runs doesn't change.
+    if (block.cradled || (block.nose && !block.bracket)) {
+      // Drawn inside the piece it belongs to; the direction doesn't change.
     } else if (runs !== 0) {
-      if (direction !== 0 && runs !== direction) {
+      const reverses = direction !== 0 && runs !== direction;
+      if (reverses && !onBracket) {
         column += 1;
         connectors.push({ fromColumn: column - 1, toColumn: column, height: start });
       }
+      onBracket = Boolean(block.bracket) && reverses;
       direction = runs;
     }
-    raw.push({ ...block, estimated: block.component.measured === false, rise, start, end: cursor, column });
+    raw.push({ ...block, rise, start, end: cursor, column });
   };
 
   chain.baseItems.forEach((item, index) => {
@@ -138,6 +153,8 @@ export function stackLayout(chain, target = null, options = {}) {
       name: chain.support.name,
       component: chain.support,
       kind: supportKind,
+      mode: chain.support.mode,
+      modeLabel: chain.support.modeLabel,
       parts: supportParts,
       range: {
         min: segments.reduce((sum, s) => sum + s.base, 0),
@@ -146,6 +163,25 @@ export function stackLayout(chain, target = null, options = {}) {
     },
     supportParts.reduce((sum, part) => sum + part.rise, 0)
   );
+
+  if (chain.nose) {
+    const noseAllocation = allocation[allSegments.length - 1];
+    place(
+      {
+        slot: "nose",
+        index: 0,
+        name: chain.nose.name,
+        component: chain.nose,
+        kind: noseSegment.kind,
+        mode: chain.nose.mode,
+        modeLabel: chain.nose.modeLabel,
+        nose: true,
+        bracket: Boolean(chain.nose.hangsAsBracket),
+        ...(noseSegment.extent > 0 ? { range: { min: noseRange.min, max: noseRange.max } } : {}),
+      },
+      noseSegment.base + noseAllocation
+    );
+  }
 
   chain.adapters.forEach((adapter, index) => {
     place({ slot: "adapter", index, name: adapter.name, component: adapter, kind: kindOf(adapter), mode: adapter.mode, modeLabel: adapter.modeLabel }, adapter.rise);
@@ -166,10 +202,10 @@ export function stackLayout(chain, target = null, options = {}) {
   );
 
   // Insertion points (5.8): base i sits on base item i-1 (0 is the floor);
-  // adapter j sits on the support (j = 0) or on adapter j-1.
-  const baseCount = chain.baseItems.length;
+  // adapter j sits on the nose fitting or support (j = 0) or on adapter j-1.
+  const baseCount = chain.baseItems.length + (chain.nose ? 1 : 0);
   const gaps = [];
-  for (let i = 0; i <= baseCount; i++) {
+  for (let i = 0; i <= chain.baseItems.length; i++) {
     const on = i === 0 ? null : raw[i - 1];
     gaps.push({ slot: "base", index: i, column: 0, height: on ? on.end : 0, on: on && on.name });
   }
@@ -260,6 +296,5 @@ export function stackLayout(chain, target = null, options = {}) {
       isRange: target.type === "range",
       ...span(targetLow, targetHigh),
     },
-    estimated: blocks.some((b) => b.estimated),
   };
 }

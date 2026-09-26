@@ -9,7 +9,7 @@ import { buildAttachPoints, getBuild, getPackageComponents } from "./model.js";
 // --- Mounts and facing (SPEC.md 2) -----------------------------------------
 
 /** A component's bottomMount is a string, or a list when it fits several
- * (a dolly accepts `ground` or `dolly-wheels`). */
+ * (a Fisher on pneumatic tires accepts `ground` or `square-track`). */
 export function acceptsMount(component, mount) {
   const accepted = component.bottomMount;
   return Array.isArray(accepted) ? accepted.includes(mount) : accepted === mount;
@@ -56,9 +56,44 @@ export function adapterVariants(adapter) {
   }));
 }
 
-/** Base items take modes the same way (SPEC.md 3.1): a full apple's faces
- * are modes carrying their own rise, orientation, and stability. */
+/** Base items and nose fittings take modes the same way (SPEC.md 3.1,
+ * 3.7): a full apple's faces, an SLE's upright/reversed/underslung. */
 export const componentVariants = adapterVariants;
+
+/**
+ * A support's modes (SPEC.md 3.2): a dolly's wheel set. Each resolved copy
+ * carries the mode's own `bottomMount` (what it can sit on) and its rise as
+ * `modeRise`, which model.js adds to every support figure. A support with no
+ * modes yields itself (`mode: null`, `modeRise: 0`).
+ */
+export function supportVariants(support) {
+  if (!support.modes || support.modes.length === 0) return [{ ...support, mode: null, modeRise: 0 }];
+  return support.modes.map(({ name, label, rise, ...fields }) => ({
+    ...support,
+    ...fields,
+    mode: name,
+    modeLabel: label || name,
+    modeRise: rise || 0,
+  }));
+}
+
+// --- Nose fittings (SPEC.md 3.7) --------------------------------------------
+
+/** The mount only a nose fitting accepts: a J.L. Fisher beam nose. */
+export const NOSE_MOUNT = "fisher-nose";
+
+/** A support whose top is a beam nose needs exactly one nose fitting; any
+ * other support takes none. */
+export function needsNoseFitting(support) {
+  return support.topMount === NOSE_MOUNT;
+}
+
+/** What the adapter stack starts on: the nose fitting's Mitchell if there
+ * is one, else the support's top. */
+export function stackBaseOf(support, nose) {
+  const top = nose || support;
+  return { topMount: top.topMount, topFacing: topFacingOf(top), piece: top };
+}
 
 /**
  * Stack `items` on top of a mount, bottom to top, in an order where every
@@ -144,10 +179,11 @@ export function appleBoxOrientationViolation(baseItems) {
   return null;
 }
 
-/** Every hard rule that isn't a mount check, in one list. */
-export function ruleViolations(baseItems, adapters, support) {
+/** Every hard rule that isn't a mount check, in one list. The nose fitting,
+ * like an adapter, must match the support's family. */
+export function ruleViolations(baseItems, adapters, support, nose = null) {
   return [
-    familyViolation(adapters, support),
+    familyViolation(nose ? [nose, ...adapters] : adapters, support),
     appleBoxPlacementViolation(baseItems, support),
     appleBoxOrientationViolation(baseItems),
   ].filter(Boolean);
@@ -162,7 +198,9 @@ export function ruleViolations(baseItems, adapters, support) {
 
 const MOUNT_WORDS = {
   ground: "the floor",
-  "dolly-wheels": "dolly track",
+  "square-track": "square track",
+  "round-track": "round track",
+  "fisher-nose": "a Fisher beam nose",
   mitchell: "a Mitchell mount",
   "bowl-100": "a 100mm bowl",
   "bowl-150": "a 150mm bowl",
@@ -201,12 +239,20 @@ const EMPTY_PICKS = () => ({
   baseItemIds: [],
   baseModes: {},
   supportId: null,
+  supportMode: null,
+  noseId: null,
+  noseMode: null,
   adapterIds: [],
   adapterModes: {},
   headId: null,
   modeName: null,
   attachName: null,
 });
+
+/** A mode is the "flipped" state (a toggle's on side, SPEC.md 5.9) if it's
+ * named underslung or turns the mount it presents to face down (the bottom
+ * of a U offset plate). */
+const isFlipped = (variant) => isFlippedMode(variant.mode) || variant.mountFacing === "down";
 
 // Each `why…` returns null if the thing may go there, else the reason.
 
@@ -221,10 +267,11 @@ function whyBaseItem(item, keptBase) {
   return `${nameOf(item)} needs ${plainMounts(item.bottomMount)} to sit on, but the base layer below already ends in ${plainMount(top)}.`;
 }
 
+/** `support` is a resolved variant: in a wheel mode, if it has modes. */
 function whySupport(support, keptBase) {
   const top = orderStack(keptBase, "ground", "up")?.topMount ?? "ground";
   if (!acceptsMount(support, top)) {
-    return `${nameOf(support)} sits on ${plainMounts(support.bottomMount)}, not on ${plainMount(top)}.`;
+    return `${withMode(support)} sits on ${plainMounts(support.bottomMount)}, not on ${plainMount(top)}.`;
   }
   if (appleBoxPlacementViolation(keptBase, support)) {
     return `${nameOf(support)} is a dolly, and apple boxes can't go under a dolly — use track.`;
@@ -232,15 +279,30 @@ function whySupport(support, keptBase) {
   return null;
 }
 
-function whyAdapter(variant, support, keptAdapters) {
+function whyNose(nose, support) {
+  if (!needsNoseFitting(support)) {
+    return `${nameOf(nose)} mounts on ${plainMounts(nose.bottomMount)}, and ${nameOf(support)} tops out in ${plainMount(support.topMount)} — it takes no nose fitting.`;
+  }
+  if (nose.requiresFamily && nose.requiresFamily !== support.family) {
+    const has = support.family ? `is ${support.family} family` : "has no family";
+    return `${nameOf(nose)} only fits a ${nose.requiresFamily}-family support, and ${nameOf(support)} ${has}.`;
+  }
+  if (!acceptsMount(nose, support.topMount)) {
+    return `${nameOf(nose)} mounts on ${plainMounts(nose.bottomMount)}, but ${nameOf(support)} tops out in ${plainMount(support.topMount)}.`;
+  }
+  return null;
+}
+
+/** `base` is stackBaseOf(support, nose): what the first adapter sits on. */
+function whyAdapter(variant, base, keptAdapters, support) {
   if (keptAdapters.some((a) => a.id === variant.id)) return `${nameOf(variant)} is already in the rig.`;
   if (variant.requiresFamily && variant.requiresFamily !== support.family) {
     const has = support.family ? `is ${support.family} family` : "has no family";
     return `${nameOf(variant)} only fits a ${variant.requiresFamily}-family support, and ${nameOf(support)} ${has}.`;
   }
-  if (orderStack([...keptAdapters, variant], support.topMount, topFacingOf(support))) return null;
-  const below = orderStack(keptAdapters, support.topMount, topFacingOf(support));
-  const beneath = keptAdapters.length ? withMode(keptAdapters[keptAdapters.length - 1]) : nameOf(support);
+  if (orderStack([...keptAdapters, variant], base.topMount, base.topFacing)) return null;
+  const below = orderStack(keptAdapters, base.topMount, base.topFacing);
+  const beneath = keptAdapters.length ? withMode(keptAdapters[keptAdapters.length - 1]) : withMode(base.piece);
   if (below && !acceptsMount(variant, below.topMount)) {
     return `${withMode(variant)} needs ${plainMounts(variant.bottomMount)} beneath it, but what's below ends in ${plainMount(below.topMount)}.`;
   }
@@ -256,7 +318,7 @@ function whyHeadMode(head, mode, stackTop, beneathName) {
   if (!supportFacingOk(stackTop.topFacing, required)) {
     const hint =
       required === "down"
-        ? " Underslung hangs the head from a down-facing mount — only an offset in underslung mode supplies one."
+        ? " Underslung hangs the head from a down-facing mount, like the bottom of an offset plate."
         : "";
     return `${cap(mode.name)} mode needs ${anFacing(required)} mount beneath the head, but the top of ${beneathName} faces ${stackTop.topFacing}.${hint}`;
   }
@@ -273,18 +335,57 @@ function whyAttach(attach, head, mode) {
   return null;
 }
 
-/** The variant of `adapter` in `modeName` (the first mode if unspecified). */
-function variantOf(adapter, modeName) {
-  const variants = adapterVariants(adapter);
+/** The variant of `component` in `modeName` (the first mode if unspecified). */
+function variantOf(component, modeName, variantsOf = adapterVariants) {
+  const variants = variantsOf(component);
   return variants.find((v) => v.mode === modeName) || (modeName == null ? variants[0] : null);
+}
+
+/** "On pneumatic tires" for a wheel set; "In bottom of the plate mode" otherwise. */
+function inMode(component, variant) {
+  const raw = variant.modeLabel || variant.mode;
+  // Lowercase a capitalized word ("Pneumatic"), never an acronym ("ETW").
+  const label = /^[A-Z][a-z]/.test(raw) ? raw.charAt(0).toLowerCase() + raw.slice(1) : raw;
+  return component.category === "support" ? `On ${label}` : `In ${label} mode`;
+}
+
+/**
+ * Pick a moded piece's variant: the one asked for if it's legal, else the
+ * first legal one, with a note when that's a switch. `why(variant)` is the
+ * rule. Returns the variant, or null (and a note) if no mode is legal.
+ */
+function settleMode(component, wanted, why, notes, variantsOf = adapterVariants) {
+  const variants = variantsOf(component);
+  const asked = wanted == null ? null : variants.find((v) => v.mode === wanted) || null;
+  const legal = [asked, ...variants].filter(Boolean).find((v) => !why(v));
+  if (!legal) {
+    notes.push(noteFor(component.category === "base" || component.category === "adapter" ? "Removed" : "Cleared", component, why(asked || variants[0])));
+    return null;
+  }
+  if (wanted != null && legal.mode !== wanted) {
+    const now = legal.modeLabel || legal.mode;
+    const reason = asked && why(asked);
+    // "Switched Fisher 11 Dolly to ETW round track wheels. On pneumatic
+    // tires, it sits on the floor or square track, not on round track." —
+    // the reason is about the mode that stopped fitting, so it names it.
+    notes.push(
+      !asked
+        ? `Set ${nameOf(component)} to ${now}. It has no "${wanted}" option.`
+        : reason.startsWith(withMode(asked))
+          ? `Switched ${nameOf(component)} to ${now}. ${inMode(component, asked)}, it${reason.slice(withMode(asked).length)}`
+          : noteFor(`Switched to ${now}:`, component, reason)
+    );
+  }
+  return legal;
 }
 
 /**
  * Walk `picks` ground up and drop or adjust whatever isn't legal on what's
- * beneath it (SPEC.md 5.9). Base items, the support, adapters, and the head
- * are cleared with a plain-language note; a head mode or attach point that
- * stopped fitting switches to the first legal one instead. A pick above an
- * empty required slot is kept, to be revalidated once it's filled.
+ * beneath it (SPEC.md 5.9). Base items, the support, the nose fitting,
+ * adapters, and the head are cleared with a plain-language note; a mode or
+ * attach point that stopped fitting switches to the first legal one instead.
+ * A pick above an empty required slot is kept, to be revalidated once it's
+ * filled.
  *
  * @returns {{ picks: object, notes: string[] }}
  */
@@ -294,80 +395,64 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
   const build = getBuild(gear, buildId);
   const notes = [];
   const out = EMPTY_PICKS();
-
-  // Base layer.
-  // Base layer, each item in its mode (a full apple's face).
-  const keptBase = [];
-  for (const id of picks.baseItemIds || []) {
-    const component = byId[id];
-    if (!component) continue;
-    const wanted = (picks.baseModes || {})[id];
-    const tried = [variantOf(component, wanted), ...adapterVariants(component)].filter(Boolean);
-    const legal = tried.find((v) => !whyBaseItem(v, keptBase));
-    if (!legal) notes.push(noteFor("Removed", component, whyBaseItem(tried[0], keptBase)));
-    else {
-      if (wanted !== undefined && legal.mode !== wanted) {
-        const asked = variantOf(component, wanted);
-        notes.push(
-          asked
-            ? noteFor(`Switched to ${legal.modeLabel}:`, component, whyBaseItem(asked, keptBase))
-            : `Set ${nameOf(component)} to ${legal.modeLabel}. It has no "${wanted}" option.`
-        );
-      }
-      keptBase.push(legal);
-    }
-  }
-  // Kept in the order they physically stack, so picks and drawing agree.
-  const baseStack = orderStack(keptBase, "ground", "up");
-  out.baseItemIds = baseStack.items.map((item) => item.id);
-  for (const item of baseStack.items) if (item.mode) out.baseModes[item.id] = item.mode;
-
-  // Support.
-  let support = byId[picks.supportId] || null;
-  if (support) {
-    const reason = whySupport(support, keptBase);
-    if (reason) {
-      notes.push(noteFor("Cleared", support, reason));
-      support = null;
-    }
-  }
-  out.supportId = support ? support.id : null;
-
-  if (!support) {
-    // Nothing to validate the rest against yet: keep it as it was.
+  const keepRestAsIs = () => {
     out.adapterIds = [...(picks.adapterIds || [])];
     out.adapterModes = { ...(picks.adapterModes || {}) };
     out.headId = picks.headId ?? null;
     out.modeName = picks.modeName ?? null;
     out.attachName = picks.attachName ?? null;
     return { picks: out, notes };
+  };
+
+  // Base layer, each item in its mode (a full apple's face).
+  const keptBase = [];
+  for (const id of picks.baseItemIds || []) {
+    const component = byId[id];
+    if (!component) continue;
+    const legal = settleMode(component, (picks.baseModes || {})[id], (v) => whyBaseItem(v, keptBase), notes);
+    if (legal) keptBase.push(legal);
+  }
+  // Kept in the order they physically stack, so picks and drawing agree.
+  const baseStack = orderStack(keptBase, "ground", "up");
+  out.baseItemIds = baseStack.items.map((item) => item.id);
+  for (const item of baseStack.items) if (item.mode) out.baseModes[item.id] = item.mode;
+
+  // Support, in its wheel mode.
+  const supportComponent = byId[picks.supportId] || null;
+  const support =
+    supportComponent && settleMode(supportComponent, picks.supportMode, (v) => whySupport(v, keptBase), notes, supportVariants);
+  out.supportId = support ? support.id : null;
+  out.supportMode = support ? support.mode : null;
+  if (!support) {
+    // Nothing to validate the rest against yet: keep it as it was.
+    out.noseId = picks.noseId ?? null;
+    out.noseMode = picks.noseMode ?? null;
+    return keepRestAsIs();
   }
 
+  // Nose fitting: exactly one on a beam nose, none elsewhere (SPEC.md 3.7).
+  const noseComponent = byId[picks.noseId] || null;
+  let nose = null;
+  if (noseComponent) nose = settleMode(noseComponent, picks.noseMode, (v) => whyNose(v, support), notes);
+  out.noseId = nose ? nose.id : null;
+  out.noseMode = nose ? nose.mode ?? null : null;
+  if (needsNoseFitting(support) && !nose) return keepRestAsIs(); // incomplete, like a missing head
+
   // Adapters, each in its mode.
+  const base = stackBaseOf(support, nose);
   const keptAdapters = [];
   for (const id of picks.adapterIds || []) {
     const adapter = byId[id];
     if (!adapter) continue;
-    const wanted = (picks.adapterModes || {})[id];
-    const tried = [variantOf(adapter, wanted), ...adapterVariants(adapter)].filter(Boolean);
-    const legal = tried.find((v) => !whyAdapter(v, support, keptAdapters));
-    if (!legal) {
-      const reason = whyAdapter(tried[0] || adapterVariants(adapter)[0], support, keptAdapters);
-      notes.push(noteFor("Removed", adapter, reason));
-      continue;
-    }
-    if (wanted !== undefined && legal.mode !== wanted) {
-      notes.push(noteFor(`Switched to ${legal.mode} mode:`, adapter, whyAdapter(variantOf(adapter, wanted), support, keptAdapters)));
-    }
-    keptAdapters.push(legal);
-    out.adapterIds.push(id);
-    if (legal.mode) out.adapterModes[id] = legal.mode;
+    const legal = settleMode(adapter, (picks.adapterModes || {})[id], (v) => whyAdapter(v, base, keptAdapters, support), notes);
+    if (legal) keptAdapters.push(legal);
   }
-  const adapterStack = orderStack(keptAdapters, support.topMount, topFacingOf(support));
+  const adapterStack = orderStack(keptAdapters, base.topMount, base.topFacing);
   out.adapterIds = adapterStack.items.map((adapter) => adapter.id);
+  for (const adapter of adapterStack.items) if (adapter.mode) out.adapterModes[adapter.id] = adapter.mode;
   const beneathName = adapterStack.items.length
     ? withMode(adapterStack.items[adapterStack.items.length - 1])
-    : nameOf(support);
+    : withMode(base.piece);
 
   // Head, and its mode.
   const legalModes = (head) => head.modes.filter((m) => !whyHeadMode(head, m, adapterStack, beneathName));
@@ -421,12 +506,15 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
   const byId = Object.fromEntries(pool.map((c) => [c.id, c]));
 
   const keptBase = picks.baseItemIds.map((id) => variantOf(byId[id], picks.baseModes[id]));
-  const support = byId[picks.supportId] || null;
+  const support = picks.supportId ? variantOf(byId[picks.supportId], picks.supportMode, supportVariants) : null;
+  const nose = picks.noseId ? variantOf(byId[picks.noseId], picks.noseMode) : null;
+  const complete = support && (nose || !needsNoseFitting(support));
+  const base = complete ? stackBaseOf(support, nose) : null;
   const keptAdapters = picks.adapterIds.map((id) => variantOf(byId[id], picks.adapterModes[id]));
-  const adapterStack = support ? orderStack(keptAdapters, support.topMount, topFacingOf(support)) : null;
+  const adapterStack = base ? orderStack(keptAdapters, base.topMount, base.topFacing) : null;
   const beneathName = adapterStack?.items.length
     ? withMode(adapterStack.items[adapterStack.items.length - 1])
-    : support && nameOf(support);
+    : base && withMode(base.piece);
   const head = byId[picks.headId] || null;
   const mode = head?.modes.find((m) => m.name === picks.modeName) || null;
 
@@ -438,41 +526,49 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
     reason,
     ...extra,
   });
+  const modeEntry = (variant, reason) => ({
+    name: variant.mode,
+    label: variant.modeLabel || "",
+    flipped: isFlipped(variant),
+    available: !reason,
+    reason,
+  });
+  const withModes = (component, variants, why) => {
+    const modes = variants.map((v) => modeEntry(v, why(v)));
+    return entry(component, modes.some((m) => m.available) ? null : modes[0].reason, { modes });
+  };
 
   // Base layer: judged against the *other* picked items, so a picked one stays available.
-  const base = pool
+  const baseItems = pool
     .filter((c) => c.category === "base")
     .map((item) => {
       const others = keptBase.filter((b) => b.id !== item.id);
-      const modes = adapterVariants(item).map((variant) => {
-        const reason = whyBaseItem(variant, others);
-        return { name: variant.mode, label: variant.modeLabel || "", flipped: false, available: !reason, reason };
-      });
-      return entry(item, modes.some((m) => m.available) ? null : modes[0].reason, { modes });
+      return withModes(item, adapterVariants(item), (v) => whyBaseItem(v, others));
     });
 
   const supports = pool
     .filter((c) => c.category === "support")
-    .map((candidate) => entry(candidate, whySupport(candidate, keptBase)));
+    .map((candidate) => withModes(candidate, supportVariants(candidate), (v) => whySupport(v, keptBase)));
 
   const NEED_SUPPORT = "Choose a support first.";
+  const NEED_NOSE = "Choose a nose fitting first.";
+  const noses = pool
+    .filter((c) => c.category === "nose")
+    .map((candidate) => withModes(candidate, adapterVariants(candidate), (v) => (support ? whyNose(v, support) : NEED_SUPPORT)));
+
+  const notReady = !support ? NEED_SUPPORT : NEED_NOSE;
   const adapters = pool
     .filter((c) => c.category === "adapter")
     .map((adapter) => {
       const others = keptAdapters.filter((a) => a.id !== adapter.id);
-      const modes = adapterVariants(adapter).map((variant) => {
-        const reason = support ? whyAdapter(variant, support, others) : NEED_SUPPORT;
-        return { name: variant.mode, label: variant.modeLabel || "", flipped: isFlippedMode(variant.mode), available: !reason, reason };
-      });
-      const anyLegal = modes.some((m) => m.available);
-      return entry(adapter, anyLegal ? null : modes[0].reason, { modes });
+      return withModes(adapter, adapterVariants(adapter), (v) => (base ? whyAdapter(v, base, others, support) : notReady));
     });
 
   const heads = pool
     .filter((c) => c.category === "head")
     .map((candidate) => {
       const modes = candidate.modes.map((m) => {
-        const reason = adapterStack ? whyHeadMode(candidate, m, adapterStack, beneathName) : NEED_SUPPORT;
+        const reason = adapterStack ? whyHeadMode(candidate, m, adapterStack, beneathName) : notReady;
         return { name: m.name, label: m.label || m.name, flipped: isFlippedMode(m.name), available: !reason, reason };
       });
       return entry(candidate, modes.some((m) => m.available) ? null : modes[0].reason, { modes });
@@ -490,18 +586,37 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
     };
   });
 
-  return { picks, base, support: supports, adapters, head: heads, attach };
+  return { picks, base: baseItems, support: supports, nose: noses, adapters, head: heads, attach };
 }
 
-/** The first legal rig: the first support, head, mode, and attach point that fit. */
+/**
+ * Which required slot is empty, ground up, or null when the rig is
+ * complete: "support", "nose" (a beam nose with no nose fitting, SPEC.md
+ * 3.7), "head", or "attach" (nothing on the camera fits the head). The UI
+ * asks this rather than knowing which supports take a nose fitting.
+ */
+export function missingSlot(gear, packageId, buildId, rawPicks) {
+  const { picks } = revalidatePicks(gear, packageId, buildId, rawPicks);
+  if (!picks.supportId) return "support";
+  const support = getPackageComponents(gear, packageId).find((c) => c.id === picks.supportId);
+  if (needsNoseFitting(support) && !picks.noseId) return "nose";
+  if (!picks.headId || !picks.modeName) return "head";
+  if (!picks.attachName) return "attach";
+  return null;
+}
+
+/** The first legal rig: the first support (and nose fitting, if it takes
+ * one), head, mode, and attach point that fit. */
 export function defaultPicks(gear, packageId, buildId) {
   let picks = EMPTY_PICKS();
   const firstAvailable = (list) => list.find((o) => o.available);
   const support = firstAvailable(slotOptions(gear, packageId, buildId, picks).support);
   if (support) picks = { ...picks, supportId: support.id };
+  const nose = firstAvailable(slotOptions(gear, packageId, buildId, picks).nose);
+  if (support && nose && needsNoseFitting(support.component)) picks = { ...picks, noseId: nose.id };
   const head = firstAvailable(slotOptions(gear, packageId, buildId, picks).head);
   if (head) picks = { ...picks, headId: head.id };
-  // Revalidating fills in the head's first legal mode and attach point.
+  // Revalidating fills in the first legal modes and attach point.
   return revalidatePicks(gear, packageId, buildId, picks).picks;
 }
 
@@ -569,6 +684,7 @@ function whyLost(gear, packageId, buildId, next) {
     sameList(picks.baseItemIds, next.baseItemIds) &&
     sameModes("base") &&
     picks.supportId === next.supportId &&
+    (picks.noseId ?? null) === (next.noseId ?? null) &&
     sameList(picks.adapterIds, next.adapterIds) &&
     sameModes("adapter") &&
     picks.headId === next.headId &&
@@ -598,7 +714,7 @@ const optionEntry = (candidate, reason) => ({
 /** Why `candidate` can't be at `index` of the base layer or adapter stack,
  * given `list` (the other pieces in that slot, in stack order), or null. */
 function whyAtPosition(ctx, slot, list, index, candidate, replacing) {
-  const { gear, packageId, buildId, picks, support } = ctx;
+  const { gear, packageId, buildId, picks, support, stackBase } = ctx;
   const ids = picks[IDS_KEY[slot]];
   if (ids.some((id, i) => id === candidate.id && !(replacing && i === index))) {
     return `${nameOf(candidate)} is already in the rig.`;
@@ -610,15 +726,15 @@ function whyAtPosition(ctx, slot, list, index, candidate, replacing) {
     if (appleBoxOrientationViolation([candidate])) return whyBaseItem(candidate, []);
     const why = whyNotInOrder(items, "ground", "up", null);
     if (why) return why;
-    if (support) {
-      const reason = whySupport(support, items);
-      if (reason) return reason;
+    // The support may switch wheel modes to ride it (round track: ETW).
+    if (support && supportVariants(ctx.supportComponent).every((v) => whySupport(v, items))) {
+      return whySupport(support, items);
     }
   } else {
     if (candidate.requiresFamily && candidate.requiresFamily !== support.family) {
-      return whyAdapter(candidate, support, []);
+      return whyAdapter(candidate, stackBase, [], support);
     }
-    const why = whyNotInOrder(items, support.topMount, topFacingOf(support), nameOf(support));
+    const why = whyNotInOrder(items, stackBase.topMount, stackBase.topFacing, withMode(stackBase.piece));
     if (why) return why;
   }
 
@@ -635,26 +751,31 @@ function editContext(gear, packageId, buildId, rawPicks) {
   const { picks } = revalidatePicks(gear, packageId, buildId, rawPicks);
   const pool = getPackageComponents(gear, packageId);
   const byId = Object.fromEntries(pool.map((c) => [c.id, c]));
-  const support = byId[picks.supportId] || null;
+  const supportComponent = byId[picks.supportId] || null;
+  const support = supportComponent && variantOf(supportComponent, picks.supportMode, supportVariants);
+  const nose = picks.noseId ? variantOf(byId[picks.noseId], picks.noseMode) : null;
+  // Adapters need something to stack on: the nose fitting, or a support that takes none.
+  const stackBase = support && (nose || !needsNoseFitting(support)) ? stackBaseOf(support, nose) : null;
   const head = byId[picks.headId] || null;
   const base = picks.baseItemIds.map((id) => variantOf(byId[id], picks.baseModes[id]));
   const adapters = picks.adapterIds.map((id) => variantOf(byId[id], picks.adapterModes[id]));
-  return { gear, packageId, buildId, picks, pool, byId, support, head, base, adapters };
+  return { gear, packageId, buildId, picks, pool, byId, supportComponent, support, nose, stackBase, head, base, adapters };
 }
 
-/** Where an insertion point is, in plain words: "on the floor", "on Studio
- * Dolly", "under Standard Fluid Head". */
+/** Where an insertion point is, in plain words: "on the floor", "on SLE —
+ * 4-way Level Head (Upright)", "under Standard Fluid Head". */
 function positionWords(ctx, slot, index) {
   if (slot === "base") return index === 0 ? "on the floor" : `on ${withMode(ctx.base[index - 1])}`;
   if (index > 0 && index === ctx.adapters.length && ctx.head) return `under ${nameOf(ctx.head)}`;
-  return `on ${index === 0 ? nameOf(ctx.support) : withMode(ctx.adapters[index - 1])}`;
+  return `on ${index === 0 ? withMode(ctx.stackBase.piece) : withMode(ctx.adapters[index - 1])}`;
 }
 
 /**
  * Every insertion point in the rig (SPEC.md 5.8, 5.9) with what may be added
  * there: `base` 0 is the floor and `base` i sits on base item i-1; `adapter`
- * 0 sits on the support and `adapter` i on adapter i-1. Adapter points only
- * exist once there's a support.
+ * 0 sits on the nose fitting (or the support, if it takes none) and
+ * `adapter` i on adapter i-1. Adapter points only exist once there's
+ * something to stack on.
  *
  * @returns {{slot: "base"|"adapter", index: number, where: string, options: object[]}[]}
  */
@@ -662,7 +783,7 @@ export function insertOptions(gear, packageId, buildId, rawPicks) {
   const ctx = editContext(gear, packageId, buildId, rawPicks);
   const gaps = [];
   const slots = [["base", ctx.base]];
-  if (ctx.support) slots.push(["adapter", ctx.adapters]);
+  if (ctx.stackBase) slots.push(["adapter", ctx.adapters]);
   for (const [slot, list] of slots) {
     for (let index = 0; index <= list.length; index++) {
       const options = candidatesFor(ctx.pool, slot).map((candidate) =>
@@ -713,10 +834,11 @@ export function swapOptions(gear, packageId, buildId, rawPicks, slot, index = 0)
       .map((candidate) => optionEntry(candidate, whyAtPosition(ctx, slot, list, index, candidate, true)));
   }
   const opts = slotOptions(gear, packageId, buildId, ctx.picks);
-  const currentId = slot === "support" ? ctx.picks.supportId : ctx.picks.headId;
+  const currentId = { support: ctx.picks.supportId, nose: ctx.picks.noseId, head: ctx.picks.headId }[slot];
   return opts[slot]
     .filter((o) => o.id !== currentId)
-    // A support or head has no single rise (a range, or one per mode), so none is given.
+    // A support, nose fitting, or head has no single rise (a range, or one
+    // per mode), so none is given.
     .map((o) => ({ ...optionEntry({ ...o.component, mode: null }, o.reason), rise: null, modes: o.modes }));
 }
 
@@ -724,10 +846,13 @@ export function swapOptions(gear, packageId, buildId, rawPicks, slot, index = 0)
  * Turn one edit into the next picks (not yet revalidated):
  * - `{op: "insert", slot: "base"|"adapter", index, id, mode?}`
  * - `{op: "swap", slot: "base"|"adapter", index, id, mode?}`, or
- *   `{op: "swap", slot: "support"|"head", id}`
+ *   `{op: "swap", slot: "support"|"nose"|"head", id}` (a support or nose
+ *   fitting starts in its first mode that fits)
  * - `{op: "remove", slot: "base"|"adapter", index}`
- * - `{op: "mode", slot: "base"|"adapter", index, mode}`, `{op: "mode", slot: "head", mode}`,
- *   or `{op: "mode", slot: "build", mode}` (the camera's attach point)
+ * - `{op: "mode", slot: "base"|"adapter", index, mode}`, or `{op: "mode",
+ *   slot: "support"|"nose"|"head", mode}` (a wheel set, a nose fitting's
+ *   mode, a head mode), or `{op: "mode", slot: "build", mode}` (the camera's
+ *   attach point)
  */
 export function applyEdit(picks, edit) {
   const next = {
@@ -757,7 +882,8 @@ export function applyEdit(picks, edit) {
       break;
     }
     case "swap":
-      if (edit.slot === "support") next.supportId = edit.id;
+      if (edit.slot === "support") Object.assign(next, { supportId: edit.id, supportMode: null });
+      else if (edit.slot === "nose") Object.assign(next, { noseId: edit.id, noseMode: null });
       else if (edit.slot === "head") next.headId = edit.id;
       else {
         const [gone] = ids.splice(edit.index, 1, edit.id);
@@ -767,6 +893,8 @@ export function applyEdit(picks, edit) {
       break;
     case "mode":
       if (modes) modes[ids[edit.index]] = edit.mode;
+      else if (edit.slot === "support") next.supportMode = edit.mode;
+      else if (edit.slot === "nose") next.noseMode = edit.mode;
       else if (edit.slot === "head") next.modeName = edit.mode;
       else if (edit.slot === "build") next.attachName = edit.mode;
       break;

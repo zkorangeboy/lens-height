@@ -23,9 +23,9 @@ describe("gear.json seed data", () => {
     assert.ok(Array.isArray(seed.builds) && seed.builds.length > 0);
   });
 
-  test("every seed component carries a boolean measured flag", () => {
-    for (const component of seed.components) {
-      assert.equal(typeof component.measured, "boolean", `${component.id}.measured should be true/false, not missing or non-boolean`);
+  test("no measured/estimated flag anywhere: all gear values are treated as correct", () => {
+    for (const item of [...seed.components, ...seed.builds]) {
+      assert.equal(item.measured, undefined, item.id);
     }
   });
 
@@ -44,20 +44,20 @@ describe("mergeOverrides (SPEC.md 4.1)", () => {
     const seed = {
       schemaVersion: 1,
       components: [
-        { id: "c1", rise: 6.75, measured: false, riseRange: { practicalMin: 10, practicalMax: 27 } },
+        { id: "c1", rise: 6.75, name: "C1", riseRange: { practicalMin: 10, practicalMax: 27 } },
       ],
     };
     const overridesDoc = {
       schemaVersion: 1,
       overrides: {
-        c1: { rise: 6.5, measured: true, riseRange: { practicalMax: 26.0 } },
+        c1: { rise: 6.5, name: "C1 (taped)", riseRange: { practicalMax: 26.0 } },
       },
     };
 
     const merged = mergeOverrides(seed, overridesDoc);
 
     assert.equal(merged.components[0].rise, 6.5);
-    assert.equal(merged.components[0].measured, true);
+    assert.equal(merged.components[0].name, "C1 (taped)");
     assert.equal(merged.components[0].riseRange.practicalMax, 26.0);
     assert.equal(merged.components[0].riseRange.practicalMin, 10, "unrelated nested field preserved");
     assert.equal(seed.components[0].rise, 6.75, "seed object left untouched");

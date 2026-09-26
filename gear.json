@@ -12,9 +12,7 @@
       "topMount": "ground",
       "rise": 2,
       "stability": "normal",
-      "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder dimension, not yet taped."
+      "adjustability": "fixed"
     },
     {
       "id": "apple-half",
@@ -27,9 +25,7 @@
       "topMount": "ground",
       "rise": 4,
       "stability": "normal",
-      "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder dimension, not yet taped."
+      "adjustability": "fixed"
     },
     {
       "id": "apple-full",
@@ -43,8 +39,7 @@
       "rise": 8,
       "stability": "normal",
       "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder dimensions, not yet taped. Orientation is a mode: only a full apple may stand on its 12\" or 20\" face (SPEC.md 2.1).",
+      "notes": "Orientation is a mode: only a full apple may stand on its 12\" or 20\" face (SPEC.md 2.1).",
       "modes": [
         {
           "name": "flat",
@@ -69,17 +64,28 @@
       ]
     },
     {
-      "id": "track-wedges-placeholder",
-      "name": "Track + Wedges",
+      "id": "square-track",
+      "name": "Square Track",
       "category": "base",
+      "kind": "track",
       "bottomMount": "ground",
-      "topMount": "dolly-wheels",
-      "rise": 1.5,
+      "topMount": "square-track",
+      "rise": 2,
       "stability": "normal",
       "adjustability": "fixed",
-      "measured": false,
-      "notes": "SPEC.md 3.1: the most commonly forgotten offset in the chain — not zero. Top is dolly-wheels: only a dolly rides on it.",
-      "kind": "track"
+      "notes": "docs/fisher-11.md: +2″. A Fisher on pneumatic tires rides it on its built-in guides."
+    },
+    {
+      "id": "round-track",
+      "name": "Round Track",
+      "category": "base",
+      "kind": "track",
+      "bottomMount": "ground",
+      "topMount": "round-track",
+      "rise": 2,
+      "stability": "normal",
+      "adjustability": "fixed",
+      "notes": "docs/fisher-11.md: +2″. Needs ETW or skateboard wheels."
     },
     {
       "id": "tripod-baby-placeholder",
@@ -96,33 +102,54 @@
       "levelingLoss": 1,
       "spreadRequired": true,
       "adjustability": "adjustable",
-      "measured": false,
-      "notes": "Placeholder figures, not yet taped. Legs are set between setups, not moved during a take.",
+      "notes": "Legs are set between setups, not moved during a take.",
       "kind": "tripod"
     },
     {
-      "id": "dolly-placeholder",
-      "name": "Studio Dolly",
+      "id": "fisher-11",
+      "name": "Fisher 11 Dolly",
       "category": "support",
+      "kind": "dolly",
+      "family": "fisher",
       "bottomMount": [
         "ground",
-        "dolly-wheels"
+        "square-track"
       ],
-      "topMount": "mitchell",
-      "baseRise": 6,
+      "topMount": "fisher-nose",
+      "baseRise": 17.875,
       "boomRange": {
         "specMin": 0,
-        "specMax": 30,
+        "specMax": 33.375,
         "practicalMin": 0,
-        "practicalMax": 29
+        "practicalMax": 33.375
       },
       "levelingLoss": 0,
-      "spreadRequired": false,
+      "stability": "high",
       "adjustability": "moveable",
-      "measured": false,
-      "notes": "Placeholder figures, not yet taped. Boom is live-adjustable during a take.",
-      "family": "fisher",
-      "kind": "dolly"
+      "modes": [
+        {
+          "name": "pneumatic",
+          "label": "Pneumatic tires",
+          "rise": 0,
+          "bottomMount": [
+            "ground",
+            "square-track"
+          ]
+        },
+        {
+          "name": "etw",
+          "label": "ETW round track wheels",
+          "rise": -0.5,
+          "bottomMount": "round-track"
+        },
+        {
+          "name": "skateboard",
+          "label": "Skateboard wheels",
+          "rise": 2,
+          "bottomMount": "round-track"
+        }
+      ],
+      "notes": "J.L. Fisher Model 11 (docs/fisher-11.md). baseRise is floor to nose, beam down, pneumatic tires, with an SLE at 0; the beam travels 33.375″. The wheel set is a mode."
     },
     {
       "id": "hihat-placeholder",
@@ -132,8 +159,7 @@
       "topMount": "mitchell",
       "rise": 8,
       "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figure, not yet taped. Fixed rise, no range.",
+      "notes": "Fixed rise, no range.",
       "kind": "hi-hat"
     },
     {
@@ -144,9 +170,70 @@
       "topMount": "mitchell",
       "rise": 3.5,
       "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figure, not yet taped. Fixed rise, no range.",
+      "notes": "Fixed rise, no range.",
       "kind": "lo-hat"
+    },
+    {
+      "id": "fisher-sle",
+      "name": "SLE — 4-way Level Head",
+      "category": "nose",
+      "bottomMount": "fisher-nose",
+      "topMount": "mitchell",
+      "requiresFamily": "fisher",
+      "modes": [
+        {
+          "name": "upright",
+          "label": "Upright",
+          "riseRange": {
+            "min": -4,
+            "max": 0
+          },
+          "adjustability": "adjustable",
+          "mountFacing": "up"
+        },
+        {
+          "name": "reversed",
+          "label": "Reversed",
+          "rise": 0,
+          "adjustability": "fixed",
+          "mountFacing": "up"
+        },
+        {
+          "name": "underslung",
+          "label": "Underslung",
+          "riseRange": {
+            "min": -8,
+            "max": -4
+          },
+          "adjustability": "adjustable",
+          "mountFacing": "down"
+        }
+      ],
+      "notes": "Standard package. Upright adjusts −4″ to 0″ by hand screw, set between setups. Underslung (mounted upside down) −8″ to −4″ is an assumed value, not from the brochure."
+    },
+    {
+      "id": "fisher-lhe",
+      "name": "LHE — 4-way Low Level Head",
+      "category": "nose",
+      "bottomMount": "fisher-nose",
+      "topMount": "mitchell",
+      "requiresFamily": "fisher",
+      "rise": -14.875,
+      "mountFacing": "up",
+      "adjustability": "fixed",
+      "notes": "Full package. Brochure: 3″ beam down, 36.375″ beam up. Hangs the Mitchell well below the beam, beside the dolly: drawn as a bracket.",
+      "hangsAsBracket": true
+    },
+    {
+      "id": "mitchell-riser-3",
+      "name": "Mitchell Riser 3\"",
+      "category": "adapter",
+      "bottomMount": "mitchell",
+      "topMount": "mitchell",
+      "rise": 3,
+      "mountFacing": "up",
+      "adjustability": "fixed",
+      "notes": "No family requirement: works on any support the mounts allow."
     },
     {
       "id": "mitchell-riser-6",
@@ -157,7 +244,6 @@
       "rise": 6,
       "mountFacing": "up",
       "adjustability": "fixed",
-      "measured": true,
       "notes": "No family requirement: works on any support the mounts allow."
     },
     {
@@ -169,7 +255,6 @@
       "rise": 12,
       "mountFacing": "up",
       "adjustability": "fixed",
-      "measured": true,
       "notes": "No family requirement: works on any support the mounts allow."
     },
     {
@@ -181,7 +266,6 @@
       "rise": 18,
       "mountFacing": "up",
       "adjustability": "fixed",
-      "measured": true,
       "notes": "No family requirement: works on any support the mounts allow."
     },
     {
@@ -193,72 +277,64 @@
       "rise": 24,
       "mountFacing": "up",
       "adjustability": "fixed",
-      "measured": true,
       "notes": "No family requirement: works on any support the mounts allow."
     },
     {
-      "id": "mitchell-offset",
-      "name": "Mitchell Offset",
+      "id": "mitchell-offset-10",
+      "name": "Mitchell Offset, 10″",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
+      "adjustability": "fixed",
       "modes": [
         {
-          "name": "upright",
+          "name": "top",
+          "label": "Top of the plate",
           "rise": 1,
           "mountFacing": "up"
         },
         {
-          "name": "underslung",
+          "name": "bottom",
+          "label": "Bottom of the plate",
           "rise": 0,
           "mountFacing": "down"
         }
       ],
-      "adjustability": "fixed",
-      "measured": true,
-      "notes": "Upright it is a 1in riser. Underslung its top mount faces down: the only thing that lets an underslung head hang. No family requirement."
+      "notes": "Flat plate with a Mitchell mount on both the top and the bottom of the offset end; the mode is which side you mount to."
     },
     {
-      "id": "dolly-low-mode-placeholder",
-      "name": "Dolly Low Mode",
+      "id": "mitchell-offset-24",
+      "name": "Mitchell Offset, 24″",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
-      "rise": -4,
-      "mountFacing": "up",
-      "family": "fisher",
-      "requiresFamily": "fisher",
       "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figure, not yet taped. Negative rise: head sits lower."
+      "modes": [
+        {
+          "name": "top",
+          "label": "Top of the plate",
+          "rise": 1,
+          "mountFacing": "up"
+        },
+        {
+          "name": "bottom",
+          "label": "Bottom of the plate",
+          "rise": 0,
+          "mountFacing": "down"
+        }
+      ],
+      "notes": "Flat plate with a Mitchell mount on both the top and the bottom of the offset end; the mode is which side you mount to."
     },
     {
-      "id": "dolly-rotating-offset-placeholder",
-      "name": "Dolly Rotating Offset",
+      "id": "rotating-offset",
+      "name": "Rotating Offset",
       "category": "adapter",
       "bottomMount": "mitchell",
       "topMount": "mitchell",
-      "rise": 2,
+      "rise": 4,
       "mountFacing": "up",
-      "family": "fisher",
-      "requiresFamily": "fisher",
       "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figure, not yet taped."
-    },
-    {
-      "id": "dolly-broken-neck-placeholder",
-      "name": "Dolly Broken Neck",
-      "category": "adapter",
-      "bottomMount": "mitchell",
-      "topMount": "mitchell",
-      "rise": 5,
-      "mountFacing": "up",
-      "family": "fisher",
-      "requiresFamily": "fisher",
-      "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figure, not yet taped."
+      "notes": "Generic Mitchell rotating offset."
     },
     {
       "id": "head-standard-placeholder",
@@ -281,8 +357,7 @@
         }
       ],
       "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figures, not yet taped. Underslung hangs from a down-facing mount, so it needs an offset in underslung mode."
+      "notes": "Underslung hangs from a down-facing mount: the bottom side of a Mitchell offset, or an SLE mounted underslung."
     },
     {
       "id": "head-lambda-placeholder",
@@ -305,8 +380,7 @@
         }
       ],
       "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figures, not yet taped (about 13\" bracket to mount). SPEC.md 3.3: the bracket faces up in both modes and sits on an ordinary up-facing mount; it cradles the camera.",
+      "notes": "SPEC.md 3.3: the bracket faces up in both modes and sits on an ordinary up-facing mount; it cradles the camera.",
       "cradlesCamera": true
     },
     {
@@ -316,9 +390,7 @@
       "bottomMount": "flat-38",
       "topMount": "dovetail",
       "rise": 1.5,
-      "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figures, not yet taped."
+      "adjustability": "fixed"
     },
     {
       "id": "riser-1in-placeholder",
@@ -327,9 +399,7 @@
       "bottomMount": "dovetail",
       "topMount": "dovetail",
       "rise": 1,
-      "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figures, not yet taped."
+      "adjustability": "fixed"
     },
     {
       "id": "camera-body-placeholder",
@@ -338,9 +408,7 @@
       "bottomMount": "camera-base",
       "topMount": "optical-center",
       "opticalCenterAboveBase": 4,
-      "adjustability": "fixed",
-      "measured": false,
-      "notes": "Placeholder figures, not yet taped."
+      "adjustability": "fixed"
     }
   ],
   "packages": [
@@ -351,19 +419,22 @@
         "apple-quarter",
         "apple-half",
         "apple-full",
-        "track-wedges-placeholder",
+        "square-track",
+        "round-track",
         "tripod-baby-placeholder",
-        "dolly-placeholder",
+        "fisher-11",
         "hihat-placeholder",
         "lohat-placeholder",
+        "fisher-sle",
+        "fisher-lhe",
+        "mitchell-riser-3",
         "mitchell-riser-6",
         "mitchell-riser-12",
         "mitchell-riser-18",
         "mitchell-riser-24",
-        "mitchell-offset",
-        "dolly-low-mode-placeholder",
-        "dolly-rotating-offset-placeholder",
-        "dolly-broken-neck-placeholder",
+        "mitchell-offset-10",
+        "mitchell-offset-24",
+        "rotating-offset",
         "head-standard-placeholder",
         "head-lambda-placeholder",
         "baseplate-19-placeholder",
@@ -383,9 +454,7 @@
       ],
       "bottomMount": "flat-38",
       "hasRatedTopHandle": true,
-      "topHandleOffset": -3,
-      "measured": false,
-      "notes": "Placeholder build; topHandleOffset not yet taped."
+      "topHandleOffset": -3
     }
   ]
 }

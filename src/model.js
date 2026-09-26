@@ -115,6 +115,14 @@ export function buildAttachPoints(build, gear) {
  * adjustable `legRange` (a telescoping column) stacked under `boomRange`.
  */
 export function supportInterval(support) {
+  return shift(bareSupportInterval(support), support.modeRise);
+}
+
+/** A support mode's rise (a dolly's wheel set, SPEC.md 3.2) lifts or lowers
+ * the whole support, so every support figure moves by it. */
+const shift = (range, by = 0) => ({ min: range.min + by, max: range.max + by });
+
+function bareSupportInterval(support) {
   if (support.boomRange) {
     const legMin = support.legRange ? support.legRange.practicalMin : support.baseRise || 0;
     const legMax = support.legRange ? support.legRange.practicalMax : support.baseRise || 0;
@@ -143,6 +151,10 @@ export function supportInterval(support) {
  * does. A support with no moveable range collapses to a zero-width point.
  */
 export function supportMoveableInterval(support) {
+  return shift(bareSupportMoveableInterval(support), support.modeRise);
+}
+
+function bareSupportMoveableInterval(support) {
   if (support.boomRange) {
     const base = support.baseRise || 0; // fixed, not legRange — legs are excluded
     return {
@@ -168,6 +180,22 @@ export function supportMoveableInterval(support) {
  * extents to its max; levelingLoss comes off the top segment's extent.
  */
 export function supportSegments(support) {
+  const [first, ...rest] = bareSupportSegments(support);
+  return [{ ...first, base: first.base + (support.modeRise || 0) }, ...rest];
+}
+
+/**
+ * The rise range of any piece that isn't a support (SPEC.md 3.7, 5.2): its
+ * `riseRange` if it's adjustable (a nose fitting's hand screw), else its
+ * fixed `rise` at both ends.
+ */
+export function riseRangeOf(component) {
+  if (component.riseRange) return { min: component.riseRange.min, max: component.riseRange.max };
+  const fixed = component.rise || 0;
+  return { min: fixed, max: fixed };
+}
+
+function bareSupportSegments(support) {
   const leveling = support.levelingLoss || 0;
   const extentOf = (min, max, loss = 0) => Math.max(0, max - loss - min);
 
@@ -203,6 +231,10 @@ export function describeCurrentRig(chain) {
     // Which mode each moded base item is in (a full apple's face).
     baseModes: Object.fromEntries(chain.baseItems.filter((c) => c.mode).map((c) => [c.id, c.mode])),
     supportId: chain.support.id,
+    // The support's mode (a dolly's wheel set), if it has modes.
+    supportMode: chain.support.mode ?? null,
+    noseId: chain.nose ? chain.nose.id : null,
+    noseMode: chain.nose ? chain.nose.mode ?? null : null,
     adapterIds: chain.adapters.map((c) => c.id),
     // Which mode each multi-mode adapter is in (single-mode adapters have none).
     adapterModes: Object.fromEntries(chain.adapters.filter((c) => c.mode).map((c) => [c.id, c.mode])),
