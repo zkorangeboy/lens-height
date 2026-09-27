@@ -34,6 +34,13 @@ export function requiredSupportFacingOf(component) {
   return component.supportMountFacing || "up";
 }
 
+/** The mount beneath a head must face down in an underslung mode and up in
+ * any other (SPEC.md 3.3). No exceptions: keyed on the mode itself, so no
+ * head's data can hang an underslung mode from an up-facing mount. */
+export function headModeSupportFacing(mode) {
+  return /underslung/i.test(mode.name || "") ? "down" : "up";
+}
+
 /** The mount beneath must face the way what's above it requires. */
 export function supportFacingOk(lowerTopFacing, requiredFacing) {
   return lowerTopFacing === requiredFacing;
@@ -325,7 +332,7 @@ function whyHeadMode(head, mode, stackTop, beneathName) {
   if (!acceptsMount(head, stackTop.topMount)) {
     return `${nameOf(head)} fits ${plainMounts(head.bottomMount)}, but what's below it ends in ${plainMount(stackTop.topMount)}.`;
   }
-  const required = mode.supportMountFacing || "up";
+  const required = headModeSupportFacing(mode);
   if (!supportFacingOk(stackTop.topFacing, required)) {
     const hint =
       required === "down"

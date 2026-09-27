@@ -138,8 +138,8 @@ describe("slotOptions: only what can legally attach to what's below", () => {
     const hung = opts({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" });
     assert.equal(modes(hung).underslung.available, true);
     assert.equal(modes(hung).normal.available, false);
-    // The lambda head sits on an up-facing mount, so an underslung offset takes it off the list.
-    assert.equal(byId(hung.head, "head-lambda-placeholder").available, false);
+    // The Lambda 50 hangs underslung from it too, the camera upright on its platform.
+    assert.equal(byId(hung.head, "lambda-50").available, true);
   });
 
   test("camera attach points follow the head mode: upright for normal, inverted or handle for underslung", () => {
@@ -283,10 +283,14 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
   });
 
   test("a head with no legal mode is cleared", () => {
-    // The lambda head only has an up-facing underslung mode; an underslung offset makes it illegal.
-    const { picks, notes } = revalidate({ headId: "head-lambda-placeholder", modeName: "underslung", attachName: "base", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } });
+    // A head with only an upright mode has nothing to hang from an offset's bottom side.
+    const uprightOnly = {
+      ...seed,
+      components: seed.components.map((c) => (c.id === "lambda-50" ? { ...c, modes: c.modes.filter((m) => m.name === "upright") } : c)),
+    };
+    const { picks, notes } = revalidatePicks(uprightOnly, ...P, picksFor({ headId: "lambda-50", modeName: "upright", attachName: "base", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }));
     assert.equal(picks.headId, null);
-    assert.match(notes[0], /^Cleared Lambda Head\. /);
+    assert.match(notes[0], /^Cleared Lambda 50\. /);
   });
 
   test("ids the package doesn't have are dropped quietly", () => {

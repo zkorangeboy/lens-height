@@ -185,6 +185,7 @@ describe("solver", () => {
       category: "support",
       bottomMount: "ground",
       topMount: "bowl-100",
+      mountFacing: "down", // stands in for an offset plate's bottom side: underslung needs a down-facing mount
       riseRange: { specMin: 10, specMax: 30, practicalMin: 10, practicalMax: 30 },
       levelingLoss: 1,
     };
@@ -193,8 +194,7 @@ describe("solver", () => {
       category: "head",
       bottomMount: "bowl-100",
       topMount: "flat-38",
-      // This test is about the camera attach point, so the head sits on an ordinary up-facing mount.
-      modes: [{ name: "underslung", rise: -4, cameraMountFacing: "down", supportMountFacing: "up" }],
+      modes: [{ name: "underslung", rise: -4, cameraMountFacing: "down", supportMountFacing: "down" }],
     };
     const cam = { id: "cam2", category: "camera-body", opticalCenterAboveBase: 6 };
     const build = { id: "b2", componentIds: ["cam2"], bottomMount: "flat-38", hasRatedTopHandle: true, topHandleOffset: -2 };
@@ -221,34 +221,33 @@ describe("solver", () => {
     }
   });
 
-  test("lambda underslung: negative head rise but up-facing mount mates with plain base (upright camera)", () => {
-    const support = {
+  test("lambda underslung: negative head rise, a down-facing mount, and a plain base (upright camera)", () => {
+    const support = (mountFacing) => ({
       id: "s3",
       category: "support",
       bottomMount: "ground",
       topMount: "bowl-150",
+      mountFacing,
       riseRange: { specMin: 5, specMax: 25, practicalMin: 5, practicalMax: 25 },
       levelingLoss: 0,
-    };
+    });
     const head = {
       id: "h3",
       category: "head",
       bottomMount: "bowl-150",
       topMount: "flat-38",
-      modes: [{ name: "underslung", rise: -3, cameraMountFacing: "up" }],
+      modes: [{ name: "underslung", rise: -3, cameraMountFacing: "up", supportMountFacing: "down" }],
     };
     const cam = { id: "cam3", category: "camera-body", opticalCenterAboveBase: 8 };
     const build = { id: "b3", componentIds: ["cam3"], bottomMount: "flat-38", hasRatedTopHandle: false };
-    const gear = makeGear({
-      components: [support, head, cam],
-      packageComponentIds: ["s3", "h3", "cam3"],
-      build,
-    });
+    const gearWith = (facing) =>
+      makeGear({ components: [support(facing), head, cam], packageComponentIds: ["s3", "h3", "cam3"], build });
+    const chainsOn = (facing) => enumerateChains(gearWith(facing), { packageId: "pkg", buildId: "b3", maxBaseLayerItems: 2 });
 
-    const chains = enumerateChains(gear, { packageId: "pkg", buildId: "b3", maxBaseLayerItems: 2 });
-
-    // Only the plain "base" attach point (facing down) mates with this
-    // up-facing underslung mount; base-inverted (facing up) is excluded.
+    assert.equal(chainsOn("up").length, 0, "underslung never hangs from an up-facing mount");
+    // Hung from a down-facing mount, the platform faces up: only the plain
+    // "base" attach point (facing down) mates, so the camera is upright.
+    const chains = chainsOn("down");
     assert.equal(chains.length, 1);
     assert.equal(chains[0].attach.name, "base");
     assert.equal(chains[0].attach.inverted, false);

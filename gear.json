@@ -421,28 +421,34 @@
       "notes": "Underslung rise −8.5″ is a placeholder, to be corrected. Underslung hangs from a down-facing mount: the bottom side of a Mitchell offset, or an SLE mounted underslung."
     },
     {
-      "id": "head-lambda-placeholder",
-      "name": "Lambda Head",
-      "shortName": "Lambda",
+      "id": "lambda-50",
+      "name": "Lambda 50",
+      "shortName": "Lambda 50",
       "category": "head",
       "bottomMount": "mitchell",
       "topMount": "flat-38",
       "modes": [
         {
-          "name": "underslung",
-          "rise": -13,
+          "name": "upright",
+          "riseRange": {
+            "min": 10,
+            "max": 18
+          },
           "cameraMountFacing": "up",
           "supportMountFacing": "up"
         },
         {
-          "name": "overslung",
-          "rise": 13,
+          "name": "underslung",
+          "riseRange": {
+            "min": -18,
+            "max": -10
+          },
           "cameraMountFacing": "up",
-          "supportMountFacing": "up"
+          "supportMountFacing": "down"
         }
       ],
-      "adjustability": "fixed",
-      "notes": "SPEC.md 3.3: the bracket faces up in both modes and sits on an ordinary up-facing mount; it cradles the camera.",
+      "adjustability": "adjustable",
+      "notes": "SPEC.md 3.3: an L-frame whose platform slides 10–18″ from the mount. Underslung hangs from a down-facing mount; the camera sits upright on the platform in both modes.",
       "cradlesCamera": true
     },
     {
@@ -504,7 +510,7 @@
         "mitchell-offset-24",
         "rotating-offset",
         "oconnor-2575d",
-        "head-lambda-placeholder",
+        "lambda-50",
         "baseplate-19-placeholder",
         "riser-1in-placeholder",
         "camera-body-placeholder"

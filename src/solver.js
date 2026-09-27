@@ -10,6 +10,7 @@ import {
   ruleViolations,
   stackBaseOf,
   supportFacingOk,
+  headModeSupportFacing,
   supportVariants,
   tripodOnAppleBoxes,
 } from "./rules.js";
@@ -45,12 +46,12 @@ function packagePool(gear, packageId) {
  * computeMoveableInterval (moveable range only) apply, so they can't
  * drift from each other on how base/head/build rises get folded in.
  */
-function foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportRange, noseRange) {
+function foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportRange, noseRange, headRange = riseRangeOf(mode)) {
   const fixedRise =
     baseItems.reduce((sum, c) => sum + c.rise, 0) + adapters.reduce((sum, c) => sum + c.rise, 0);
   return {
-    min: fixedRise + supportRange.min + noseRange.min + mode.rise + attach.rise,
-    max: fixedRise + supportRange.max + noseRange.max + mode.rise + attach.rise,
+    min: fixedRise + supportRange.min + noseRange.min + headRange.min + attach.rise,
+    max: fixedRise + supportRange.max + noseRange.max + headRange.max + attach.rise,
   };
 }
 
@@ -76,7 +77,12 @@ function computeInterval(baseItems, adapters, support, nose, mode, attach) {
 function computeMoveableInterval(baseItems, adapters, support, nose, mode, attach) {
   // A nose fitting's range is adjustable, not moveable: it adds no width here.
   const noseLow = noseRangeOf(nose).min;
-  return foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportMoveableInterval(support), { min: noseLow, max: noseLow });
+  // Nor is a head's (the Lambda 50's platform).
+  const headLow = riseRangeOf(mode).min;
+  return foldSupportRangeIntoChain(
+    baseItems, adapters, mode, attach, supportMoveableInterval(support),
+    { min: noseLow, max: noseLow }, { min: headLow, max: headLow }
+  );
 }
 
 /**
@@ -181,12 +187,12 @@ function resolveChain({ baseItems, adapters, support, nose = null, head, mode, b
       violations.push(
         `Mount mismatch: head "${head.name || head.id}" (bottomMount "${head.bottomMount}") doesn't mount to "${adapterStack.topMount}"`
       );
-    } else if (!supportFacingOk(adapterStack.topFacing, mode.supportMountFacing || "up")) {
+    } else if (!supportFacingOk(adapterStack.topFacing, headModeSupportFacing(mode))) {
       const beneath = adapterStack.items.length
         ? adapterStack.items[adapterStack.items.length - 1]
         : base.piece;
       violations.push(
-        `Facing mismatch: head "${head.name || head.id}" in ${mode.name} mode needs ${(mode.supportMountFacing || "up") === "up" ? "an up" : "a down"}-facing mount beneath it, but "${beneath.name || beneath.id}"${beneath.mode ? ` (${beneath.mode} mode)` : ""} has its top mount facing ${adapterStack.topFacing}`
+        `Facing mismatch: head "${head.name || head.id}" in ${mode.name} mode needs ${headModeSupportFacing(mode) === "up" ? "an up" : "a down"}-facing mount beneath it, but "${beneath.name || beneath.id}"${beneath.mode ? ` (${beneath.mode} mode)` : ""} has its top mount facing ${adapterStack.topFacing}`
       );
     }
   }

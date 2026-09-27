@@ -56,7 +56,18 @@ const DRAW = {
   riser: 5.5,
   swivel: 6,
   head: 7,
-  cradle: 11,
+  // The Lambda 50's L-frame, from its mount: pan base, base plate forward,
+  // column at the rear, the platform cantilevered forward from the column.
+  lambda: {
+    pan: { half: 2.5, height: 1.5 },
+    plate: [-3, 8], // the base plate, rear to front
+    plateThickness: 1,
+    column: [-3, -1.5],
+    platform: [-1.5, 9.5],
+    platformThickness: 1,
+    columnPast: 2, // how far the column runs past the platform
+    cameraX: 3.5, // the camera, centered on the platform
+  },
   camera: { back: -5, front: 6, height: 6, cone: 3, coneHalf: 1.5 }, // body (height if the build gives none), the forward triangle
 };
 
@@ -86,9 +97,10 @@ export function stackLayout(chain, target = null, options = {}) {
   const reference = !target ? chain.min : target.type === "fixed" ? target.height : target.low;
   const rigged = clamp(reference, chain.min, chain.max);
 
-  // Spread the extension needed over the support's segments and the nose
-  // fitting's range (SPEC.md 5.8): adjustable first — legs, then the nose
-  // fitting's hand screw — moveable last.
+  // Spread the extension needed over the support's segments, the nose
+  // fitting's range, and the head's (SPEC.md 5.8): adjustable first — legs,
+  // then the nose fitting's hand screw, then the Lambda 50's platform —
+  // moveable last.
   const segments = supportSegments(chain.support);
   const noseRange = chain.nose ? riseRangeOf(chain.nose) : null;
   const noseSegment = noseRange && {
@@ -96,7 +108,15 @@ export function stackLayout(chain, target = null, options = {}) {
     base: noseRange.min,
     extent: noseRange.max - noseRange.min,
   };
-  const allSegments = noseSegment ? [...segments, noseSegment] : segments;
+  const headRange = riseRangeOf(chain.mode);
+  const headSegment = {
+    kind: headRange.max > headRange.min ? chain.head.adjustability || "adjustable" : kindOf(chain.head),
+    base: headRange.min,
+    extent: headRange.max - headRange.min,
+  };
+  const allSegments = [...segments, ...(noseSegment ? [noseSegment] : []), headSegment];
+  const noseIndex = segments.length;
+  const headIndex = allSegments.length - 1;
   const allocation = allSegments.map(() => 0);
   let remaining = rigged - chain.min;
   const byPriority = allSegments
@@ -192,7 +212,7 @@ export function stackLayout(chain, target = null, options = {}) {
   );
 
   if (chain.nose) {
-    const noseAllocation = allocation[allSegments.length - 1];
+    const noseAllocation = allocation[noseIndex];
     const bracket = Boolean(chain.nose.hangsAsBracket);
     place(
       {
@@ -227,10 +247,28 @@ export function stackLayout(chain, target = null, options = {}) {
     );
   });
   const cradles = Boolean(chain.head.cradlesCamera);
+  const headRise = headSegment.base + allocation[headIndex];
+  const L = DRAW.lambda;
   place(
-    { slot: "head", index: 0, name: chain.head.name, component: chain.head, kind: kindOf(chain.head), mode: chain.mode.name },
-    chain.mode.rise,
-    cradles ? [-DRAW.cradle / 2, DRAW.cradle / 2] : [-DRAW.head / 2, DRAW.head / 2]
+    {
+      slot: "head",
+      index: 0,
+      name: chain.head.name,
+      component: chain.head,
+      kind: headSegment.kind,
+      mode: chain.mode.name,
+      ...(headSegment.extent > 0 ? { range: { min: headRange.min, max: headRange.max } } : {}),
+    },
+    headRise,
+    cradles ? [L.column[0], L.platform[1]] : [-DRAW.head / 2, DRAW.head / 2],
+    // The camera sits on the platform, forward of the column.
+    cradles ? mountX + L.cameraX : mountX,
+    // The L-frame: the column runs a little past the platform.
+    cradles
+      ? headRise < 0
+        ? [cursor + headRise - L.columnPast, cursor]
+        : [cursor, cursor + headRise + L.columnPast]
+      : null
   );
   // The camera: its body is centered on the optical center, whichever way it's mounted.
   const lensAt = cursor + chain.attach.rise;
@@ -359,9 +397,28 @@ export function stackLayout(chain, target = null, options = {}) {
         }
         return { type: b.component.drawAs === "swivel" ? "swivel" : "riser" };
       case "head":
-        return b.component.cradlesCamera
-          ? { type: "lambda", mount: pt(at, b.start), bracket: pt(at, b.end), hangs: b.rise < 0 }
-          : { type: "fluid-head", inverted: b.rise < 0 };
+        if (b.component.cradlesCamera) {
+          // Upright, the frame stands on its mount; underslung, it's the
+          // same frame flipped, hanging under a down-facing mount.
+          const dir = b.rise < 0 ? -1 : 1;
+          const at0 = b.start;
+          const panEnd = at0 + dir * L.pan.height;
+          const plateEnd = panEnd + dir * L.plateThickness;
+          const platformUnder = b.end - L.platformThickness; // the camera sits on the platform's top
+          const columnEnd = dir > 0 ? b.end + L.columnPast : platformUnder - L.columnPast;
+          const span = (a, c) => [Math.min(a, c), Math.max(a, c)];
+          return {
+            type: "lambda",
+            hangs: dir < 0,
+            mount: pt(at, at0),
+            platformTop: pt(at + L.cameraX, b.end),
+            pan: box(at - L.pan.half, at + L.pan.half, ...span(at0, panEnd)),
+            plate: box(at + L.plate[0], at + L.plate[1], ...span(panEnd, plateEnd)),
+            column: box(at + L.column[0], at + L.column[1], ...span(panEnd, columnEnd)),
+            platform: box(at + L.platform[0], at + L.platform[1], platformUnder, b.end),
+          };
+        }
+        return { type: "fluid-head", inverted: b.rise < 0 };
       case "build":
         return {
           type: "camera",

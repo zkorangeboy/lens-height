@@ -38,7 +38,15 @@ const UNDERSLUNG = picksFor({
   modeName: "underslung",
   attachName: "base-inverted",
 });
-const LAMBDA = picksFor({ headId: "head-lambda-placeholder", modeName: "underslung", attachName: "base" });
+// The Lambda 50 hung underslung from the bottom of an offset plate, and upright on the sticks.
+const LAMBDA = picksFor({
+  headId: "lambda-50",
+  modeName: "underslung",
+  attachName: "base",
+  adapterIds: ["mitchell-offset-10"],
+  adapterModes: { "mitchell-offset-10": "bottom" },
+});
+const LAMBDA_UP = picksFor({ headId: "lambda-50", modeName: "upright", attachName: "base" });
 const available = (options) => options.filter((o) => o.available).map((o) => o.label);
 const gap = (picks, slot, index) => insertOptions(seed, ...P, picks).find((g) => g.slot === slot && g.index === index);
 
@@ -131,8 +139,13 @@ describe("stackLayout: horizontal position and pixel geometry", () => {
       const layout = stackLayout(chainOf(picks), { type: "fixed", height: 20 }, { frame: { width: 200, height: 500 } });
       const { scale } = layout.frame;
       for (const b of layout.blocks) {
-        // An offset plate is drawn with its thickness, a camera with its body past the lens.
+        // An offset plate is drawn with its thickness, a camera with its body past the lens,
+        // the Lambda 50 with its column running 2″ past the platform.
         if (b.component.plateLength || b.slot === "build") continue;
+        if (b.shape.type === "lambda") {
+          assert.ok(close(b.box.height, (b.top - b.bottom + 2) * scale, 0.3), `lambda: ${b.box.height}`);
+          continue;
+        }
         assert.ok(close(b.box.height, (b.top - b.bottom) * scale, 0.3), `${b.slot}: ${b.box.height} vs ${(b.top - b.bottom) * scale}`);
         assert.ok(close(b.box.y, layout.floor.y - b.top * scale, 0.3) || b.bottom < 0, `${b.slot} top at its height`);
       }
@@ -187,17 +200,43 @@ describe("stackLayout: horizontal position and pixel geometry", () => {
     assert.equal(tall.frame.height, 520, "a tall rig uses the full height");
   });
 
-  test("the lambda cradles its camera: same position, the camera on the bracket", () => {
-    const layout = stackLayout(chainOf(LAMBDA), { type: "fixed", height: 22 });
-    const [, head, camera] = layout.blocks;
-    assert.equal(camera.x, head.x);
-    assert.equal(camera.cradled, true);
-    assert.equal(head.shape.type, "lambda");
-    assert.equal(head.shape.hangs, true);
-    assert.equal(camera.bottom, head.bottom, "the camera sits on the bracket at the bottom of the head");
-    const over = stackLayout(chainOf({ ...LAMBDA, modeName: "overslung" }), null);
-    assert.equal(over.blocks[1].shape.hangs, false);
-    assert.equal(over.blocks[2].x, over.blocks[1].x);
+  test("the Lambda 50 cradles its camera: upright on the platform, in both modes", () => {
+    for (const [picks, hangs] of [[LAMBDA, true], [LAMBDA_UP, false]]) {
+      const layout = stackLayout(chainOf(picks), null);
+      const head = layout.blocks.find((b) => b.slot === "head");
+      const camera = layout.blocks.at(-1);
+      assert.equal(head.shape.type, "lambda");
+      assert.equal(head.shape.hangs, hangs);
+      assert.equal(camera.cradled, true);
+      assert.equal(camera.inverted, false, "the camera is never inverted on a lambda");
+      assert.equal(camera.start, head.end, "the camera sits on the platform");
+      assert.equal(camera.x, head.mountX, "centered on the platform, forward of the column");
+      assert.ok(camera.x > head.x, "the platform is cantilevered forward from the column");
+      assert.equal(head.kind, "adjustable", "drawn in the adjustable color");
+    }
+  });
+
+  test("the Lambda 50's platform moves along the column as the rise is set", () => {
+    const at = (picks, height) => stackLayout(chainOf(picks), { type: "fixed", height }).blocks.find((b) => b.slot === "head");
+    // Upright on baby sticks: legs first (20–36″), then the platform (+10″ to +18″).
+    const low = chainOf(LAMBDA_UP).min;
+    const high = chainOf(LAMBDA_UP).max;
+    assert.equal(high - low, 16 + 8, "the legs' 16″ plus the platform's 8″");
+    assert.equal(at(LAMBDA_UP, low).rise, 10);
+    assert.equal(at(LAMBDA_UP, high).rise, 18);
+    assert.equal(at(LAMBDA_UP, high - 3).rise, 15, "the legs are set first, the platform takes the rest");
+    assert.deepEqual(at(LAMBDA_UP, low).range, { min: 10, max: 18 });
+    // Underslung: −18″ at the bottom of the reach, −10″ at the top.
+    assert.equal(at(LAMBDA, chainOf(LAMBDA).min).rise, -18);
+    assert.equal(at(LAMBDA, chainOf(LAMBDA).max).rise, -10);
+    // In the drawing, the platform slides up the column, away from the pan base.
+    const aboveBase = (h) => {
+      const layout = stackLayout(chainOf(LAMBDA_UP), { type: "fixed", height: h }, { frame: { width: 320, height: 520 } });
+      const head = layout.blocks.find((b) => b.slot === "head");
+      return (head.shape.pan.y + head.shape.pan.height - head.shape.platformTop.y) / layout.frame.scale;
+    };
+    assert.ok(close(aboveBase(high), 18, 0.05), "platform 18″ above the mount");
+    assert.ok(close(aboveBase(high - 8), 10, 0.05), "and 10″ at the bottom of its travel");
   });
 
   test("the scale fits the content: the reach rail is clipped, not the drawing stretched", () => {
@@ -340,10 +379,9 @@ describe("insertOptions: only what legally fits at that exact point", () => {
     // The standard head switches to underslung (and the camera inverts) when the offset goes underslung.
     const hung = gap(picksFor(), "adapter", 0).options.find((o) => o.label === "Mitchell Offset, 10″ (Bottom of the plate)");
     assert.equal(hung.available, true);
-    // The lambda head's one mode needs an up-facing mount: an underslung offset would clear it.
-    const onLambda = gap(LAMBDA, "adapter", 0).options.find((o) => o.label === "Mitchell Offset, 10″ (Bottom of the plate)");
-    assert.equal(onLambda.available, false);
-    assert.match(onLambda.reason, /Lambda Head/);
+    // The Lambda 50 upright switches to underslung under an offset's bottom side, camera still upright.
+    const onLambda = gap(LAMBDA_UP, "adapter", 0).options.find((o) => o.label === "Mitchell Offset, 10″ (Bottom of the plate)");
+    assert.equal(onLambda.available, true);
   });
 
   test("something already in the rig isn't offered again", () => {
@@ -375,8 +413,8 @@ describe("swapOptions", () => {
   });
 
   test("a head swaps for another with a legal mode", () => {
-    assert.deepEqual(available(swapOptions(seed, ...P, picksFor(), "head")), ["Lambda Head"]);
-    assert.deepEqual(available(swapOptions(seed, ...P, UNDERSLUNG, "head")), [], "the lambda needs an up-facing mount");
+    assert.deepEqual(available(swapOptions(seed, ...P, picksFor(), "head")), ["Lambda 50"]);
+    assert.deepEqual(available(swapOptions(seed, ...P, UNDERSLUNG, "head")), ["Lambda 50"], "the lambda hangs underslung from the offset's bottom");
   });
 
   test("an adapter swaps in its place: the underslung offset for a riser", () => {
@@ -426,8 +464,8 @@ describe("applyEdit, then revalidatePicks", () => {
     const withNose = next(onDolly, { op: "swap", slot: "nose", id: "fisher-sle" }).picks;
     assert.deepEqual([withNose.noseId, withNose.noseMode], ["fisher-sle", "upright"]);
     assert.equal(missingSlot(seed, ...P, withNose), null);
-    const lambda = next(picksFor(), { op: "swap", slot: "head", id: "head-lambda-placeholder" }).picks;
-    assert.deepEqual([lambda.headId, lambda.modeName, lambda.attachName], ["head-lambda-placeholder", "underslung", "base"]);
+    const lambda = next(picksFor(), { op: "swap", slot: "head", id: "lambda-50" }).picks;
+    assert.deepEqual([lambda.headId, lambda.modeName, lambda.attachName], ["lambda-50", "upright", "base"]);
   });
 
   test("swapping the Fisher for a tripod clears the nose fitting, with a note, and keeps the adapters", () => {
@@ -602,25 +640,53 @@ describe("apple boxes: one item per size, a full apple's face is a mode", () => 
   });
 });
 
-describe("the lambda head: underslung and overslung, cradling the camera", () => {
-  const lambda = seed.components.find((c) => c.id === "head-lambda-placeholder");
+describe("the Lambda 50: upright and underslung, cradling the camera", () => {
+  const lambda = seed.components.find((c) => c.id === "lambda-50");
 
-  test("two ~13″ modes, both with an up-facing camera mount", () => {
-    assert.deepEqual(lambda.modes.map((m) => [m.name, m.rise, m.cameraMountFacing, m.supportMountFacing]), [
-      ["underslung", -13, "up", "up"],
-      ["overslung", 13, "up", "up"],
+  test("two modes adjustable over 10–18″, the platform always facing up; underslung needs a down-facing mount", () => {
+    assert.equal(lambda.name, "Lambda 50");
+    assert.equal(lambda.adjustability, "adjustable");
+    assert.deepEqual(lambda.modes.map((m) => [m.name, m.riseRange, m.cameraMountFacing, m.supportMountFacing]), [
+      ["upright", { min: 10, max: 18 }, "up", "up"],
+      ["underslung", { min: -18, max: -10 }, "up", "down"],
     ]);
     assert.equal(lambda.cradlesCamera, true);
   });
 
-  test("its modes are a toggle, and the camera stays upright either way", () => {
-    const entry = slotOptions(seed, ...P, LAMBDA).head.find((o) => o.id === lambda.id);
-    const control = modeControl(entry.modes);
-    assert.equal(control.type, "toggle");
-    assert.deepEqual([control.on.name, control.off.name], ["underslung", "overslung"]);
-    const { picks, notes } = revalidatePicks(seed, ...P, applyEdit(LAMBDA, { op: "mode", slot: "head", mode: "overslung" }));
-    assert.deepEqual(notes, []);
+  test("underslung is rejected directly on sticks and on the SLE, and accepted under an offset plate's bottom side", () => {
+    const hung = (over) => ({ ...picksFor({ headId: "lambda-50", modeName: "underslung", attachName: "base" }), ...over });
+    assert.throws(() => chainOf(hung()), /underslung mode needs a down-facing mount beneath it, but "Baby sticks"/);
+    assert.throws(
+      () => chainOf(hung({ supportId: "fisher-11", noseId: "fisher-sle", noseMode: "upright" })),
+      /underslung mode needs a down-facing mount beneath it, but "SLE/
+    );
+    const underPlate = chainOf(LAMBDA);
+    assert.equal(underPlate.mode.name, "underslung");
+    assert.equal(underPlate.attach.name, "base", "the camera sits upright");
+    const onFisher = chainOf(hung({ supportId: "fisher-11", noseId: "fisher-sle", noseMode: "upright", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }));
+    assert.equal(onFisher.mode.name, "underslung");
+    // And the check screen agrees: not offered on the sticks, with the reason.
+    const onSticks = slotOptions(seed, ...P, LAMBDA_UP).head.find((o) => o.id === lambda.id);
+    const underslung = onSticks.modes.find((m) => m.name === "underslung");
+    assert.equal(underslung.available, false);
+    assert.match(underslung.reason, /needs a down-facing mount beneath the head/);
+  });
+
+  test("upright needs an up-facing mount: under an offset's bottom side it switches to underslung, camera still upright", () => {
+    const { picks, notes } = revalidatePicks(seed, ...P, { ...LAMBDA, modeName: "upright" });
+    assert.equal(picks.modeName, "underslung");
     assert.equal(picks.attachName, "base");
-    assert.equal(chainOf(picks).max - chainOf(LAMBDA).max, 26);
+    assert.match(notes[0], /Switched the head to underslung mode/);
+  });
+
+  test("the camera is never inverted, and the reach spans both ends of the platform", () => {
+    for (const picks of [LAMBDA, LAMBDA_UP]) assert.ok(!chainOf(picks).attach.inverted);
+    const up = chainOf(LAMBDA_UP);
+    const sticks = chainOf(picksFor());
+    // Baby sticks 20–36″, camera +3″: 2575 +8½″ vs the lambda's +10″ to +18″.
+    assert.equal(up.min - sticks.min, 10 - 8.5);
+    assert.equal(up.max - sticks.max, 18 - 8.5);
+    assert.equal(up.adjustability, "adjustable");
   });
 });
+

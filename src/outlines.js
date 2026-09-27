@@ -249,14 +249,18 @@ function fluidHead(block) {
 }
 
 function lambda(block) {
-  const f = frame(block.box);
-  const { mount, bracket } = block.shape;
-  const arm = Math.max(f.w * 0.14, 3);
+  // An L-frame in its own color (adjustable): pan base on the mount, base
+  // plate forward, column at the rear, the platform cantilevered forward
+  // from the column. Underslung it's the same frame flipped; the layout
+  // hands over each part's box already placed.
+  const { pan, plate, column, platform } = block.shape;
+  const part = (b, cls, rx = 1.5) => rect(b.x, b.y, b.width, Math.max(b.height, MIN_PX / 2), cls, { rx });
+  const k = `o k-${block.kind}`;
   return (
-    rect(mount.x - arm, Math.min(mount.y, bracket.y), arm * 2, Math.abs(bracket.y - mount.y), `o k-${block.kind} cradle`) +
-    rect(f.left, bracket.y, f.w, arm, "o k-fixed plate") +
-    rect(f.right - arm, bracket.y - Math.abs(bracket.y - mount.y) * 0.5, arm, Math.abs(bracket.y - mount.y) * 0.5, `o k-${block.kind} cradle`) +
-    rect(mount.x - arm * 1.5, mount.y - arm, arm * 3, arm, "o k-fixed mitchell")
+    part(plate, `${k} lambda-plate`) +
+    part(column, `${k} lambda-column`) +
+    part(platform, `${k} lambda-platform`) +
+    part(pan, "o k-fixed lambda-pan", Math.min(pan.width, pan.height) / 2)
   );
 }
 

@@ -279,13 +279,26 @@ describe("adapters (SPEC.md 3.6)", () => {
     assert.deepEqual(chainsFor(gear).map((c) => c.adapters.length), [0], "only the no-adapter chain survives");
   });
 
+  test("no exceptions: an underslung mode needs a down-facing mount and an upright one an up-facing mount, whatever the data says", () => {
+    const hanging = riser(6, { id: "hanging", name: "Hanging adapter", mountFacing: "down" });
+    // Data that tries to opt out: an underslung mode claiming an up-facing mount, an upright one claiming down.
+    const optOut = head({ modes: [{ name: "underslung", rise: -4, cameraMountFacing: "up", supportMountFacing: "up" }] });
+    const gear = rigGear([tripod(), hanging, optOut]);
+    assert.throws(() => buildChain(gear, selection({ modeName: "underslung" })), /underslung mode needs a down-facing mount/i);
+    assert.equal(buildChain(gear, selection({ modeName: "underslung", adapterIds: ["hanging"] })).adapters.length, 1);
+    const upright = head({ modes: [{ name: "upright", rise: 4, cameraMountFacing: "up", supportMountFacing: "down" }] });
+    const gear2 = rigGear([tripod(), hanging, upright]);
+    assert.throws(() => buildChain(gear2, selection({ modeName: "upright", adapterIds: ["hanging"] })), /upright mode needs an up-facing mount/i);
+    assert.equal(buildChain(gear2, selection({ modeName: "upright" })).adapters.length, 0);
+  });
+
   test("mount facing: a head mode that needs a down-facing mount does mate with a down-facing adapter", () => {
     const hanging = riser(6, { id: "hanging", name: "Hanging adapter", mountFacing: "down" });
-    const hangingHead = head({ modes: [{ name: "normal", rise: 0, cameraMountFacing: "up", supportMountFacing: "down" }] });
+    const hangingHead = head({ modes: [{ name: "underslung", rise: 0, cameraMountFacing: "up", supportMountFacing: "down" }] });
     const gear = rigGear([tripod(), hanging, hangingHead]);
-    const chain = buildChain(gear, selection({ adapterIds: ["hanging"] }));
+    const chain = buildChain(gear, selection({ adapterIds: ["hanging"], modeName: "underslung" }));
     assert.equal(chain.adapters.length, 1);
-    assert.throws(() => buildChain(gear, selection()), /facing mismatch/i, "and without the adapter, it can't sit on the support");
+    assert.throws(() => buildChain(gear, selection({ modeName: "underslung" })), /facing mismatch/i, "and without the adapter, it can't sit on the support");
   });
 
   test("adapters round-trip through the current-rig selection", () => {

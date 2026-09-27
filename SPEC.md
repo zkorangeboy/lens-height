@@ -226,14 +226,18 @@ and adapters can require.
 
 ### 3.3 Head
 
-`mitchell → flat-38 | dovetail`. Fixed rise. (A bowl-mount head declares
+`mitchell → flat-38 | dovetail`. Fixed rise per mode, unless the mode
+declares a `riseRange` (the Lambda 50). (A bowl-mount head declares
 `bottomMount: bowl-*` and needs an adapter to sit on a Mitchell support.)
 
 A head has one or more **modes**. Each mode stores:
 
 - `rise` — signed distance from the head's support-side mount to its
   camera-side mount in that mode. Negative when the camera-side mount
-  hangs below the support mount.
+  hangs below the support mount. A mode whose camera-side mount slides
+  declares `riseRange` (`{min, max}`, signed) instead, and the head is
+  `adjustable` (3.5): set between setups, like a nose fitting's hand
+  screw.
 - `cameraMountFacing` — `up` or `down`: which way the camera-side mount
   faces in that mode.
 - `supportMountFacing` — `up` or `down`: which way the mount *beneath* the
@@ -243,6 +247,10 @@ A head has one or more **modes**. Each mode stores:
   hi-hat top all face up, so what supplies it is the bottom side of a
   Mitchell offset (3.6), or an SLE nose fitting mounted underslung (3.7). An underslung mode is therefore
   rejected directly on a tripod. (If omitted, `up`.)
+  **No exceptions: every underslung mode needs a down-facing Mitchell**,
+  and every upright mode an up-facing one. The rule is keyed on the mode
+  (a mode named underslung requires `down`, whatever its data says), so
+  no head's data can opt out of it.
 
 Examples:
 
@@ -252,15 +260,19 @@ Examples:
 - **O'Connor, underslung:** negative rise, facing `down`, needs a `down`
   mount beneath. The plate now faces the floor, so the camera must attach
   either inverted by its base or upright by its top handle (see 3.4).
-- **Lambda, underslung and overslung:** the lambda's bracket is about 13"
-  from its mount. Underslung, the bracket hangs from the nose (rise about
-  −13"); overslung, it stands above it (about +13"). Either way the bracket
-  faces `up`: the camera sits on it normally and contributes its usual
-  positive rise, and the nose is an ordinary up-facing mount, so both modes
-  need an `up` mount beneath and no offset — "underslung" describes the
-  rise, not the mount.
+- **Lambda 50, upright and underslung:** an L-frame — a pan base on the
+  mount, a base plate running forward from it, a column at the rear, and a
+  camera platform cantilevered forward from the column that slides along
+  it. Its rise, mount to platform, is **adjustable over 10"–18"** in both
+  modes: +10" to +18" upright, −18" to −10" underslung. Upright, it sits on
+  an up-facing mount. Underslung, the whole frame is flipped and hangs from
+  a **down-facing** mount (the bottom of an offset plate, an SLE
+  underslung) — never from an up-facing one. Either way the platform faces
+  `up` (`cameraMountFacing: up`): the camera sits upright on it and
+  contributes its usual positive rise. **The camera is never inverted on
+  a lambda.**
 
-A head that holds the camera inside its own frame (the lambda) declares
+A head that holds the camera inside its own frame (the Lambda 50) declares
 `cradlesCamera: true`. It changes nothing about height or compatibility;
 it tells the drawing (5.8) to draw the camera inside the head's cradle.
 
@@ -319,9 +331,10 @@ Every component declares an `adjustability`:
   implied value: any component with no range is `fixed`, whether or not
   the field is present.
 
-Today only supports (3.2) carry a real range, so they're the only
-components that are ever `moveable` or `adjustable` — every base-layer
-item, adapter, head, and camera-build part is `fixed`. The field still lives on
+Supports (3.2) carry the main ranges. Besides them, a nose fitting's hand
+screw (3.7) and the Lambda 50's sliding platform (3.3) are `adjustable`;
+every other base-layer item, adapter, head, and camera-build part is
+`fixed`. The field still lives on
 every component, so a future part with its own range (a second boom, a
 powered riser) needs no schema change to participate.
 
@@ -827,9 +840,10 @@ boxes for a drawing of a given size — so the UI does no height math.
   target: a fixed target's height, or the low end of a range (the move
   starts there), clamped into the chain's reach. The extension needed is
   allocated adjustable first — the support's legs, then a nose fitting's
-  range — and moveable last, so everything set between setups positions
-  the rig and the boom takes what's left. A nose fitting with a range is an
-  `adjustable` block, and carries its `range`.
+  range, then a head's (the Lambda 50's platform) — and moveable last, so
+  everything set between setups positions the rig and the boom takes
+  what's left. A nose fitting or head with a range is an `adjustable`
+  block, drawn in the adjustable color, and carries its `range`.
 - **The support is split into parts** — its fixed base, its adjustable
   extension, its moveable extension — so each can be filled as what it is.
   Its block carries the support's `range` (min and max rise) alongside the
@@ -1087,7 +1101,18 @@ top to bottom:
    - **Riser** — a cage. **Offset** — a plate with a Mitchell on its top and
      bottom, the side in use marked. **Rotating offset** — a swivel.
    - **Fluid head** (the O'Connor 2575D) — pan base, tilt body, plate; upside down when
-     underslung. **Lambda** — a cradle around the camera.
+     underslung.
+   - **Lambda 50** — an L-frame in the adjustable color. Upright: a
+     pan-base disk on the mount, a short base plate running forward from
+     it, a column rising at the rear, and a camera platform cantilevered
+     forward from the column above the base plate, the column extending a
+     little above the platform; the camera sits upright on top of the
+     platform. Underslung: the same frame flipped vertically — the pan base
+     on top, hanging under the down-facing mount, the column dropping at
+     the rear, the platform at the bottom, and the camera sitting upright
+     on the platform, between it and the top plate. The platform sits at
+     the head's current rise, so it moves along the column as the rise is
+     set.
    - **Camera** — the body, drawn `bodyHeight` tall and centered on the
      optical center, and a small triangle at the optical center whose
      opening faces forward, the way the camera shoots. The triangle is
@@ -1133,7 +1158,7 @@ itself.
 
 1. Data model + seed JSON with a handful of real components.
 2. Solver, with unit tests covering: fixed target, range target,
-   underslung head (negative rise, both camera attach options), lambda underslung (negative head, upright camera), dolly boom, base-layer stacking,
+   underslung head (negative rise, both camera attach options), lambda underslung (negative head, upright camera, down-facing mount), dolly boom, base-layer stacking,
    infeasible-with-suggestion.
 3. Query UI + results list.
 4. Gear editor + override layer + export/import.

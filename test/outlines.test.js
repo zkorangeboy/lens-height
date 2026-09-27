@@ -34,7 +34,8 @@ const RIGS = {
   fisherRound: fisher({ baseItemIds: ["round-track"], supportMode: "etw", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" }),
   fisherSquare: fisher({ baseItemIds: ["square-track"] }),
   lhe: fisher({ noseId: "fisher-lhe", noseMode: undefined }),
-  lambda: rig({ headId: "head-lambda-placeholder", modeName: "underslung" }),
+  lambda: rig({ headId: "lambda-50", modeName: "upright" }),
+  lambdaHung: fisher({ headId: "lambda-50", modeName: "underslung", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }),
   handle: rig({ adapterIds: ["mitchell-offset-24"], adapterModes: { "mitchell-offset-24": "bottom" }, modeName: "underslung", attachName: "top-handle" }),
 };
 
@@ -129,6 +130,29 @@ describe("one outline per kind of gear", () => {
     );
   });
 
+  test("the Lambda 50 is an L-frame: upright stands on its mount, underslung is the same frame flipped", () => {
+    const partsOf = (selection) => {
+      const layout = layoutOf(selection);
+      const head = layout.blocks.find((b) => b.slot === "head");
+      return { head, camera: layout.blocks.at(-1), ...head.shape };
+    };
+    const up = partsOf(RIGS.lambda);
+    assert.ok(up.pan.y > up.platform.y, "upright: the pan base at the bottom, the platform above");
+    assert.ok(up.column.y < up.platform.y, "the column runs a little above the platform");
+    assert.ok(up.column.x < up.platform.x && up.plate.x + up.plate.width > up.pan.x + up.pan.width, "column at the rear, plate running forward");
+    const hung = partsOf(RIGS.lambdaHung);
+    assert.ok(hung.pan.y < hung.platform.y, "underslung: the pan base on top, the platform at the bottom");
+    assert.ok(hung.column.y + hung.column.height > hung.platform.y + hung.platform.height, "the column drops past the platform");
+    for (const { camera, platform, plate } of [up, hung]) {
+      assert.equal(camera.shape.inverted, false, "the camera is never inverted");
+      assert.ok(Math.abs(camera.shape.body.y + camera.shape.body.height - platform.y) < 0.5, "it sits on top of the platform");
+    }
+    assert.ok(hung.camera.shape.body.y > hung.plate.y + hung.plate.height, "between the platform and the top plate");
+    const svg = outlineOf(up.head);
+    for (const part of ["lambda-pan", "lambda-plate", "lambda-column", "lambda-platform"]) assert.match(svg, new RegExp(part));
+    assert.match(svg, /k-adjustable lambda-platform/, "drawn in the adjustable color");
+  });
+
   test("an underslung fluid head is drawn upside down", () => {
     const head = layoutOf(RIGS.fisherRound).blocks.find((b) => b.slot === "head");
     assert.match(outlineOf(head), /scale\(1 -1\)/);
@@ -140,14 +164,14 @@ describe("taps, markers, and tags", () => {
   // A support is tapped low, on its legs or chassis; anything else at its center.
   // An SLE, on its body under the plate (its neck runs up behind the head).
   // A base item, near its end (a dolly's wheels sit down into round track).
-  // A lambda cradle, on its arm just under the mount (its middle holds the camera).
+  // A Lambda 50, on its column (its middle holds the camera).
   const centerOf = (b) =>
     b.slot === "base"
       ? { x: b.box.x + 3, y: b.box.y + Math.max(b.box.height, 4) / 2 }
       : b.slot === "support" || b.shape.type === "sle"
       ? { x: b.box.x + b.box.width / 2, y: b.box.y + b.box.height - 6 }
       : b.shape.type === "lambda"
-        ? { x: b.shape.mount.x, y: b.shape.mount.y + 4 }
+        ? { x: b.shape.column.x + b.shape.column.width / 2, y: b.shape.column.y + b.shape.column.height / 2 }
         : { x: b.box.x + b.box.width / 2, y: b.box.y + Math.max(b.box.height, 4) / 2 };
   const slotAt = (layout, point) => {
     const i = pieceAt(layout.blocks, point);
