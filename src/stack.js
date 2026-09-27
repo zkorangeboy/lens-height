@@ -357,7 +357,7 @@ export function stackLayout(chain, target = null, options = {}) {
       case "base":
         if (b.component.kind === "spreader") return { type: "spreader" };
         return b.component.kind === "track"
-          ? { type: "track", profile: b.component.topMount === "round-track" ? "round" : "square" }
+          ? { type: "track" }
           : { type: "apple" };
       case "support": {
         if (supportShape === "tripod") return { type: "tripod", mount: pt(at, b.end), topWidth: px(DRAW.tripodTop) };

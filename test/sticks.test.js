@@ -99,7 +99,7 @@ describe("rolling spreaders", () => {
   });
 
   test("nothing goes underneath: not an apple box, not track", () => {
-    for (const under of ["apple-half", "apple-full", "square-track"]) {
+    for (const under of ["apple-half", "apple-full", "round-track"]) {
       const o = opts({ baseItemIds: [under], supportId: null, headId: null, modeName: null, attachName: null });
       assert.equal(option(o.base, "rolling-spreaders").available, false, under);
       assert.match(option(o.base, "rolling-spreaders").reason, /bare floor only — nothing goes underneath/, under);

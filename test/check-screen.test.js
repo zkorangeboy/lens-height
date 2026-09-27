@@ -99,12 +99,12 @@ const dolly = (over = {}) => ({
 
 describe("slotOptions: only what can legally attach to what's below", () => {
   test("supports must accept the top of the base stack, and a dolly can't sit on apple boxes", () => {
-    const onTrack = opts({ baseItemIds: ["square-track"], supportId: null, adapterIds: [], headId: null, modeName: null, attachName: null });
+    const onTrack = opts({ baseItemIds: ["round-track"], supportId: null, adapterIds: [], headId: null, modeName: null, attachName: null });
     assert.equal(byId(onTrack.support, "fisher-11").available, true);
     for (const id of ["baby-sticks", "hihat-placeholder", "lohat-placeholder"]) {
       assert.equal(byId(onTrack.support, id).available, false, id);
     }
-    assert.match(byId(onTrack.support, "baby-sticks").reason, /floor or rolling spreaders, not on square track/i);
+    assert.match(byId(onTrack.support, "baby-sticks").reason, /floor or rolling spreaders, not on round track/i);
 
     const onApple = opts({ baseItemIds: ["apple-half"], supportId: null, headId: null, modeName: null, attachName: null });
     assert.equal(byId(onApple.support, "fisher-11").available, false);
@@ -159,10 +159,10 @@ describe("slotOptions: only what can legally attach to what's below", () => {
   test("track: only one fits, and a second is refused with a reason", () => {
     const second = { ...seed.components.find((c) => c.kind === "track"), id: "track-2", name: "Second Track" };
     const gear = { ...seed, components: [...seed.components, second], packages: [{ ...seed.packages[0], componentIds: [...seed.packages[0].componentIds, "track-2"] }] };
-    const o = slotOptions(gear, ...P, picksFor({ baseItemIds: ["square-track"], supportId: "fisher-11", noseId: "fisher-sle" }));
-    assert.equal(byId(o.base, "square-track").available, true, "the picked one stays");
+    const o = slotOptions(gear, ...P, picksFor({ baseItemIds: ["round-track"], supportId: "fisher-11", supportMode: "etw", noseId: "fisher-sle" }));
+    assert.equal(byId(o.base, "round-track").available, true, "the picked one stays");
     assert.equal(byId(o.base, "track-2").available, false);
-    assert.match(byId(o.base, "track-2").reason, /needs the floor to sit on, but the base layer below already ends in square track/i);
+    assert.match(byId(o.base, "track-2").reason, /needs the floor to sit on, but the base layer below already ends in round track/i);
   });
 
   test("an apple-box face that isn't allowed is never offered", () => {
@@ -184,7 +184,7 @@ describe("slotOptions: only what can legally attach to what's below", () => {
   test("every reason is plain language: no field names or nulls leak through", () => {
     const scenarios = [
       opts(),
-      opts({ baseItemIds: ["square-track"], supportId: null, headId: null, modeName: null, attachName: null }),
+      opts({ baseItemIds: ["round-track"], supportId: null, headId: null, modeName: null, attachName: null }),
       opts({ baseItemIds: ["apple-half"], supportId: null, headId: null, modeName: null, attachName: null }),
       opts({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" }),
     ];
@@ -208,9 +208,9 @@ describe("slotOptions: only what can legally attach to what's below", () => {
 
 describe("revalidatePicks: clear what stopped fitting, and say why", () => {
   test("a legal rig comes back unchanged with no notes", () => {
-    const start = picksFor({ adapterIds: ["mitchell-riser-6"], baseItemIds: ["apple-half"] });
+    const start = picksFor({ adapterIds: ["mitchell-riser-6"], baseItemIds: ["apple-half"], baseModes: [null] });
     const { picks, notes } = revalidatePicks(seed, ...P, start);
-    assert.deepEqual(picks, start);
+    assert.deepEqual(picks, start, "base modes come back by position, one per base item");
     assert.deepEqual(notes, []);
   });
 
@@ -249,9 +249,9 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
   });
 
   test("track under a tripod clears the tripod", () => {
-    const { picks, notes } = revalidate({ baseItemIds: ["square-track"] });
+    const { picks, notes } = revalidate({ baseItemIds: ["round-track"] });
     assert.equal(picks.supportId, null);
-    assert.match(notes[0], /^Cleared Baby sticks\. It sits on the floor or rolling spreaders, not on square track\.$/);
+    assert.match(notes[0], /^Cleared Baby sticks\. It sits on the floor or rolling spreaders, not on round track\.$/);
   });
 
   test("refilling the empty support revalidates what was kept above it", () => {
@@ -309,7 +309,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     for (const over of [
       { supportId: "fisher-11", noseId: "fisher-sle", baseItemIds: ["apple-half"] },
       { noseId: "fisher-lhe" },
-      { baseItemIds: ["square-track"] },
+      { baseItemIds: ["round-track"] },
     ]) {
       for (const note of revalidate(over).notes) assert.match(note, /^(Cleared|Removed|Switched) .+\. It /);
     }
@@ -441,7 +441,7 @@ describe("slot rules agree with the solver's own validation", () => {
   });
 
   test("a rejected support option would really be refused by the solver", () => {
-    for (const base of [["square-track"], ["apple-half"], []]) {
+    for (const base of [["round-track"], ["apple-half"], []]) {
       const picks = picksFor({ baseItemIds: base, supportId: null, headId: null, modeName: null, attachName: null });
       for (const option of slotOptions(seed, ...P, picks).support) {
         if (option.available) continue;

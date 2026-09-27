@@ -19,7 +19,7 @@ const P = ["test-package", "build-placeholder"];
 
 const picksFor = (over = {}) => ({
   baseItemIds: [],
-  baseModes: {},
+  baseModes: [],
   supportId: "baby-sticks",
   supportMode: null,
   noseId: null,
@@ -331,7 +331,7 @@ describe("stackLayout: tags beside the pieces", () => {
 describe("insertOptions: only what legally fits at that exact point", () => {
   test("on a tripod: apple boxes and rolling spreaders at the floor; risers and either offset mode on the support", () => {
     assert.deepEqual(available(gap(picksFor(), "base", 0).options), [
-      "Quarter Apple Box", "Half Apple Box", "Full Apple Box (Flat, 8″)", "Full Apple Box (12″ face)", "Full Apple Box (20″ face)",
+      "Pancake Apple Box", "Quarter Apple Box", "Half Apple Box", "Full Apple Box (Flat, 8″)", "Full Apple Box (12″ face)", "Full Apple Box (20″ face)",
       "Rolling spreaders",
     ]);
     const onApple = gap(picksFor({ baseItemIds: ["apple-half"] }), "base", 1).options.find((o) => o.id === "rolling-spreaders");
@@ -345,14 +345,14 @@ describe("insertOptions: only what legally fits at that exact point", () => {
       "Mitchell Offset, 24″ (Top of the plate)", "Mitchell Offset, 24″ (Bottom of the plate)",
       "Rotating Offset",
     ]);
-    const track = gap(picksFor(), "base", 0).options.find((o) => o.id === "square-track");
+    const track = gap(picksFor(), "base", 0).options.find((o) => o.id === "round-track");
     assert.equal(track.available, false);
-    assert.match(track.reason, /Baby sticks sits on the floor or rolling spreaders, not on square track/);
+    assert.match(track.reason, /Baby sticks sits on the floor or rolling spreaders, not on round track/);
   });
 
   test("on a Fisher: only track at the floor (round track by switching wheels), and adapters sit on the nose fitting", () => {
     const dolly = picksFor({ supportId: "fisher-11", noseId: "fisher-sle" });
-    assert.deepEqual(available(gap(dolly, "base", 0).options), ["Square Track", "Round Track"]);
+    assert.deepEqual(available(gap(dolly, "base", 0).options), ["Round Track"]);
     const apple = gap(dolly, "base", 0).options.find((o) => o.id === "apple-half");
     assert.match(apple.reason, /apple boxes can't go under a dolly/);
     assert.equal(gap(dolly, "adapter", 0).where, "on SLE — 4-way Level Head (Upright)");
@@ -360,9 +360,9 @@ describe("insertOptions: only what legally fits at that exact point", () => {
   });
 
   test("nothing stacks on top of track, and nothing is offered on an underslung offset", () => {
-    const onTrack = picksFor({ supportId: "fisher-11", noseId: "fisher-sle", baseItemIds: ["square-track"] });
+    const onTrack = picksFor({ supportId: "fisher-11", supportMode: "etw", noseId: "fisher-sle", baseItemIds: ["round-track"] });
     assert.deepEqual(available(gap(onTrack, "base", 1).options), []);
-    assert.match(gap(onTrack, "base", 1).options.find((o) => o.id === "apple-half").reason, /needs the floor beneath it, but Square Track ends in square track/);
+    assert.match(gap(onTrack, "base", 1).options.find((o) => o.id === "apple-half").reason, /needs the floor beneath it, but Round Track ends in round track/);
     assert.deepEqual(available(gap(UNDERSLUNG, "adapter", 1).options), []);
     assert.match(
       gap(UNDERSLUNG, "adapter", 1).options.find((o) => o.id === "mitchell-riser-6").reason,
@@ -384,11 +384,15 @@ describe("insertOptions: only what legally fits at that exact point", () => {
     assert.equal(onLambda.available, true);
   });
 
-  test("something already in the rig isn't offered again", () => {
-    const withBox = picksFor({ baseItemIds: ["apple-half"] });
-    const again = gap(withBox, "base", 1).options.find((o) => o.id === "apple-half");
-    assert.equal(again.available, false);
-    assert.match(again.reason, /already in the rig/);
+  test("apple boxes are unlimited; anything else already in the rig isn't offered again", () => {
+    const withBox = picksFor({ baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-6"] });
+    assert.equal(gap(withBox, "base", 1).options.find((o) => o.id === "apple-half").available, true, "a second half apple");
+    const riser = gap(withBox, "adapter", 1).options.find((o) => o.id === "mitchell-riser-6");
+    assert.equal(riser.available, false);
+    assert.match(riser.reason, /already in the rig/);
+    const spreaders = picksFor({ baseItemIds: ["rolling-spreaders"] });
+    const second = gap(spreaders, "base", 1).options.find((o) => o.id === "rolling-spreaders");
+    assert.equal(second.available, false, "spreaders are one of each");
   });
 
   test("options carry a plain rise and label, and reasons never leak field names", () => {
@@ -503,7 +507,8 @@ describe("applyEdit, then revalidatePicks", () => {
       defaultPicks(seed, ...P),
       UNDERSLUNG,
       LAMBDA,
-      picksFor({ supportId: "fisher-11", noseId: "fisher-sle", baseItemIds: ["square-track"] }),
+      picksFor({ supportId: "fisher-11", supportMode: "etw", noseId: "fisher-sle", baseItemIds: ["round-track"] }),
+      picksFor({ baseItemIds: ["apple-full", "apple-full"], baseModes: ["flat", "12in"] }),
       picksFor({ baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-6", "mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "top" } }),
     ];
     let tried = 0;
@@ -548,7 +553,7 @@ describe("addOptions: everything that can be added, with where it fits", () => {
     assert.deepEqual(options["mitchell-riser-6"].positions.map((p) => p.where), ["on Baby sticks"]);
     assert.equal(Object.values(options).filter((o) => o.id === "apple-full").length, 1, "the full apple once, not once per face");
     assert.equal(options["apple-full"].positions[0].mode, "flat", "added in its first mode that fits");
-    assert.ok(!options["square-track"], "a tripod can't stand on track, so track isn't offered");
+    assert.ok(!options["round-track"], "a tripod can't stand on track, so track isn't offered");
     assert.ok(!options["dolly-low-mode-placeholder"], "dolly-only adapters aren't offered on a tripod");
   });
 
@@ -556,7 +561,8 @@ describe("addOptions: everything that can be added, with where it fits", () => {
     const options = add(picksFor({ baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-12"] }));
     assert.deepEqual(options["apple-quarter"].positions.map((p) => p.where), ["on the floor", "on Half Apple Box"]);
     assert.deepEqual(options["mitchell-riser-6"].positions.map((p) => p.where), ["on Baby sticks", "under O'Connor 2575D"]);
-    assert.ok(!options["apple-half"], "already in the rig");
+    assert.deepEqual(options["apple-half"].positions.map((p) => p.where), ["on the floor", "on Half Apple Box"], "apple boxes are unlimited");
+    assert.ok(!options["mitchell-riser-12"], "other gear is one of each");
   });
 
   test("a position is only offered where the item really fits: nothing goes on an underslung offset", () => {
@@ -566,7 +572,7 @@ describe("addOptions: everything that can be added, with where it fits", () => {
 
   test("on a Fisher: track is the only base item, and adapters go on the nose fitting", () => {
     const options = add(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" }));
-    assert.deepEqual(Object.values(options).filter((o) => o.component.category === "base").map((o) => o.id), ["square-track", "round-track"]);
+    assert.deepEqual(Object.values(options).filter((o) => o.component.category === "base").map((o) => o.id), ["round-track"]);
     assert.deepEqual(options["mitchell-riser-6"].positions.map((p) => p.where), ["on SLE — 4-way Level Head (Upright)"]);
     assert.ok(!options["fisher-sle"] && !options["fisher-lhe"], "the nose fitting is swapped, not added");
   });
@@ -617,7 +623,7 @@ describe("apple boxes: one item per size, a full apple's face is a mode", () => 
     const flat = chainOf(picksFor({ baseItemIds: ["apple-full"] }));
     const { picks, notes } = revalidatePicks(seed, ...P, applyEdit(picksFor({ baseItemIds: ["apple-full"] }), { op: "mode", slot: "base", index: 0, mode: "20in" }));
     assert.deepEqual(notes, []);
-    assert.deepEqual(picks.baseModes, { "apple-full": "20in" });
+    assert.deepEqual(picks.baseModes, ["20in"]);
     const onEnd = chainOf(picks);
     assert.equal(onEnd.min - flat.min, 12);
     assert.equal(onEnd.baseItems[0].stability, "low");
@@ -625,7 +631,7 @@ describe("apple boxes: one item per size, a full apple's face is a mode", () => 
 
   test("a face that doesn't exist falls back to the first, with a note", () => {
     const { picks, notes } = revalidatePicks(seed, ...P, picksFor({ baseItemIds: ["apple-full"], baseModes: { "apple-full": "sideways" } }));
-    assert.deepEqual(picks.baseModes, { "apple-full": "flat" });
+    assert.deepEqual(picks.baseModes, ["flat"], "the older keyed-by-id form is still read");
     assert.equal(notes.length, 1);
   });
 

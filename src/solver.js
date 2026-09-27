@@ -11,6 +11,7 @@ import {
   stackBaseOf,
   supportFacingOk,
   headModeSupportFacing,
+  isRepeatable,
   supportVariants,
   tripodOnAppleBoxes,
 } from "./rules.js";
@@ -344,10 +345,14 @@ export function buildChain(
     if (!variant) throw new Error(`${label} "${component.id}" has no mode "${wanted}"`);
     return variant;
   };
-  if (new Set(baseItemIds).size !== baseItemIds.length) {
-    throw new Error("The same base item can't be used twice in one chain");
+  // Apple boxes may repeat (SPEC.md 3.1); anything else is one of each.
+  const nonRepeating = baseItemIds.filter((id) => !(byId[id] && isRepeatable(byId[id])));
+  if (new Set(nonRepeating).size !== nonRepeating.length) {
+    throw new Error("The same base item can't be used twice in one chain (only apple boxes repeat)");
   }
-  const baseItems = baseItemIds.map((id) => inMode(resolveInPool(id, "base item"), baseModes[id], "Base item"));
+  const baseModeOf = (index) =>
+    (Array.isArray(baseModes) ? baseModes[index] : baseModes[baseItemIds[index]]) ?? undefined;
+  const baseItems = baseItemIds.map((id, index) => inMode(resolveInPool(id, "base item"), baseModeOf(index), "Base item"));
   const support = inMode(resolveInPool(supportId, "support"), supportMode ?? undefined, "Support", supportVariants);
   const nose = noseId ? inMode(resolveInPool(noseId, "nose fitting"), noseMode ?? undefined, "Nose fitting") : null;
   const adapters = adapterIds.map((id) => {

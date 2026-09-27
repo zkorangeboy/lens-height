@@ -9,7 +9,7 @@ import { buildAttachPoints, getBuild, getPackageComponents } from "./model.js";
 // --- Mounts and facing (SPEC.md 2) -----------------------------------------
 
 /** A component's bottomMount is a string, or a list when it fits several
- * (a Fisher on pneumatic tires accepts `ground` or `square-track`). */
+ * (sticks accept `ground` or `spreader`). */
 export function acceptsMount(component, mount) {
   const accepted = component.bottomMount;
   return Array.isArray(accepted) ? accepted.includes(mount) : accepted === mount;
@@ -32,6 +32,21 @@ export function topFacingOf(component) {
  * its support-side mount. Head modes declare it per mode. */
 export function requiredSupportFacingOf(component) {
   return component.supportMountFacing || "up";
+}
+
+/** Apple boxes are unlimited (SPEC.md 3.1): the same box may appear any
+ * number of times. Everything else is one of each per chain. */
+export function isRepeatable(component) {
+  return component.kind === "apple-box";
+}
+
+/** The mode of the base item at `index` of `picks.baseItemIds`: `baseModes`
+ * is an array by position (the same box can stand on different faces), or,
+ * in the older form, an object keyed by id. */
+export function baseModeAt(picks, index) {
+  const modes = picks.baseModes;
+  if (Array.isArray(modes)) return modes[index] ?? null;
+  return (modes || {})[picks.baseItemIds[index]] ?? null;
 }
 
 /** The mount beneath a head must face down in an underslung mode and up in
@@ -215,7 +230,6 @@ const MOUNT_WORDS = {
   ground: "the floor",
   floor: "the bare floor",
   spreader: "rolling spreaders",
-  "square-track": "square track",
   "round-track": "round track",
   "fisher-nose": "a Fisher beam nose",
   mitchell: "a Mitchell mount",
@@ -254,7 +268,7 @@ const isFlippedMode = (name) => /underslung/i.test(name || "");
 
 const EMPTY_PICKS = () => ({
   baseItemIds: [],
-  baseModes: {},
+  baseModes: [],
   supportId: null,
   supportMode: null,
   noseId: null,
@@ -384,7 +398,7 @@ function settleMode(component, wanted, why, notes, variantsOf = adapterVariants)
     const now = legal.modeLabel || legal.mode;
     const reason = asked && why(asked);
     // "Switched Fisher 11 Dolly to ETW round track wheels. On pneumatic
-    // tires, it sits on the floor or square track, not on round track." —
+    // tires, it sits on the floor, not on round track." —
     // the reason is about the mode that stopped fitting, so it names it.
     notes.push(
       !asked
@@ -424,16 +438,17 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
 
   // Base layer, each item in its mode (a full apple's face).
   const keptBase = [];
-  for (const id of picks.baseItemIds || []) {
+  (picks.baseItemIds || []).forEach((id, index) => {
     const component = byId[id];
-    if (!component) continue;
-    const legal = settleMode(component, (picks.baseModes || {})[id], (v) => whyBaseItem(v, keptBase), notes);
+    if (!component) return;
+    if (!isRepeatable(component) && keptBase.some((b) => b.id === id)) return; // one of each
+    const legal = settleMode(component, baseModeAt(picks, index), (v) => whyBaseItem(v, keptBase), notes);
     if (legal) keptBase.push(legal);
-  }
+  });
   // Kept in the order they physically stack, so picks and drawing agree.
   const baseStack = orderStack(keptBase, "ground", "up");
   out.baseItemIds = baseStack.items.map((item) => item.id);
-  for (const item of baseStack.items) if (item.mode) out.baseModes[item.id] = item.mode;
+  out.baseModes = baseStack.items.map((item) => item.mode ?? null);
 
   // Support, in its wheel mode.
   const supportComponent = byId[picks.supportId] || null;
@@ -523,7 +538,7 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
   const build = getBuild(gear, buildId);
   const byId = Object.fromEntries(pool.map((c) => [c.id, c]));
 
-  const keptBase = picks.baseItemIds.map((id) => variantOf(byId[id], picks.baseModes[id]));
+  const keptBase = picks.baseItemIds.map((id, i) => variantOf(byId[id], baseModeAt(picks, i)));
   const support = picks.supportId ? variantOf(byId[picks.supportId], picks.supportMode, supportVariants) : null;
   const nose = picks.noseId ? variantOf(byId[picks.noseId], picks.noseMode) : null;
   const complete = support && (nose || !needsNoseFitting(support));
@@ -699,9 +714,10 @@ function whyLost(gear, packageId, buildId, next) {
   const { picks, notes } = revalidatePicks(gear, packageId, buildId, next);
   const sameModes = (slot) =>
     next[IDS_KEY[slot]].every((id) => ((next[MODES_KEY[slot]] || {})[id] ?? null) === (picks[MODES_KEY[slot]][id] ?? null));
+  const sameBaseModes = next.baseItemIds.every((_, i) => baseModeAt(next, i) === baseModeAt(picks, i));
   const kept =
     sameList(picks.baseItemIds, next.baseItemIds) &&
-    sameModes("base") &&
+    sameBaseModes &&
     picks.supportId === next.supportId &&
     (picks.noseId ?? null) === (next.noseId ?? null) &&
     sameList(picks.adapterIds, next.adapterIds) &&
@@ -735,7 +751,7 @@ const optionEntry = (candidate, reason) => ({
 function whyAtPosition(ctx, slot, list, index, candidate, replacing) {
   const { gear, packageId, buildId, picks, support, stackBase } = ctx;
   const ids = picks[IDS_KEY[slot]];
-  if (ids.some((id, i) => id === candidate.id && !(replacing && i === index))) {
+  if (!isRepeatable(candidate) && ids.some((id, i) => id === candidate.id && !(replacing && i === index))) {
     return `${nameOf(candidate)} is already in the rig.`;
   }
   const items = [...list];
@@ -761,7 +777,10 @@ function whyAtPosition(ctx, slot, list, index, candidate, replacing) {
   const next = {
     ...picks,
     [IDS_KEY[slot]]: items.map((c) => c.id),
-    [MODES_KEY[slot]]: Object.fromEntries(items.filter((c) => c.mode).map((c) => [c.id, c.mode])),
+    [MODES_KEY[slot]]:
+      slot === "base"
+        ? items.map((c) => c.mode ?? null)
+        : Object.fromEntries(items.filter((c) => c.mode).map((c) => [c.id, c.mode])),
   };
   return whyLost(gear, packageId, buildId, next);
 }
@@ -776,7 +795,7 @@ function editContext(gear, packageId, buildId, rawPicks) {
   // Adapters need something to stack on: the nose fitting, or a support that takes none.
   const stackBase = support && (nose || !needsNoseFitting(support)) ? stackBaseOf(support, nose) : null;
   const head = byId[picks.headId] || null;
-  const base = picks.baseItemIds.map((id) => variantOf(byId[id], picks.baseModes[id]));
+  const base = picks.baseItemIds.map((id, i) => variantOf(byId[id], baseModeAt(picks, i)));
   const adapters = picks.adapterIds.map((id) => variantOf(byId[id], picks.adapterModes[id]));
   return { gear, packageId, buildId, picks, pool, byId, supportComponent, support, nose, stackBase, head, base, adapters };
 }
@@ -877,12 +896,14 @@ export function applyEdit(picks, edit) {
   const next = {
     ...picks,
     baseItemIds: [...picks.baseItemIds],
-    baseModes: { ...(picks.baseModes || {}) },
+    baseModes: picks.baseItemIds.map((_, i) => baseModeAt(picks, i)),
     adapterIds: [...picks.adapterIds],
     adapterModes: { ...picks.adapterModes },
   };
   const ids = next[IDS_KEY[edit.slot]];
   const modes = next[MODES_KEY[edit.slot]];
+  // Base modes go by position (an array); adapter modes by id.
+  const byPosition = edit.slot === "base";
   const setMode = (id, mode) => {
     if (modes && mode) modes[id] = mode;
   };
@@ -893,11 +914,13 @@ export function applyEdit(picks, edit) {
   switch (edit.op) {
     case "insert":
       ids.splice(edit.index, 0, edit.id);
-      setMode(edit.id, edit.mode);
+      if (byPosition) modes.splice(edit.index, 0, edit.mode ?? null);
+      else setMode(edit.id, edit.mode);
       break;
     case "remove": {
       const [gone] = ids.splice(edit.index, 1);
-      dropMode(gone);
+      if (byPosition) modes.splice(edit.index, 1);
+      else dropMode(gone);
       break;
     }
     case "swap":
@@ -906,12 +929,16 @@ export function applyEdit(picks, edit) {
       else if (edit.slot === "head") next.headId = edit.id;
       else {
         const [gone] = ids.splice(edit.index, 1, edit.id);
-        dropMode(gone);
-        setMode(edit.id, edit.mode);
+        if (byPosition) modes.splice(edit.index, 1, edit.mode ?? null);
+        else {
+          dropMode(gone);
+          setMode(edit.id, edit.mode);
+        }
       }
       break;
     case "mode":
-      if (modes) modes[ids[edit.index]] = edit.mode;
+      if (byPosition) modes[edit.index] = edit.mode;
+      else if (modes) modes[ids[edit.index]] = edit.mode;
       else if (edit.slot === "support") next.supportMode = edit.mode;
       else if (edit.slot === "nose") next.noseMode = edit.mode;
       else if (edit.slot === "head") next.modeName = edit.mode;

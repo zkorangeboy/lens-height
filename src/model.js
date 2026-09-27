@@ -228,8 +228,8 @@ function bareSupportSegments(support) {
 export function describeCurrentRig(chain) {
   return {
     baseItemIds: chain.baseItems.map((c) => c.id),
-    // Which mode each moded base item is in (a full apple's face).
-    baseModes: Object.fromEntries(chain.baseItems.filter((c) => c.mode).map((c) => [c.id, c.mode])),
+    // Each base item's mode by position (a full apple's face), null for none.
+    baseModes: chain.baseItems.map((c) => c.mode ?? null),
     supportId: chain.support.id,
     // The support's mode (a dolly's wheel set), if it has modes.
     supportMode: chain.support.mode ?? null,

@@ -201,12 +201,9 @@ describe("seed: mounts, adapters, track, apple boxes", () => {
     assert.ok(!mounts.has("dolly-wheels"));
   });
 
-  test("square and round track, +2″ each; sticks stand on the floor or rolling spreaders only", () => {
+  test("round track is the only track, +2″; sticks stand on the floor or rolling spreaders only", () => {
     const track = seed.components.filter((c) => c.kind === "track");
-    assert.deepEqual(track.map((t) => [t.id, t.bottomMount, t.topMount, t.rise]), [
-      ["square-track", "ground", "square-track", 2],
-      ["round-track", "ground", "round-track", 2],
-    ]);
+    assert.deepEqual(track.map((t) => [t.id, t.bottomMount, t.topMount, t.rise]), [["round-track", "ground", "round-track", 2]]);
     for (const id of ["baby-sticks", "standard-sticks"]) {
       assert.deepEqual(seed.components.find((c) => c.id === id).bottomMount, ["ground", "spreader"], id);
     }

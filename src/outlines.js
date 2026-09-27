@@ -53,10 +53,10 @@ function apple(block) {
 }
 
 function track(block) {
-  // Side on: a rail along the top, ties under it.
+  // Side on: a round rail along the top, ties under it.
   const f = frame(block.box);
   const h = Math.max(f.h, MIN_PX);
-  const rail = block.shape.profile === "round" ? { rx: h * 0.35 } : {};
+  const rail = { rx: h * 0.35 };
   const ties = [0.1, 0.35, 0.6, 0.85].map((at) => rect(f.left + f.w * at, f.bottom - h * 0.35, f.w * 0.06, h * 0.35, "o k-fixed tie")).join("");
   return ties + rect(f.left, f.bottom - h, f.w, h * 0.65, fill(block.kind), rail);
 }

@@ -49,14 +49,14 @@ entered into the database must respect this.
 Components declare a `bottomMount` and a `topMount`. Two components may be
 adjacent in a chain only if the lower one's `topMount` matches the upper
 one's `bottomMount`. A component that fits more than one mount declares
-`bottomMount` as a list and accepts any of them (a Fisher 11 on pneumatic
-tires sits on `ground` *or* on `square-track`).
+`bottomMount` as a list and accepts any of them (baby and standard sticks
+sit on `ground` *or* on `spreader`).
 
 Mount type vocabulary (extend as needed):
 
 - `ground` — rests on the floor
-- `square-track`, `round-track` — the top of square or round dolly track.
-  Which a dolly can ride on depends on its wheel mode (3.2).
+- `round-track` — the top of round dolly track, the only track. Whether a
+  dolly can ride it depends on its wheel mode (3.2).
 - `fisher-nose` — the nose of a J.L. Fisher beam. Only a nose fitting
   (3.7) accepts it; the nose fitting provides the Mitchell mount.
 - `mitchell` — Mitchell mount. **The standard head mount**: supports, heads,
@@ -145,12 +145,20 @@ top of the stack is what the support must accept.
   Only a full apple may stand on its 12" or 20" face (2.1) — a half,
   quarter, or pancake on those faces is invalid, not merely unstable.
   Flag the 12"/20" modes of a full apple as `stability: low`. A chain
-  selection names each moded base item's mode (`baseModes`, like
-  `adapterModes`), defaulting to the first.
+  selection names each base item's mode by position (`baseModes`, an
+  array parallel to `baseItemIds`, `null` for the default), since the same
+  box can appear more than once in different faces; the older form, an
+  object keyed by id, is still read. Defaults to the first mode.
+  **Apple boxes are unlimited**: a chain may use any number of the same
+  box (two full apples, three pancakes). All other gear is still one of
+  each per chain — the same adapter, track, or spreaders can't be used
+  twice — until the gear library adds quantities.
+  Seed data: quarter, half, full, and **pancake** (1", flat only, short
+  name "Pancake").
   Apple boxes may not go under a dolly (2.1); under a tripod they're legal
   but heavily penalized in ranking.
-- **Track** (`kind: "track"`). **Square track** (`ground → square-track`)
-  and **round track** (`ground → round-track`), each +2". Its rise is not
+- **Track** (`kind: "track"`). **Round track** (`ground → round-track`),
+  +2", is the only track; there is no square track. Its rise is not
   zero, and it is the most commonly forgotten offset in the chain. Only a
   dolly in a wheel mode that rides that track can sit on it (3.2): a tripod
   cannot be put on track. It goes on top of the base stack, and at most one
@@ -185,7 +193,7 @@ fitting (3.7), and what it sits on depends on its wheel mode.
 
 | Wheel mode | Rise | Sits on |
 |---|---:|---|
-| Pneumatic (standard) | 0 | floor, or square track |
+| Pneumatic (standard) | 0 | floor only |
 | ETW round track wheels | −0.5" | round track only |
 | Skateboard wheels | +2" | round track only |
 
@@ -652,7 +660,9 @@ fine.
 1. **Enumerate chains.** From the package pool, generate every valid
    chain: `[base layer combos] × [support] × [adapter combos] × [head mode] ×
    [build attach point]`. An adapter combo picks a mode for each adapter
-   (3.6), and never uses the same adapter twice. Cap base-layer combos at
+   (3.6), and never uses the same adapter twice. (Solve mode, frozen,
+   still tries each apple box once per combo; the check screen allows
+   repeats, 3.1.) Cap base-layer combos at
    2 items and adapter combos at 2 items (both configurable). A combo is
    stacked in whatever order makes its mounts and facings mate; a combo
    with no valid order is dropped. Prune aggressively on mount and facing
@@ -798,7 +808,7 @@ built and wants the smallest change to it, not the single closest
 alternative from scratch. Delta search looks for:
 
 - **Additions** — one or more items from the package, not already in the
-  current rig: base-layer items stacked under it, or adapters (a Mitchell
+  current rig (apple boxes excepted, 3.1): base-layer items stacked under it, or adapters (a Mitchell
   riser, an offset) stacked between support and head. An added adapter is
   tried in each of its modes. Only additions the rules in 2 and 2.1 allow
   count: no apple box under a dolly, no adapter of the wrong family, no
@@ -944,7 +954,8 @@ user tapped, so these are positional, not "anywhere in the stack":
 - An item may be **inserted** at an insertion point if, in exactly that
   position, it mounts and faces right on what's below and what's above
   mounts and faces right on it; it passes its own rules (apple-box face,
-  family, not already in the rig, no apple box under a dolly); and the rest
+  family, not already in the rig unless it's an apple box, no apple box
+  under a dolly); and the rest
   of the rig survives revalidation without losing a piece. A head mode or
   camera mount that has to *switch* doesn't disqualify it — that's how an
   offset switched to its bottom side takes the head and camera with it. A
@@ -1084,7 +1095,7 @@ top to bottom:
    - **Tripod** — splayed legs that stretch with the set height.
    - **Hi-hat, low hat** — a short stand on a spread base.
    - **Apple box** — a box sized by the face it stands on, with hand holes.
-   - **Track** — rails on ties; square or round rails.
+   - **Track** — round rails on ties.
    - **Rolling spreaders** — a low spreader with a caster at each end,
      under the tripod feet.
    - **Fisher dolly** — a side elevation from the brochure's dimension

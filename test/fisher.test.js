@@ -90,22 +90,22 @@ describe("Fisher 11 brochure checks", () => {
 describe("Fisher wheel modes and track", () => {
   const floorMin = chainOf().min;
 
-  test("ETW and skateboard wheels are rejected on the floor and on square track", () => {
+  test("ETW and skateboard wheels are rejected on the floor", () => {
     for (const supportMode of ["etw", "skateboard"]) {
       assert.throws(() => chainOf({ supportMode }), /doesn't sit on "ground"/, `${supportMode} on the floor`);
-      assert.throws(() => chainOf({ supportMode, baseItemIds: ["square-track"] }), /doesn't sit on "square-track"/, `${supportMode} on square track`);
       assert.doesNotThrow(() => chainOf({ supportMode, baseItemIds: ["round-track"] }), `${supportMode} on round track`);
     }
   });
 
-  test("pneumatic tires ride the floor or square track, never round track", () => {
+  test("pneumatic tires sit on the floor only, never on round track; there is no square track", () => {
     assert.doesNotThrow(() => chainOf());
-    assert.doesNotThrow(() => chainOf({ baseItemIds: ["square-track"] }));
+    assert.ok(!seed.components.some((c) => c.id === "square-track" || c.topMount === "square-track"), "square track is gone");
+    const fisher11 = seed.components.find((c) => c.id === "fisher-11");
+    assert.equal(fisher11.modes.find((m) => m.name === "pneumatic").bottomMount, "ground");
     assert.throws(() => chainOf({ baseItemIds: ["round-track"] }), /doesn't sit on "round-track"/);
   });
 
-  test("totals against the floor: square + pneumatic +2″, round + ETW +1.5″, round + skateboard +4″", () => {
-    assert.equal(chainOf({ baseItemIds: ["square-track"] }).min - floorMin, 2);
+  test("totals against the floor: round + ETW +1.5″, round + skateboard +4″", () => {
     assert.equal(chainOf({ baseItemIds: ["round-track"], supportMode: "etw" }).min - floorMin, 1.5);
     assert.equal(chainOf({ baseItemIds: ["round-track"], supportMode: "skateboard" }).min - floorMin, 4);
   });
@@ -116,15 +116,14 @@ describe("Fisher wheel modes and track", () => {
       return entry.modes.filter((m) => m.available).map((m) => m.name);
     };
     assert.deepEqual(wheels([]), ["pneumatic"]);
-    assert.deepEqual(wheels(["square-track"]), ["pneumatic"]);
     assert.deepEqual(wheels(["round-track"]), ["etw", "skateboard"]);
     const control = modeControl(slotOptions(seed, ...P, fisher({ baseItemIds: ["round-track"], supportMode: "etw" })).support.find((o) => o.id === "fisher-11").modes);
     assert.equal(control.type, "dropdown", "two wheel sets, neither flipped: a segmented choice");
   });
 
-  test("a tripod can't stand on either track", () => {
+  test("a tripod can't stand on track", () => {
     const tripod = { supportId: "baby-sticks", supportMode: undefined, noseId: null, noseMode: undefined };
-    for (const track of ["square-track", "round-track"]) {
+    for (const track of ["round-track"]) {
       assert.throws(() => chainOf({ ...tripod, baseItemIds: [track] }), /doesn't sit on/);
     }
   });
@@ -134,7 +133,7 @@ describe("Fisher wheel modes and track", () => {
       (c) => c.support.id === "fisher-11"
     );
     const seen = new Set(chains.map((c) => `${c.support.mode}@${c.baseItems.map((b) => b.id).join("+") || "floor"}`));
-    assert.deepEqual([...seen].sort(), ["etw@round-track", "pneumatic@floor", "pneumatic@square-track", "skateboard@round-track"]);
+    assert.deepEqual([...seen].sort(), ["etw@round-track", "pneumatic@floor", "skateboard@round-track"]);
   });
 });
 
@@ -267,7 +266,7 @@ describe("drawing a Fisher", () => {
     assert.equal(wheelsOf({ baseItemIds: ["round-track"], supportMode: "etw" }), "etw");
     assert.equal(wheelsOf({ baseItemIds: ["round-track"], supportMode: "skateboard" }), "skateboard");
     const track = blockOf(stackLayout(chainOf({ baseItemIds: ["round-track"], supportMode: "etw" }), null), "base");
-    assert.deepEqual(track.shape, { type: "track", profile: "round" });
+    assert.deepEqual(track.shape, { type: "track" });
   });
 
   test("a moveable range target: the beam at the bottom and top of the move", () => {

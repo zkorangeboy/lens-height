@@ -1,8 +1,8 @@
 // The app's version and last update (SPEC.md 7). The one place both live;
 // package.json's version matches. Bump with every release.
 
-export const VERSION = "0.8.0";
-export const UPDATED = "2026-09-27T09:57:00-07:00";
+export const VERSION = "0.9.0";
+export const UPDATED = "2026-09-27T10:06:00-07:00";
 
 /** "v0.7.0 · Updated Sep 26, 2026, 7:43 AM", in the viewer's time zone. */
 export function versionNote(locale) {

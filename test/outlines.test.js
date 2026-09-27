@@ -32,7 +32,7 @@ const RIGS = {
   hihat: rig({ supportId: "hihat-placeholder" }),
   lohat: rig({ supportId: "lohat-placeholder", adapterIds: ["rotating-offset"] }),
   fisherRound: fisher({ baseItemIds: ["round-track"], supportMode: "etw", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" }),
-  fisherSquare: fisher({ baseItemIds: ["square-track"] }),
+  fisherFloor: fisher(),
   lhe: fisher({ noseId: "fisher-lhe", noseMode: undefined }),
   lambda: rig({ headId: "lambda-50", modeName: "upright" }),
   lambdaHung: fisher({ headId: "lambda-50", modeName: "underslung", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }),

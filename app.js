@@ -13,7 +13,7 @@
 // here calls them.
 
 import { buildChain, evaluateChain, normalizeTarget, exceedsBaseLayerCap, DEFAULT_MAX_BASE_LAYER_ITEMS } from "./src/solver.js";
-import { addOptions, applyEdit, defaultPicks, missingSlot, modeControl, revalidatePicks, slotOptions, swapOptions } from "./src/rules.js";
+import { addOptions, applyEdit, baseModeAt, defaultPicks, missingSlot, modeControl, revalidatePicks, slotOptions, swapOptions } from "./src/rules.js";
 import { checkVerdict } from "./src/verdict.js";
 import { inches, signedInches as fmtSigned } from "./src/format.js";
 import { stackLayout } from "./src/stack.js";
@@ -162,12 +162,12 @@ function wireEdits() {
       const at = Object.assign(svg.createSVGPoint(), { x: event.clientX, y: event.clientY }).matrixTransform(svg.getScreenCTM().inverse());
       const hit = pieceAt(state.layout.blocks, at);
       if (hit !== null) {
-        const [slot, id] = pieceKey(state.layout.blocks[hit]).split("|");
-        openSheet({ slot, id });
+        const [slot, id, at] = pieceKey(state.layout.blocks[hit]).split("|");
+        openSheet({ slot, id, at: Number(at) });
       }
     } else if (t.dataset.piece) {
-      const [slot, id] = t.dataset.piece.split("|");
-      openSheet({ slot, id });
+      const [slot, id, at] = t.dataset.piece.split("|");
+      openSheet({ slot, id, at: Number(at) });
     } else if (t.dataset.add !== undefined) {
       openSheet({ add: true });
     } else if (t.dataset.placeItem) {
@@ -342,7 +342,8 @@ const PATTERNS = `<defs>
   </pattern>
 </defs>`;
 
-const pieceKey = (block) => `${block.slot}|${block.component.id}`;
+// Which piece: its slot, id, and position (the same apple box can appear twice).
+const pieceKey = (block) => `${block.slot}|${block.component.id}|${block.index}`;
 
 
 function footerHtml(layout, chain) {
@@ -410,10 +411,11 @@ function renderSheet() {
   el.sheet.innerHTML = `<div class="sheet-body">${html}<button type="button" class="sheet-done" data-close>Done</button></div>`;
 }
 
-function pieceSheetHtml({ slot, id }) {
+function pieceSheetHtml({ slot, id, at }) {
   const p = state.picks;
   const ids = slot === "base" ? p.baseItemIds : slot === "adapter" ? p.adapterIds : null;
-  const index = ids ? ids.indexOf(id) : 0;
+  // The same position if it still holds this piece, else wherever it moved.
+  const index = !ids ? 0 : ids[at] === id ? at : ids.indexOf(id);
   if (index < 0) return null; // it was removed
   const opts = slotOptions(gear, state.packageId, state.buildId, p);
   const chain = buildChain(gear, { packageId: state.packageId, buildId: state.buildId, ...p });
@@ -445,7 +447,7 @@ function pieceSheetHtml({ slot, id }) {
     const list = { base: opts.base, adapter: opts.adapters, support: opts.support, nose: opts.nose }[slot];
     const entry = list.find((o) => o.id === id);
     if (entry.modes.length > 1) {
-      const current = { base: p.baseModes[id], adapter: p.adapterModes[id], support: p.supportMode, nose: p.noseMode }[slot];
+      const current = { base: baseModeAt(p, index), adapter: p.adapterModes[id], support: p.supportMode, nose: p.noseMode }[slot];
       const title = { base: "Face", support: "Wheels" }[slot] || "Mode";
       mode = `<h3>${title}</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot, index }, current)}`;
     }

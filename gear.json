@@ -2,6 +2,20 @@
   "schemaVersion": 1,
   "components": [
     {
+      "id": "apple-pancake",
+      "name": "Pancake Apple Box",
+      "shortName": "Pancake",
+      "category": "base",
+      "kind": "apple-box",
+      "boxSize": "pancake",
+      "orientation": "flat",
+      "bottomMount": "ground",
+      "topMount": "ground",
+      "rise": 1,
+      "stability": "normal",
+      "adjustability": "fixed"
+    },
+    {
       "id": "apple-quarter",
       "name": "Quarter Apple Box",
       "shortName": "Quarter apple",
@@ -65,19 +79,6 @@
           "stability": "low"
         }
       ]
-    },
-    {
-      "id": "square-track",
-      "name": "Square Track",
-      "shortName": "Square track",
-      "category": "base",
-      "kind": "track",
-      "bottomMount": "ground",
-      "topMount": "square-track",
-      "rise": 2,
-      "stability": "normal",
-      "adjustability": "fixed",
-      "notes": "docs/fisher-11.md: +2″. A Fisher on pneumatic tires rides it on its built-in guides."
     },
     {
       "id": "round-track",
@@ -156,10 +157,7 @@
       "category": "support",
       "kind": "dolly",
       "family": "fisher",
-      "bottomMount": [
-        "ground",
-        "square-track"
-      ],
+      "bottomMount": "ground",
       "topMount": "fisher-nose",
       "baseRise": 17.875,
       "boomRange": {
@@ -176,10 +174,7 @@
           "name": "pneumatic",
           "label": "Pneumatic tires",
           "rise": 0,
-          "bottomMount": [
-            "ground",
-            "square-track"
-          ]
+          "bottomMount": "ground"
         },
         {
           "name": "etw",
@@ -488,10 +483,10 @@
       "id": "test-package",
       "name": "Test Package",
       "componentIds": [
+        "apple-pancake",
         "apple-quarter",
         "apple-half",
         "apple-full",
-        "square-track",
         "round-track",
         "rolling-spreaders",
         "baby-sticks",
