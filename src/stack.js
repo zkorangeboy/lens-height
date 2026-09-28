@@ -1,7 +1,7 @@
 // Stack layout (SPEC.md 5.8): the drawing of a chain as a view model. All the
 // height math a renderer would need — where each piece sits, how far forward
-// it is, its pixel box and outline points, where the target falls, where each
-// tag goes — is done here, so the UI and the outlines (outlines.js) draw
+// it is, its pixel box and outline points, where the target falls — is done
+// here, so the UI and the outlines (outlines.js) draw
 // numbers they're handed and compute nothing.
 import { pieceRise, riseRangeOf, supportSegments } from "./model.js";
 
@@ -29,7 +29,6 @@ const FRAME_PAD = 6;
 const DRAW = {
   appleWidth: { flat: 20, "12in": 20, "20in": 12 }, // a full apple is 20 × 12 × 8
   trackLength: 44,
-  spreaderWidth: 36, // wider than baby or standard sticks' feet at full spread
   tripodTop: 4,
   standWidth: { "hi-hat": 16, "lo-hat": 14 },
   dolly: {
@@ -72,8 +71,6 @@ const DRAW = {
   plateLength: 6, // a plate with no `length` of its own
 };
 
-/** Tag text size, in pixels: an 11px font at about 6.2px a character. */
-const TAG = { char: 6.2, line: 13, padX: 5, padY: 3, gap: 4 };
 const FLIP_IMAGE = "Camera inverted — flip image";
 
 /** Which outline draws a support. */
@@ -158,20 +155,6 @@ export function stackLayout(chain, target = null, options = {}) {
     mountX = nextMountX;
   };
 
-  chain.baseItems.forEach((item, index) => {
-    const width =
-      item.kind === "track"
-        ? DRAW.trackLength
-        : item.kind === "spreader"
-          ? DRAW.spreaderWidth
-          : DRAW.appleWidth[item.orientation] || DRAW.appleWidth.flat;
-    place(
-      { slot: "base", index, name: item.name, component: item, kind: kindOf(item), mode: item.mode, modeLabel: item.modeLabel },
-      item.rise,
-      [-width / 2, width / 2]
-    );
-  });
-
   const supportParts = segments.map((segment, index) => ({
     kind: segment.kind,
     rise: segment.base + allocation[index],
@@ -182,6 +165,20 @@ export function stackLayout(chain, target = null, options = {}) {
       ? "adjustable"
       : "fixed";
   const supportRise = supportParts.reduce((sum, part) => sum + part.rise, 0);
+  chain.baseItems.forEach((item, index) => {
+    const width =
+      item.kind === "track"
+        ? DRAW.trackLength
+        : item.kind === "spreader"
+          ? tripodSpread(supportRise) // within the legs' splay at the floor (7.2)
+          : DRAW.appleWidth[item.orientation] || DRAW.appleWidth.flat;
+    place(
+      { slot: "base", index, name: item.name, component: item, kind: kindOf(item), mode: item.mode, modeLabel: item.modeLabel },
+      item.rise,
+      [-width / 2, width / 2]
+    );
+  });
+
   const supportShape = chain.support ? shapeOfSupport(chain.support) : null;
   const supportStart = cursor;
   // The wheels' datum: where a pneumatic tire touches. A wheel mode's rise
@@ -513,7 +510,6 @@ export function stackLayout(chain, target = null, options = {}) {
       bottom,
       top: upper,
       ...span(bottom, upper),
-      anchorY: Y((bottom + upper) / 2),
       box: box(x0, x1, drawnLow, drawnHigh),
       mount: pt(block.mountX, end),
       shape: shapeOf(block),
@@ -521,36 +517,12 @@ export function stackLayout(chain, target = null, options = {}) {
     };
   });
 
-  // Tags (5.8): each piece's short name beside it — to its right, or its
-  // left if there's no room — nudged down past any tag it would overlap.
-  const placed = [];
-  const order = blocks.map((b, i) => i).sort((a, c) => blocks[a].anchorY - blocks[c].anchorY);
-  for (const i of order) {
-    const b = blocks[i];
-    const lines = [b.component.shortName || b.name, ...(b.inverted ? [FLIP_IMAGE] : [])];
-    const width = round2(Math.max(...lines.map((l) => l.length)) * TAG.char + 2 * TAG.padX);
-    const height = lines.length * TAG.line + 2 * TAG.padY;
-    // Beside the piece; a piece wider than half the drawing (a dolly) keeps
-    // its tag inside its own outline instead.
-    let x = b.box.width > frame.width / 2 ? b.box.x + TAG.gap : b.box.x + b.box.width + TAG.gap;
-    if (x + width > frame.width) x = b.box.x - TAG.gap - width;
-    x = clamp(x, 0, Math.max(0, frame.width - width));
-    let y = clamp(b.anchorY - height / 2, 0, Math.max(0, frame.height - height));
-    const overlaps = (t) => x < t.x + t.width && t.x < x + width && y < t.y + t.height && t.y < y + height;
-    for (let tries = 0; tries <= placed.length; tries++) {
-      const other = placed.find(overlaps);
-      if (!other) break;
-      y = other.y + other.height + 2;
-    }
-    const tag = { lines, x: round2(x), y: round2(Math.min(y, Math.max(0, frame.height - height))), width, height, warn: Boolean(b.inverted) };
-    placed.push(tag);
-    b.tag = tag;
-  }
-
   return {
     floor: { height: 0, pct: pct(0), y: Y(0) },
     frame: { width: frame.width, height: frame.height, scale: round2(scale) },
     blocks,
+    // The one warning the drawing carries, shown under it (7.2).
+    warning: chain.attach.inverted ? FLIP_IMAGE : null,
     gaps: gapSpots.map(({ x, height, ...g }) => ({ ...g, height, x, point: pt(x, height), pct: pct(height) })),
     lens: { height: cursor, pct: pct(cursor), ...blocks[blocks.length - 1].shape.opticalCenter },
     reach: { min: chain.min, max: chain.max, ...clipped(chain.min, chain.max) },

@@ -118,16 +118,18 @@ describe("rolling spreaders", () => {
     assert.equal(option(o.base, "apple-half").available, false);
   });
 
-  test("drawn as a low wheeled spreader, under the tripod's feet", () => {
+  test("drawn as a low wheeled spreader, within the sticks' footprint", () => {
     const layout = stackLayout(chainOf(picksFor({ supportId: "standard-sticks", baseItemIds: ["rolling-spreaders"] })), null, {
       frame: { width: 320, height: 520 },
     });
     const [spreaders, sticks] = layout.blocks;
     assert.equal(spreaders.shape.type, "spreader");
     assert.equal(sticks.start, spreaders.end, "the sticks stand on the spreaders");
-    assert.ok(spreaders.box.x <= sticks.box.x && spreaders.box.x + spreaders.box.width >= sticks.box.x + sticks.box.width, "wider than the feet");
+    // Within the sticks' footprint: no wider than the legs' splay at the floor.
+    assert.ok(spreaders.box.x >= sticks.box.x - 0.05, "not past the back leg");
+    assert.ok(spreaders.box.x + spreaders.box.width <= sticks.box.x + sticks.box.width + 0.05, "not past the front leg");
+    assert.ok(spreaders.box.width >= sticks.box.width - 0.1, "and under all three feet");
     const svg = outlineOf(spreaders);
     assert.equal((svg.match(/class="o k-fixed wheel"/g) || []).length, 3, "casters");
-    assert.equal(spreaders.tag.lines[0], "Spreaders");
   });
 });

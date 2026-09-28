@@ -4,7 +4,7 @@
 // a candidate; the soft apple-box preference lives in solver.js's
 // RANKING_CRITERIA, deliberately separate.
 
-import { blockPieces, buildAttachPoints, getBuild, getPackageComponents, pieceRise } from "./model.js";
+import { blockPieces, buildAttachPoints, getBuild, getPackageComponents, pieceBottom, pieceRise } from "./model.js";
 
 // --- Mounts and facing (SPEC.md 2) -----------------------------------------
 
@@ -200,8 +200,9 @@ export function whyBlockJoints(build, pieces) {
   if (build.bottomMount) return null;
   if (pieces.length === 0) return `${nameOf(build)} has no pieces.`;
   for (let i = 1; i < pieces.length; i++) {
-    if (!mates(pieces[i - 1].topMount, pieces[i].bottomMount)) {
-      return `${nameOf(pieces[i])} needs ${plainMounts(acceptedMounts(pieces[i]))} beneath it, but ${nameOf(pieces[i - 1])} ends in ${plainMount(pieces[i - 1].topMount)}.`;
+    const bottom = pieceBottom(build, pieces[i]);
+    if (!mates(pieces[i - 1].topMount, bottom)) {
+      return `${nameOf(pieces[i])} needs ${plainMount(mateOf(bottom))} beneath it, but ${nameOf(pieces[i - 1])} ends in ${plainMount(pieces[i - 1].topMount)}.`;
     }
   }
   return null;
@@ -213,7 +214,7 @@ export function whyBlockJoints(build, pieces) {
 export function whyAttach(attach, below) {
   if (below.topMount !== "ground" && !mates(below.topMount, attach.mount)) {
     const needs = plainMount(mateOf(attach.mount));
-    const who = attach.bottomName ? `${attach.blockName}'s ${attach.bottomName}` : "The camera";
+    const who = attach.bottomName ? `${attach.blockName}'s ${attach.bottomName}` : attach.blockName || "The camera";
     return `${who} needs ${needs} beneath it, but ${below.name} ends in ${plainMount(below.topMount)}.`;
   }
   if (!facingsMate(below.topFacing, attach.facing)) {
@@ -356,13 +357,13 @@ const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 const withMode = (component) =>
   component.mode ? `${nameOf(component)} (${component.modeLabel || component.mode})` : nameOf(component);
 
-/** "Cleared Studio Dolly. It is a dolly, and…" — a reason that opens with the
- * component's own name reads better as "It", since the note just named it. */
-function noteFor(verb, component, reason) {
-  const name = nameOf(component).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const rest = reason.replace(new RegExp(`^${name}( \\([^)]*\\))?`), "It");
-  return `${verb} ${nameOf(component)}. ${rest}`;
-}
+// Notes (SPEC.md 5.9): a few words, only for a piece the user didn't touch
+// that was removed or swapped for another setting of its own. Never a reason.
+const shortOf = (component) => component.shortName || nameOf(component);
+const removedNote = (component) => `Removed ${shortOf(component)}`;
+/** "Wheels → ETW", "Full apple → #1 LA". */
+const switchedNote = (component, variant) =>
+  `${component.category === "support" ? "Wheels" : shortOf(component)} → ${variant.shortLabel || variant.modeLabel || variant.mode}`;
 
 const ATTACH_LABELS = {
   base: "Upright on the plate",
@@ -474,14 +475,6 @@ function variantOf(component, modeName, variantsOf = adapterVariants) {
   return variants.find((v) => v.mode === modeName) || (modeName == null ? variants[0] : null);
 }
 
-/** "On pneumatic tires" for a wheel set; "In bottom of the plate mode" otherwise. */
-function inMode(component, variant) {
-  const raw = variant.modeLabel || variant.mode;
-  // Lowercase a capitalized word ("Pneumatic"), never an acronym ("ETW").
-  const label = /^[A-Z][a-z]/.test(raw) ? raw.charAt(0).toLowerCase() + raw.slice(1) : raw;
-  return component.category === "support" ? `On ${label}` : `In ${label} mode`;
-}
-
 /**
  * Pick a moded piece's variant: the one asked for if it's legal, else the
  * first legal one, with a note when that's a switch. `why(variant)` is the
@@ -492,23 +485,10 @@ function settleMode(component, wanted, why, notes, variantsOf = adapterVariants)
   const asked = wanted == null ? null : variants.find((v) => v.mode === wanted) || null;
   const legal = [asked, ...variants].filter(Boolean).find((v) => !why(v));
   if (!legal) {
-    notes.push(noteFor(component.category === "base" || component.category === "adapter" ? "Removed" : "Cleared", component, why(asked || variants[0])));
+    notes.push(removedNote(component));
     return null;
   }
-  if (wanted != null && legal.mode !== wanted) {
-    const now = legal.modeLabel || legal.mode;
-    const reason = asked && why(asked);
-    // "Switched Fisher 11 Dolly to ETW round track wheels. On pneumatic
-    // tires, it sits on the floor, not on round track." —
-    // the reason is about the mode that stopped fitting, so it names it.
-    notes.push(
-      !asked
-        ? `Set ${nameOf(component)} to ${now}. It has no "${wanted}" option.`
-        : reason.startsWith(withMode(asked))
-          ? `Switched ${nameOf(component)} to ${now}. ${inMode(component, asked)}, it${reason.slice(withMode(asked).length)}`
-          : noteFor(`Switched to ${now}:`, component, reason)
-    );
-  }
+  if (wanted != null && legal.mode !== wanted) notes.push(switchedNote(component, legal));
   return legal;
 }
 
@@ -601,7 +581,7 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
   const legalModes = (head) => head.modes.filter((m) => !whyHeadMode(head, m, adapterStack, beneathName));
   let head = byId[picks.headId] || null;
   if (head && legalModes(head).length === 0) {
-    notes.push(noteFor("Cleared", head, whyHeadMode(head, head.modes[0], adapterStack, beneathName)));
+    notes.push(removedNote(head));
     head = null;
   }
   out.headId = head ? head.id : null;
@@ -614,9 +594,7 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
   let mode = head.modes.find((m) => m.name === picks.modeName);
   if (!mode || whyHeadMode(head, mode, adapterStack, beneathName)) {
     const replacement = legalModes(head)[0];
-    if (mode) {
-      notes.push(`Switched the head to ${replacement.name} mode. ${whyHeadMode(head, mode, adapterStack, beneathName)}`);
-    }
+    // No note: the head follows what the user just did beneath it (5.9).
     mode = replacement;
   }
   out.modeName = mode.name;
@@ -668,7 +646,7 @@ function settleCamera(below, build, gear, byId, picks, out, notes) {
     const plate = byId[id];
     if (!plate || plate.category !== "plate" || kept.some((p) => p.id === id)) continue;
     const stack = stackPlates([...kept, plate], below);
-    if (stack.why) notes.push(noteFor("Removed", plate, stack.why));
+    if (stack.why) notes.push(removedNote(plate));
     else kept.push(plate);
   }
   out.plateIds = kept.map((p) => p.id);
@@ -679,10 +657,10 @@ function settleCamera(below, build, gear, byId, picks, out, notes) {
   const piecesOf = (ids) => blockPieces(build, gear, ids);
   if (!shape || whyBlockJoints(build, piecesOf([...shape.added, ...shape.rest]))) {
     if (shape && shape.added.length && !whyBlockJoints(build, piecesOf(shape.rest))) {
-      for (const id of shape.added) notes.push(`Removed ${nameOf(byId[id])} from ${nameOf(build)}. It doesn't fit under ${nameOf(byId[shape.rest[0]] || piecesOf(shape.rest)[0])}.`);
+      for (const id of shape.added) notes.push(removedNote(byId[id]));
       shape = { added: [], rest: shape.rest };
     } else {
-      notes.push(`Put ${nameOf(build)} back together as defined. Its pieces as rigged didn't fit each other.`);
+      notes.push(`Reset ${shortOf(build)}`);
       shape = { added: [], rest: [...build.componentIds] };
     }
   }
@@ -690,7 +668,7 @@ function settleCamera(below, build, gear, byId, picks, out, notes) {
   while (shape.added.length) {
     const bottom = byId[shape.added[0]];
     if (acceptsMount(bottom, onBlock.topMount)) break;
-    notes.push(`Removed ${nameOf(bottom)} from ${nameOf(build)}. ${nameOf(bottom)} needs ${plainMounts(acceptedMounts(bottom))} beneath it, but ${onBlock.name} ends in ${plainMount(onBlock.topMount)}.`);
+    notes.push(removedNote(bottom));
     shape = { added: shape.added.slice(1), rest: shape.rest };
   }
   const ids = [...shape.added, ...shape.rest];
@@ -701,11 +679,8 @@ function settleCamera(below, build, gear, byId, picks, out, notes) {
   const legal = attachPoints.filter((a) => !whyAttach(a, onBlock));
   let attach = attachPoints.find((a) => a.name === picks.attachName);
   if (!attach || whyAttach(attach, onBlock)) {
-    const replacement = legal[0] || null;
-    if (attach && replacement) {
-      notes.push(`Switched the camera mount to "${ATTACH_LABELS[replacement.name] || replacement.name}". ${whyAttach(attach, onBlock)}`);
-    }
-    attach = replacement;
+    // No note: the camera mount follows what the user just did beneath it (5.9).
+    attach = legal[0] || null;
   }
   out.attachName = attach ? attach.name : null;
 }

@@ -30,7 +30,7 @@ import {
 import { checkVerdict } from "./src/verdict.js";
 import { inches, signedInches as fmtSigned } from "./src/format.js";
 import { stackLayout } from "./src/stack.js";
-import { markerSvg, pieceAt, pieceSvg, tagSvg } from "./src/outlines.js";
+import { markerSvg, pieceAt, pieceSvg } from "./src/outlines.js";
 import { versionNote } from "./src/version.js";
 
 document.getElementById("version").textContent = versionNote();
@@ -68,7 +68,6 @@ const el = {
   targetRangeBtn: document.getElementById("target-range"),
   fixedFields: document.getElementById("fixed-target-fields"),
   rangeFields: document.getElementById("range-target-fields"),
-  rangeHint: document.getElementById("range-hint"),
   targetHeight: document.getElementById("target-height"),
   targetLow: document.getElementById("target-low"),
   targetHigh: document.getElementById("target-high"),
@@ -82,7 +81,7 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 const pos = (o) => `bottom:${o.bottomPct}%;height:${o.heightPct}%`;
-const ICONS = { feasible: "✓", tight: "✓", infeasible: "✗", waiting: "…" };
+const ICONS = { feasible: "✓", infeasible: "✗", waiting: "…" };
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -138,7 +137,6 @@ function applyTargetTypeVisibility() {
   el.targetRangeBtn.setAttribute("aria-pressed", String(!isFixed));
   el.fixedFields.hidden = !isFixed;
   el.rangeFields.hidden = isFixed;
-  el.rangeHint.hidden = isFixed;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +256,7 @@ function render() {
   state.layout = stackLayout(chain, target, { frame });
   el.rig.innerHTML = drawingHtml(state.layout, state.placing);
   el.placingHint.hidden = !state.placing;
-  if (state.placing) el.placingHint.textContent = `Tap a highlighted point to add ${state.placing.name}. Tap anywhere else to cancel.`;
+  if (state.placing) el.placingHint.textContent = `Add ${state.placing.name}: tap a point`;
 
   setVerdict(verdict.state, verdict.text);
   el.footer.innerHTML = footerHtml(stackLayout(chain, target), chain);
@@ -289,8 +287,7 @@ function renderIncomplete(missing) {
   el.placingHint.hidden = true;
   if (missing === "attach") {
     const remedies = cameraRemedies(gear, state.packageId, state.buildId, state.picks);
-    const reason = opts.attach.find((a) => a.reason)?.reason || "";
-    el.rig.innerHTML = `<div class="empty-slot"><p class="hint">${escapeHtml(reason)}</p>${
+    el.rig.innerHTML = `<div class="empty-slot">${
       remedies.length ? `<h3>Add</h3><div class="option-list">${remedies.map((r) => optionButton(editAttr(r.edit), r.label, null)).join("")}</div>` : ""
     }</div>`;
     return;
@@ -299,7 +296,7 @@ function renderIncomplete(missing) {
   el.rig.innerHTML = `<div class="empty-slot">${
     choices.length
       ? `<div class="option-list">${choices.map((o) => optionButton(editAttr({ op: "swap", slot: missing, id: o.id }), o.name, null)).join("")}</div>`
-      : `<p class="hint">Nothing fits here.</p>`
+      : ""
   }</div>`;
 }
 
@@ -309,11 +306,9 @@ function drawingHtml(layout, placing = null) {
   const blocks = layout.blocks;
   const { width, height } = layout.frame;
 
-  // Outlines (src/outlines.js) and each piece's tag. A tap anywhere on the
-  // drawing is resolved to a piece by pieceAt; tags open their piece directly.
-  const pieceAttrs = (b) => `data-piece="${pieceKey(b)}" role="button" aria-label="${escapeHtml(b.name)}"`;
+  // Outlines (src/outlines.js); nothing in the drawing is labeled (7.2). A
+  // tap anywhere on the drawing is resolved to a piece by pieceAt.
   const pieces = blocks.map((b) => pieceSvg(b)).join("");
-  const tags = blocks.map((b) => tagSvg(b.tag, pieceAttrs(b), escapeHtml)).join("");
 
   // Placing an item: its legal attach points, as markers (positions from the
   // layout, legality from rules.js via addOptions).
@@ -349,7 +344,6 @@ function drawingHtml(layout, placing = null) {
       ${PATTERNS}
       <g class="pieces">${pieces}</g>
       <rect class="tap-surface" data-drawing x="0" y="0" width="${width}" height="${height}"/>
-      <g class="tags">${tags}</g>
       <g class="markers">${markers}</g>
     </svg>
   </div>`;
@@ -376,7 +370,9 @@ function footerHtml(layout, chain) {
   const cap = exceedsBaseLayerCap(chain)
     ? `<span class="key key-warning">${chain.baseItems.length} base items, over the ${DEFAULT_MAX_BASE_LAYER_ITEMS}-item stacking cap</span>`
     : "";
-  return key + cap;
+  // The drawing's one warning, from the layout (an inverted camera).
+  const flip = layout.warning ? `<span class="key key-warning">${escapeHtml(layout.warning)}</span>` : "";
+  return flip + key + cap;
 }
 
 // --- The sheets: change one piece, or add one ----------------------------------
@@ -388,12 +384,13 @@ function optionButton(attrs, label, rise) {
 }
 const editAttr = (change) => `data-edit="${escapeHtml(JSON.stringify(change))}"`;
 
-/** Only what fits, as buttons (SPEC.md 7.2: no list of what doesn't). */
-function optionsHtml(options, toChange, emptyText) {
+/** Only what fits, as buttons under a heading; nothing at all when nothing
+ * fits (SPEC.md 7.2: no list of what doesn't, no explanation). */
+function optionsHtml(title, options, toChange) {
   const fits = options.filter((o) => o.available);
   return fits.length
-    ? `<div class="option-list">${fits.map((o) => optionButton(editAttr(toChange(o)), o.label, o.rise)).join("")}</div>`
-    : `<p class="hint">${escapeHtml(emptyText)}</p>`;
+    ? `<h3>${escapeHtml(title)}</h3><div class="option-list">${fits.map((o) => optionButton(editAttr(toChange(o)), o.label, o.rise)).join("")}</div>`
+    : "";
 }
 
 function toggleHtml(change, control, current) {
@@ -410,19 +407,19 @@ function toggleHtml(change, control, current) {
 }
 
 /** Nothing, text, a toggle, or (three or more states) a segmented choice —
- * rules.js's modeControl decides which. */
+ * rules.js's modeControl decides which. Its hint is left out: no
+ * explanation text in a sheet (7.2). */
 function modeHtml(control, change, current) {
-  const hint = control.hint ? `<p class="hint">${escapeHtml(control.hint)}</p>` : "";
-  if (control.type === "toggle") return toggleHtml(change, control, current) + hint;
+  if (control.type === "toggle") return toggleHtml(change, control, current);
   if (control.type === "dropdown") {
     return `<div class="choice" role="radiogroup">${control.entries
       .map(
         (e) => `<button type="button" class="choice-btn" role="radio" aria-checked="${e.name === current}" ${editAttr({ ...change, mode: e.name })}>${escapeHtml(e.label)}</button>`
       )
-      .join("")}</div>${hint}`;
+      .join("")}</div>`;
   }
-  if (control.type === "static" && control.entry.label) return `<p class="mode-static">${escapeHtml(control.entry.label)}</p>${hint}`;
-  return hint;
+  if (control.type === "static" && control.entry.label) return `<p class="mode-static">${escapeHtml(control.entry.label)}</p>`;
+  return "";
 }
 
 function renderSheet() {
@@ -468,11 +465,7 @@ function pieceSheetHtml({ slot, id, at }) {
     }
   }
 
-  const swap = optionsHtml(
-    swapOptions(gear, state.packageId, state.buildId, p, slot, index),
-    (o) => ({ op: "swap", slot, index, id: o.id, mode: o.mode }),
-    "Nothing else fits here."
-  );
+  const swap = optionsHtml("Swap for", swapOptions(gear, state.packageId, state.buildId, p, slot, index), (o) => ({ op: "swap", slot, index, id: o.id, mode: o.mode }));
   const removal = slot === "support" ? supportRemoval(gear, state.packageId, state.buildId, p) : null;
   const remove =
     slot === "base" || slot === "adapter" || slot === "plate"
@@ -480,7 +473,7 @@ function pieceSheetHtml({ slot, id, at }) {
       : removal
         ? `<button type="button" class="remove" ${editAttr(removal.edit)}>${escapeHtml(removal.label)}</button>`
         : "";
-  return `${head}${mode}<h3>Swap for</h3>${swap}${remove}`;
+  return `${head}${mode}${swap}${remove}`;
 }
 
 /** The camera block's sheet (3.4): its pieces and rises, the edits that fit
@@ -512,7 +505,7 @@ function blockSheetHtml(head, opts) {
  * goes straight there; one with several shows its points on the drawing. */
 function addSheetHtml() {
   const options = addOptions(gear, state.packageId, state.buildId, state.picks);
-  if (!options.length) return `<h2>Add</h2><p class="hint">Nothing else fits this rig.</p>`;
+  if (!options.length) return `<h2>Add</h2>`;
   const item = (o) => {
     const [only] = o.positions;
     const attrs =

@@ -217,10 +217,10 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     assert.deepEqual(notes, []);
   });
 
-  test("ticking an apple box under a dolly clears the dolly, in plain words, and keeps what's above", () => {
+  test("ticking an apple box under a dolly clears the dolly, in a few words, and keeps what's above", () => {
     const { picks, notes } = revalidate({ supportId: "fisher-11", noseId: "fisher-sle", baseItemIds: ["apple-half"], adapterIds: ["mitchell-riser-6"] });
     assert.equal(picks.supportId, null);
-    assert.deepEqual(notes, ["Cleared Fisher 11 Dolly. It is a dolly, and apple boxes can't go under a dolly — use track."]);
+    assert.deepEqual(notes, ["Removed Fisher 11"]);
     assert.deepEqual(picks.adapterIds, ["mitchell-riser-6"], "picks above the empty slot are kept");
     assert.equal(picks.headId, "oconnor-2575d");
   });
@@ -229,7 +229,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     const { picks, notes } = revalidate({ noseId: "fisher-sle", adapterIds: ["mitchell-riser-6"] });
     assert.equal(picks.noseId, null);
     assert.deepEqual(picks.adapterIds, ["mitchell-riser-6"]);
-    assert.deepEqual(notes, ["Cleared SLE — 4-way Level Head. It mounts on a Fisher beam nose, and Baby sticks tops out in a Mitchell mount — it takes no nose fitting."]);
+    assert.deepEqual(notes, ["Removed SLE"]);
   });
 
   test("a Fisher with no nose fitting is incomplete, not illegal: what's above is kept", () => {
@@ -246,15 +246,16 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
   test("a wheel set that can't ride what's beneath switches to one that can, with a note", () => {
     const { picks, notes } = revalidate({ supportId: "fisher-11", supportMode: "etw", noseId: "fisher-sle" });
     assert.equal(picks.supportMode, "pneumatic");
-    assert.match(notes[0], /^Switched Fisher 11 Dolly to Pneumatic tires\. On ETW round track wheels, it sits on round track, not on the floor\.$/);
+    assert.deepEqual(notes, ["Wheels → Pneumatic"]);
     const onRound = revalidate({ supportId: "fisher-11", supportMode: "pneumatic", noseId: "fisher-sle", baseItemIds: ["round-track"] });
     assert.equal(onRound.picks.supportMode, "etw", "the first wheel set that rides round track");
+    assert.deepEqual(onRound.notes, ["Wheels → ETW"]);
   });
 
   test("track under a tripod clears the tripod", () => {
     const { picks, notes } = revalidate({ baseItemIds: ["round-track"] });
     assert.equal(picks.supportId, null);
-    assert.match(notes[0], /^Cleared Baby sticks\. It sits on the floor or rolling spreaders, not on round track\.$/);
+    assert.deepEqual(notes, ["Removed Baby sticks"]);
   });
 
   test("refilling the empty support revalidates what was kept above it", () => {
@@ -267,13 +268,11 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     assert.match(notes[0], /SLE/);
   });
 
-  test("flipping the offset underslung switches the head and the camera, with a note each", () => {
+  test("flipping the offset underslung switches the head and the camera, with no note: it follows from the user's own action", () => {
     const { picks, notes } = revalidate({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } });
     assert.equal(picks.modeName, "underslung");
     assert.equal(picks.attachName, "base-inverted");
-    assert.equal(notes.length, 2);
-    assert.match(notes[0], /^Switched the head to underslung mode\. Normal mode needs an up-facing mount beneath the head, but the top of Mitchell Offset, 10″ \(Bottom of the plate\) faces down\.$/);
-    assert.match(notes[1], /^Switched the camera mount to "Inverted — flip image"\./);
+    assert.deepEqual(notes, []);
     assert.doesNotThrow(() => buildChain(seed, { packageId: P[0], buildId: P[1], ...picks }));
   });
 
@@ -281,8 +280,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     const { picks, notes } = revalidate({ modeName: "underslung", attachName: "base-inverted" });
     assert.equal(picks.modeName, "normal");
     assert.equal(picks.attachName, "base");
-    assert.equal(notes.length, 2);
-    assert.match(notes[0], /Switched the head to normal mode\. Underslung mode needs a down-facing mount beneath the head/);
+    assert.deepEqual(notes, []);
   });
 
   test("a head with no legal mode is cleared", () => {
@@ -293,7 +291,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     };
     const { picks, notes } = revalidatePicks(uprightOnly, ...P, picksFor({ headId: "lambda-50", plateIds: [], modeName: "upright", attachName: "base", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }));
     assert.equal(picks.headId, null);
-    assert.match(notes[0], /^Cleared Lambda 50\. /);
+    assert.deepEqual(notes, ["Removed Lambda 50"]);
   });
 
   test("ids the package doesn't have are dropped quietly", () => {
@@ -308,13 +306,18 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     assert.equal(picks.attachName, "base");
   });
 
-  test("notes open with what happened and never repeat the component's name as a subject", () => {
+  test("notes are a few words — what was removed or swapped — and never a reason", () => {
     for (const over of [
       { supportId: "fisher-11", noseId: "fisher-sle", baseItemIds: ["apple-half"] },
       { noseId: "fisher-lhe" },
       { baseItemIds: ["round-track"] },
+      { supportId: "fisher-11", supportMode: "etw", noseId: "fisher-sle" },
     ]) {
-      for (const note of revalidate(over).notes) assert.match(note, /^(Cleared|Removed|Switched) .+\. It /);
+      for (const note of revalidate(over).notes) {
+        assert.match(note, /^(Removed \S.*|.+ → .+)$/, note);
+        assert.ok(note.split(" ").length <= 4, `a few words: ${note}`);
+        assert.doesNotMatch(note, /[.]$|because|needs|can't|It /, note);
+      }
     }
   });
 });
@@ -766,13 +769,18 @@ describe("the UI layer", () => {
     assert.doesNotMatch(app, /type="checkbox"|data-slot=|stack-rows|legend|result-feasible|marginRow/);
   });
 
-  test("information appears once: no '(placeholder)' names; 'flip image' only on the camera label", () => {
+  test("information appears once: no '(placeholder)' names; 'flip image' written once, as the layout's warning", () => {
     for (const c of [...seed.components, ...seed.packages, ...seed.builds]) {
       assert.doesNotMatch(c.name, /placeholder/i, c.id);
     }
     const stack = readFileSync(path.join(root, "src/stack.js"), "utf8");
-    assert.equal((app + stack).split("Camera inverted — flip image").length - 1, 1, "written once, for the camera's tag");
+    assert.equal((app + stack).split("Camera inverted — flip image").length - 1, 1, "written once, as the drawing's warning");
     assert.doesNotMatch(app, /[Ee]stimated|measured|class="dot"/, "no measured/estimated marking at all");
+  });
+
+  test("no explanation text: no hints in the sheets, no reasons shown", () => {
+    assert.doesNotMatch(app, /control\.hint|\.reason\b|class="hint"/, "the UI never shows a hint or a reason");
+    assert.doesNotMatch(html, /class="hint"/);
   });
 
   test("simplified: one Add button, no '+' at junctions, no margin tags, no 'why not' lists", () => {
@@ -786,7 +794,8 @@ describe("the UI layer", () => {
   });
 
   test("the drawing is outlines from src/outlines.js; adding places an item by tapping a marker, not a list", () => {
-    for (const fn of ["pieceSvg(", "pieceAt(", "markerSvg(", "tagSvg("]) assert.ok(app.includes(fn), fn);
+    for (const fn of ["pieceSvg(", "pieceAt(", "markerSvg("]) assert.ok(app.includes(fn), fn);
+    assert.ok(!/tagSvg|\.tag\b|class="tags"/.test(app), "no tags: nothing in the drawing is labeled");
     assert.doesNotMatch(app, /lane-label|leader|labelHtml/, "no label column");
     assert.match(app, /data-place=/, "markers insert on tap");
     assert.match(app, /data-place-item=/, "an item with several points goes to the markers");

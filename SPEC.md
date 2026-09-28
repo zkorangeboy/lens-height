@@ -162,7 +162,9 @@ top of the stack is what the support must accept.
   shape as an adapter's modes (3.6): each mode has a `name`, `label`,
   `rise`, `orientation`, and optional `stability`, overriding the
   component's own. Half, quarter, and pancake have no modes and stay flat:
-  - Full: modes `flat` 8", `12in` 12" face, `20in` 20" face
+  - Full: modes `flat` 8", `12in` 12" face, `20in` 20" face, labeled as
+    they're called on set: **"#1 LA"** (flat, 8"), **"#2 Chicago"** (12"),
+    **"#3 NY"** (20")
   - Half: 4" flat
   - Quarter: 2" flat
   - Pancake: 1" flat
@@ -333,21 +335,28 @@ Seed pieces:
 | Piece | Bottom | Top | Rise | Short name |
 |---|---|---|---:|---|
 | Euro plate (`category: plate`) | Euro dovetail (flat) | QR receiver | +¾" | Euro plate |
-| QR plate | QR plate | 3/8″ bolt, bolted to the piece above | 0 | QR |
 | Arri dovetail (mount and plate as one piece) | 3/8″ holes | 3/8″ bolt | +1" | Arri dovetail |
 | Base plate | 3/8″ holes | 3/8″ bolt | +½" | Base plate |
 | Camera | 3/8″ holes | — | optical center +2½", 5" tall | Camera |
 
-Seed block: **A-cam** — QR plate, Arri dovetail, base plate, camera, bottom
-to top: +4" from the bottom of the QR plate to the optical center. On a
-2575D with a Euro plate between, the lens is 4¾" above the head's top.
+**The block's bottom interface.** A block may declare `bottomInterface`,
+the interface at its bottom while it's whole: the A-cam's is **QR**
+(`qr-plate`). A QR plate adds no height, so it isn't a piece; it's the
+block's bottom. It goes with the block's bottom piece: stripped of its
+Arri dovetail, the block's bottom is the base plate's own 3/8″ holes. A
+plate added under a whole block mates with the block's bottom interface.
+
+Seed block: **A-cam** — Arri dovetail, base plate, camera, bottom to top,
+with a QR bottom: +4" from the bottom of the block to the optical center.
+On a 2575D with a Euro plate between, the lens is 4¾" above the head's top.
 
 **The block as rigged.** The picks carry the block's pieces as rigged
 (`blockIds`, bottom to top; `null` means the block as defined). They may
 differ from the definition in two ways, both from the block's sheet (7.2):
 
 - **Stripped down**: pieces removed from the bottom up, one at a time (the
-  QR plate first). The camera itself always stays. A removed piece can be
+  Arri dovetail first, and the QR bottom with it). The camera itself
+  always stays. A removed piece can be
   put back, in order.
 - **A Euro plate added to its bottom**, where it travels with the block.
 
@@ -356,8 +365,8 @@ plate) can otherwise sit between the head and the block as an ordinary
 camera-side adapter (`plateIds`, bottom to top): its own piece, not part of
 the block.
 
-**Attaching.** The block attaches by its bottom piece's bottom interface,
-which must mate with what's below: the head's top, a plate's top, or — as
+**Attaching.** The block attaches by its bottom interface (its
+`bottomInterface` while whole, else its bottom piece's), which must mate with what's below: the head's top, a plate's top, or — as
 for any camera-side piece — the floor or an apple box (2). Attach points:
 
 - `base` — upright, on an up-facing interface. Rise: the block's total.
@@ -422,8 +431,8 @@ one below. Each adapter declares:
 
 - `bottomMount` / `topMount` — usually `mitchell-male` and
   `mitchell-female` (2).
-- `shortName` — every component (and build) has one, for its tag in the
-  drawing (7.2): "SLE", "LHE", "Riser 6″", "2575".
+- `shortName` — every component (and build) has one, for its short notes
+  (5.9): "SLE", "LHE", "Riser 6″", "2575".
 - `rise` — signed distance from its bottom mount to its top mount.
   Negative when the top mount sits below the bottom mount.
 - `mountFacing` — `up` or `down`: which way its top mount faces (default
@@ -839,21 +848,15 @@ UI, 5).
 **The verdict.** The check screen's one-line answer is a view model too
 (`checkVerdict` in `src/verdict.js`), so the UI never compares heights:
 
-- **Feasible** — what the rig does and its *tightest* margin in plain
-  words: "Reaches 32″ · 4″ to spare at bottom", "Covers 20–32″ · only ½″
-  to spare at top". The tightest of `marginBelow` ("at bottom"),
-  `marginAbove` ("at top"), and — for a moveable range — the moveable
-  travel left over once the move fits ("of moveable travel"). A margin
-  inside the tolerance but below zero reads "¼″ past the top, within
-  tolerance".
-- **Tight** — feasible, but the tightest margin is under **1″**. Same
-  words, prefixed "only", and shown in the warning color.
-- **Infeasible** — the shortfall (5.2) in plain words: "3½″ too short",
-  "3½″ too tall", "Needs 4″ more moveable travel".
+- **Feasible** — only what the rig does: "✓ Reaches 30″", or for a range
+  "✓ Covers 20–30″". **No margins**, and no separate warning state: a
+  target inside the ±½″ tolerance (5.2) but past the end, or with little
+  room to spare, reads the same as any other success.
+- **Infeasible** — only the shortfall (5.2): "✗ 4¾″ too short", "✗ 3½″ too
+  tall", "✗ Needs 4″ more moveable travel".
 - **Waiting** — no target yet: the rig's reach, and a prompt for a target.
 
-The verdict is the only place margins are stated; the drawing has no
-margin tags (5.8).
+Margins are computed (5.2) but not shown, here or in the drawing (5.8).
 
 ### 5.7 Delta search
 
@@ -900,7 +903,7 @@ boxes for a drawing of a given size — so the UI does no height math.
   those blocks: the plates and camera block start on the base. The camera
   block is **one block** whose `shape` carries each of its pieces at true
   scale — every plate at its own rise and `length`, the camera body and its
-  lens triangle — so it has one tag and one sheet. Each has its signed
+  lens triangle — so it has one sheet. Each has its signed
   `rise`, a `kind` (`fixed`, `adjustable`, or `moveable`, 3.5), its
   `bottom` and `top` in inches (its lower and upper end, whichever way it
   runs), and `bottomPct` / `topPct` / `heightPct`. A block with a negative
@@ -964,15 +967,12 @@ boxes for a drawing of a given size — so the UI does no height math.
   `heightPct`. `reach` and `moveable` are **clipped** to the drawing, with
   `continuesAbove` / `continuesBelow` saying so; `reach` also carries its
   real `min` and `max`, the labels at the rail's bottom and top.
-- **No margin tags.** The margins are stated once, in the verdict (5.6);
-  the drawing's rail shows the reach they're measured against.
-- **Tags, not labels.** The drawing takes the full width; there is no
-  label column. Each piece has a small `tag` — its `shortName` from the
-  gear ("SLE", "LHE", "Riser 6″", "2575"), one for the whole camera block
-  ("A-cam"), and for an inverted block a second line, "Camera inverted —
-  flip image" — placed beside the piece
-  (to its right, or its left if there's no room), nudged up or down so no
-  two tags overlap. The full name and rise are in the piece's sheet.
+- **No margins in the drawing.** Margins aren't shown anywhere (5.6); the
+  drawing's rail shows the reach.
+- **No labels, no tags.** The drawing takes the full width and names
+  nothing: a piece's name and rise are in its sheet, when it's tapped.
+  The layout's `warning` is "Camera inverted — flip image" when the camera
+  block hangs inverted, else null; the UI shows it under the drawing.
 - **Insertion points** (`gaps`) are identified by slot and index: `base` 0
   is the floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on
   the nose fitting (or the support, if it takes none), `adapter` *i* on
@@ -1065,9 +1065,9 @@ The slots, ground up, and what each requires of what's beneath it:
    isn't already used, and hangs inverted on a down-facing interface.
 7. **Camera block**, as rigged, and its **attach point**: the block's
    bottom must mate with what's below, and its attach point with the
-   facing there (3.3, 3.4). When nothing fits — the A-cam's QR plate on a
-   2575D's Euro receiver — the rig is incomplete, and check mode says why
-   and offers the fixes (`cameraRemedies`): a Euro plate on the head, a Euro
+   facing there (3.3, 3.4). When nothing fits — the A-cam's QR bottom on a
+   2575D's Euro receiver — the rig is incomplete, and check mode offers
+   the fixes (`cameraRemedies`): a Euro plate on the head, a Euro
    plate added to the block, or a stripped piece put back.
 
 A rig is **complete** when every slot is filled and the camera block
@@ -1076,20 +1076,29 @@ sits on the base. With a head but no support, or a support but no head,
 check mode asks for the missing one.
 
 **When a pick changes.** Picks are revalidated ground up. A base item,
-support, adapter, head, or plate that a change made illegal is *cleared*,
-and a plain note says why ("Dolly can't go on apple boxes, so it was
-cleared"); so is a plate added to the camera block that no longer fits
-under it. A pick above an empty required slot is kept, and revalidated
-once that slot is filled. A camera block whose pieces don't mate with each
-other goes back to its definition, with a note. A head mode or attach point that became illegal *switches* to the
-first legal option instead — the same as flipping a toggle off — with a
-note.
+support, adapter, head, or plate that a change made illegal is *cleared*;
+so is a plate added to the camera block that no longer fits under it. A
+pick above an empty required slot is kept, and revalidated once that slot
+is filled. A camera block whose pieces don't mate with each other goes
+back to its definition. A mode that became illegal *switches* to the first
+legal one instead — the same as flipping a toggle off.
+
+**Notes: only for what the user didn't touch, in a few words.** A note is
+kept only when an action removes a piece the user didn't touch, or swaps
+one for another setting of its own: "Removed Half apple", "Removed track",
+"Wheels → ETW", "Full apple → #1 LA", "Offset 10″ → Top of the plate",
+"Reset A-cam". A change that follows directly from the user's own action
+gets no note: a head that goes underslung, or a camera mount that switches
+to inverted, because the user put an offset on its bottom side. Notes use
+short names and short mode labels (a mode's `shortLabel`, else its
+`label`), and never explain why.
 
 **Toggles, not dropdowns.** A mode named `underslung`, or an attach point
 that is `inverted`, is offered as an on/off toggle rather than a dropdown,
 and only when both states are legal right now (an underslung head mode needs
 a down-facing mount beneath it, 3.3). When only one state is legal it's
-shown as plain text, with the reason the other isn't available as a hint.
+shown as plain text. `modeControl` still returns the reason the other
+isn't available (`hint`, for tests); the UI doesn't show it.
 The camera attach point toggles between inverted and hung-from-the-handle
 for an underslung head; for a normal head only the upright mount is legal,
 so there's nothing to toggle.
@@ -1160,16 +1169,14 @@ top to bottom:
 
 1. **Target**, compact — a single height, or a range (two heights). A range
    is always a moveable range (5.1); there is nothing to choose.
-2. **Verdict** — one line (5.6): "✓ Covers 20–32″ · only ½″ to spare at
-   top", "✗ 3½″ too short". Green when feasible, the warning color when
-   feasible but the tightest margin is under 1″, red when not.
+2. **Verdict** — one line (5.6): "✓ Reaches 30″", "✓ Covers 20–30″", "✗
+   4¾″ too short". Green when feasible, red when not; nothing in between.
 3. **The drawing** (5.8) — the main element, full width: a simplified 2D
    side view of each piece, one kind of outline per kind of gear, at true
    scale on both axes and stretched to each piece's real bottom and top
    heights. Pieces connect: each sits on the mount of the one below. The
-   moveable / adjustable / fixed fills sit inside the outlines. Each piece
-   carries a small tag with its short name beside it; there's no label
-   column. **The target line or move band is the one strong line**,
+   moveable / adjustable / fixed fills sit inside the outlines. Nothing in
+   the drawing is labeled. **The target line or move band is the one strong line**,
    across the full width. A rail on the left shows the reach, labeled
    with its lowest and highest lens heights, and the moveable sweep; where
    the reach runs past the drawing it is clipped and marked as continuing.
@@ -1183,7 +1190,8 @@ top to bottom:
    - **Apple box** — a box sized by the face it stands on, with hand holes.
    - **Track** — round rails on ties.
    - **Rolling spreaders** — a low spreader with a caster at each end,
-     under the tripod feet.
+     under the tripod feet, drawn within the sticks' footprint: no wider
+     than the legs' splay at the floor.
    - **Fisher dolly** — a side elevation from the brochure's dimension
      drawing, simplified, not traced: a low chassis about 40" long with a
      raised rear box, one wheel at each end on a 28" wheelbase (drawn per
@@ -1197,7 +1205,9 @@ top to bottom:
      hanging from the nose, its foot carrying the Mitchell forward.
    - **Riser** — a cage. **Offset** — a plate with a Mitchell on its top and
      bottom, the side in use marked. **Rotating offset** — a swivel.
-   - **Fluid head** (the O'Connor 2575D) — pan base, tilt body, plate; upside down when
+   - **Fluid head** (the O'Connor 2575D) — pan base, tilt body, and the
+     receiver plate on top, stacked with no gap: the outline fills its full
+     rise, from its Mitchell base to its top receiver. Upside down when
      underslung.
    - **Lambda 50** — an L-frame in the adjustable color. Upright: a
      pan-base disk on the mount, a short base plate running forward from
@@ -1211,10 +1221,9 @@ top to bottom:
      the head's current rise, so it moves along the column as the rise is
      set.
    - **Plate** (the Euro plate, and each plate in a camera block) — a thin
-     plate at its true rise and `length`; a zero-rise plate (the QR plate)
-     is drawn as a sliver.
-   - **Camera block** — its pieces at true scale, stacked as rigged, with
-     one tag for the whole block. The camera: the body, `bodyHeight` tall,
+     plate at its true rise and `length`.
+   - **Camera block** — its pieces at true scale, stacked as rigged. The
+     camera: the body, `bodyHeight` tall,
      and a small triangle at the optical center whose opening faces
      forward, the way the camera shoots, centered vertically on the
      optical center so it sits exactly on the target line when the rig is
@@ -1223,7 +1232,7 @@ top to bottom:
      optical center, still pointing forward. Hung from the top handle, the
      camera hangs upright with its plates below it.
 4. **Edit in the drawing** (5.9). Tapping a piece — anywhere in its
-   outline, or its tag — opens a sheet to swap it, change its mode (a
+   outline — opens a sheet to swap it, change its mode (a
    toggle for two states, a segmented choice for more, like a full apple's
    faces), or remove it. **One Add button** under the drawing opens a
    sheet of everything that can legally be added to the rig. Choosing an
@@ -1242,17 +1251,20 @@ top to bottom:
    block then sits on the base. The Add sheet groups what fits under the
    support, between support and head, and between head and camera (the
    Euro plate as an ordinary plate), and offers supports when the rig has
-   none. When the camera fits nothing below it, the drawing area says why
-   and offers the fixes. A change that invalidates another pick clears or
-   switches it with a plain-language note. There are no checkbox lists or
-   dropdown sections.
+   none. When the camera fits nothing below it, the drawing area offers
+   the fixes. A change that removes or swaps a piece the user didn't touch
+   gets a short note (5.9). There are no checkbox lists or dropdown
+   sections.
 
-**Information appears once.** Each piece shows only its short name, on its
-tag in the drawing; its full name and signed rise are in its sheet. No
-text legend beside the drawing. All gear values are treated as correct, so
-there's no "estimated" marking (4). "Camera inverted — flip image" appears
-once, on the camera block's tag. A base
-layer over the stacking cap is noted in a line under the drawing. Adjustability is always called
+**No explanation text.** Sheets carry no explanatory sentences — no reasons,
+no hints: a mode that isn't available right now is simply not offered, and
+a section with nothing in it is left out. Notes are a few words (5.9).
+
+**Information appears once.** A piece's full name and signed rise are in
+its sheet; the drawing names nothing. No text legend beside the drawing.
+All gear values are treated as correct, so there's no "estimated" marking
+(4). "Camera inverted — flip image" appears once, in the line under the
+drawing, where a base layer over the stacking cap is also noted. Adjustability is always called
 **moveable / adjustable / fixed** (3.5), in the drawing's key and in the
 words.
 

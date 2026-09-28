@@ -206,10 +206,6 @@ select {
   color: var(--success);
 }
 
-.verdict[data-state="tight"] {
-  color: var(--warning);
-}
-
 .verdict[data-state="infeasible"] {
   color: var(--danger);
 }
@@ -270,10 +266,6 @@ select {
 
 .rig[data-state="feasible"] {
   border-color: var(--success);
-}
-
-.rig[data-state="tight"] {
-  border-color: var(--warning);
 }
 
 .rig[data-state="infeasible"] {
@@ -473,24 +465,6 @@ select {
   font-weight: 700;
 }
 
-/* Tags: each piece's short name beside it (placed by stack.js). */
-.drawing .tag { cursor: pointer; }
-
-.drawing .tag-box {
-  fill: var(--surface);
-  stroke: var(--border);
-  stroke-width: 1;
-}
-
-.drawing .tag text {
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  fill: var(--text);
-}
-
-.drawing .tag .tag-flag { fill: var(--warning); }
-.drawing .tag.is-warn .tag-box { stroke: var(--warning); }
 .drawing .groove { fill: var(--surface); }
 .drawing .post { stroke-width: 1; }
 .drawing .camera { fill: var(--fixed); }

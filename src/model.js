@@ -79,6 +79,19 @@ export function blockPieces(build, gear, pieceIds = build.componentIds) {
   return (pieceIds || build.componentIds).map((id) => byId[id]).filter(Boolean);
 }
 
+/** Whether `piece` is the bottom of the block as defined: while it's there,
+ * the block is whole and presents its own `bottomInterface` (3.4). */
+function isWholeBottom(build, piece) {
+  return Boolean(build.bottomInterface) && piece?.id === build.componentIds[0];
+}
+
+/** The interface at a piece's bottom within a block: the block's
+ * `bottomInterface` (the A-cam's QR) under its defined bottom piece, else
+ * the piece's own bottom (SPEC.md 3.4). */
+export function pieceBottom(build, piece) {
+  return isWholeBottom(build, piece) ? build.bottomInterface : piece?.bottomMount;
+}
+
 /** A piece's rise: its `rise`, or the camera's optical center above its base. */
 export function pieceRise(piece) {
   return (piece.rise !== undefined ? piece.rise : piece.opticalCenterAboveBase) || 0;
@@ -102,8 +115,9 @@ export function buildTotalRise(build, gear, pieceIds) {
 export function buildAttachPoints(build, gear, pieceIds) {
   const pieces = blockPieces(build, gear, pieceIds);
   const totalRise = buildTotalRise(build, gear, pieceIds);
-  const mount = build.bottomMount ?? pieces[0]?.bottomMount;
-  const bottomName = build.bottomMount ? null : pieces[0]?.name;
+  const mount = build.bottomMount ?? pieceBottom(build, pieces[0]);
+  // Named when it's a piece's own bottom; a whole block's QR bottom is the block's.
+  const bottomName = build.bottomMount || isWholeBottom(build, pieces[0]) ? null : pieces[0]?.name;
   const common = { mount, bottomName, blockName: build.name || build.id };
   const points = [
     { name: "base", ...common, facing: "down", rise: totalRise, inverted: false },

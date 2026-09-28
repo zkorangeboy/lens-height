@@ -10,7 +10,8 @@ import path from "node:path";
 
 import { buildChain } from "../src/solver.js";
 import { stackLayout } from "../src/stack.js";
-import { markerSvg, outlineOf, pieceAt, pieceSvg, tagSvg } from "../src/outlines.js";
+import * as outlines from "../src/outlines.js";
+import { markerSvg, outlineOf, pieceAt, pieceSvg } from "../src/outlines.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
@@ -19,7 +20,7 @@ const rig = (over = {}) => ({
   ...P,
   supportId: "baby-sticks",
   headId: "oconnor-2575d",
-  // The A-cam block's QR plate needs a Euro plate on the 2575D's Euro receiver.
+  // The A-cam block's QR bottom needs a Euro plate on the 2575D's Euro receiver.
   plateIds: ["euro-plate"],
   blockIds: null,
   modeName: "normal",
@@ -113,9 +114,8 @@ describe("one outline per kind of gear", () => {
       assert.ok(Math.abs(body.height - 5 * scale) < 0.05, "a 5″ body");
       // The optical center is 2½″ above the body's base: its middle.
       assert.ok(Math.abs(body.y + body.height / 2 - opticalCenter.y) < 0.05, "the optical center at the body's middle");
-      assert.deepEqual(camera.shape.pieces.map((p) => p.id), ["qr-plate", "arri-dovetail", "base-plate"], "every plate of the block drawn");
+      assert.deepEqual(camera.shape.pieces.map((p) => p.id), ["arri-dovetail", "base-plate"], "every plate of the block drawn; QR is its bottom, not a piece");
       assert.ok(Math.abs(piece(camera, "arri-dovetail").height - 1 * scale) < 0.05, "the Arri dovetail 1″ thick");
-      assert.equal(camera.tag.lines[0], "A-cam", "one tag for the whole block");
       assert.equal(opticalCenter.y, layoutOf(selection).lens.y, "on the lens height, so on the target line when on target");
       // The triangle: its point on the optical center, its opening forward.
       const points = outlineOf(camera).match(/<polygon points="([^"]+)" class="lens-cone"/)[1].split(" ").map((p) => p.split(",").map(Number));
@@ -158,14 +158,27 @@ describe("one outline per kind of gear", () => {
     assert.ok(hung.column.y + hung.column.height > hung.platform.y + hung.platform.height, "the column drops past the platform");
     for (const { camera, platform, plate } of [up, hung]) {
       assert.equal(camera.shape.inverted, false, "the camera is never inverted");
-      const qr = camera.shape.pieces.find((p) => p.id === "qr-plate").box;
-      assert.ok(Math.abs(qr.y + qr.height / 2 - platform.y) < 0.5, "its QR plate sits in the platform's QR receiver");
+      const dovetail = camera.shape.pieces.find((p) => p.id === "arri-dovetail").box;
+      assert.ok(Math.abs(dovetail.y + dovetail.height - platform.y) < 0.5, "its QR bottom sits in the platform's QR receiver");
       assert.ok(camera.shape.body.y + camera.shape.body.height <= platform.y, "the camera upright above it");
     }
     assert.ok(hung.camera.shape.body.y > hung.plate.y + hung.plate.height, "between the platform and the top plate");
     const svg = outlineOf(up.head);
     for (const part of ["lambda-pan", "lambda-plate", "lambda-column", "lambda-platform"]) assert.match(svg, new RegExp(part));
     assert.match(svg, /k-adjustable lambda-platform/, "drawn in the adjustable color");
+  });
+
+  test("the 2575's outline fills its whole 8½″, Mitchell base to receiver, with no empty band", () => {
+    const head = layoutOf(rig()).blocks.find((b) => b.slot === "head");
+    const spans = [...outlineOf(head).matchAll(/<rect x="[^"]+" y="([^"]+)" width="[^"]+" height="([^"]+)"/g)]
+      .map(([, y, h]) => [Number(y), Number(y) + Number(h)])
+      .sort((a, b) => a[0] - b[0]);
+    const r = (v) => Math.round(v * 10) / 10;
+    assert.equal(spans[0][0], r(head.box.y), "from the receiver at the top");
+    assert.ok(Math.abs(spans.at(-1)[1] - (head.box.y + head.box.height)) <= 0.1, "to the Mitchell base at the bottom");
+    for (let i = 1; i < spans.length; i++) {
+      assert.ok(spans[i][0] <= spans[i - 1][1] + 0.1, `no gap between part ${i - 1} and part ${i}`);
+    }
   });
 
   test("an underslung fluid head is drawn upside down", () => {
@@ -175,7 +188,7 @@ describe("one outline per kind of gear", () => {
   });
 });
 
-describe("taps, markers, and tags", () => {
+describe("taps and markers", () => {
   // A support is tapped low, on its legs or chassis; anything else at its center.
   // An SLE, on its body under the plate (its neck runs up behind the head).
   // A base item, near its end (a dolly's wheels sit down into round track).
@@ -233,13 +246,11 @@ describe("taps, markers, and tags", () => {
     assert.match(svg, /data-place=/);
   });
 
-  test("a tag draws its lines, escaped, and opens its piece", () => {
-    const tag = { lines: ["Riser 6″", "<b>"], x: 10, y: 20, width: 60, height: 32, warn: true };
-    const svg = tagSvg(tag, 'data-piece="adapter|r"', (t) => t.replace(/</g, "&lt;").replace(/>/g, "&gt;"));
-    assert.match(svg, /data-piece="adapter\|r"/);
-    assert.match(svg, /Riser 6″/);
-    assert.match(svg, /&lt;b&gt;/);
-    assert.match(svg, /class="tag is-warn"/);
+  test("no tags: nothing in the drawing is labeled", () => {
+    assert.equal(outlines.tagSvg, undefined);
+    for (const selection of Object.values(RIGS)) {
+      for (const [, svg] of svgOf(selection)) assert.doesNotMatch(svg, /<text|class="tag/);
+    }
   });
 
   test("an outline carries no tap target of its own: taps are resolved by pieceAt", () => {

@@ -45,7 +45,7 @@ const picksFor = (over = {}) => ({
 });
 const chainOf = (picks) => buildChain(seed, { packageId: P[0], buildId: P[1], ...picks });
 const ON_FLOOR = { supportId: null, headId: null, modeName: null };
-const A_CAM = ["qr-plate", "arri-dovetail", "base-plate", "camera"];
+const A_CAM = ["arri-dovetail", "base-plate", "camera"];
 const lensAboveHead = (chain) => chain.min - (chain.support ? 20 : 0) - chain.mode.rise;
 
 describe("typed interfaces", () => {
@@ -59,7 +59,7 @@ describe("typed interfaces", () => {
     assert.ok(mates("ground", "ground") && mates("round-track", "round-track"), "untyped mounts mate with themselves");
   });
 
-  test("the pieces: 2575D, Lambda 50, Euro plate, QR plate, Arri dovetail, base plate, camera", () => {
+  test("the pieces: 2575D, Lambda 50, Euro plate, Arri dovetail, base plate, camera — no QR plate piece", () => {
     const facts = (id) => {
       const c = byId(id);
       return [c.bottomMount, c.topMount, c.rise ?? c.opticalCenterAboveBase, c.shortName];
@@ -69,17 +69,18 @@ describe("typed interfaces", () => {
     assert.equal(byId("lambda-50").topMount, "qr-receiver", "a QR receiver built into its platform");
     assert.deepEqual(byId("lambda-50").modes.map((m) => [m.name, m.riseRange]), [["upright", { min: 10, max: 18 }], ["underslung", { min: -18, max: -10 }]]);
     assert.deepEqual(facts("euro-plate"), ["euro-dovetail", "qr-receiver", 0.75, "Euro plate"]);
-    assert.deepEqual(facts("qr-plate"), ["qr-plate", "bolt-38", 0, "QR"]);
+    assert.equal(byId("qr-plate"), undefined, "QR is the block's bottom interface, not a piece");
     assert.deepEqual(facts("arri-dovetail"), ["holes-38", "bolt-38", 1, "Arri dovetail"]);
     assert.deepEqual(facts("base-plate"), ["holes-38", "bolt-38", 0.5, "Base plate"]);
     assert.deepEqual([byId("camera").bottomMount, byId("camera").opticalCenterAboveBase, byId("camera").bodyHeight], ["holes-38", 2.5, 5]);
   });
 
-  test("the A-cam block: camera, base plate, Arri dovetail, QR plate — bottom up, as stored", () => {
+  test("the A-cam block: camera, base plate, Arri dovetail — bottom up, as stored — with a QR bottom", () => {
     const block = seed.builds.find((b) => b.id === "a-cam");
     assert.equal(block.name, "A-cam");
     assert.deepEqual(block.componentIds, A_CAM);
-    assert.equal(block.bottomMount, undefined, "its bottom is its QR plate's");
+    assert.equal(block.bottomInterface, "qr-plate");
+    assert.equal(block.bottomMount, undefined, "its pieces' interfaces are checked");
   });
 });
 
@@ -95,11 +96,11 @@ describe("the camera block on a head", () => {
   test("the A-cam block goes directly on the lambda", () => {
     const chain = chainOf(picksFor({ headId: "lambda-50", modeName: "upright" }));
     assert.equal(chain.plates.length, 0);
-    assert.equal(chain.min - 20 - 10, 4, "QR plate 0 + dovetail 1 + base plate ½ + camera 2½");
+    assert.equal(chain.min - 20 - 10, 4, "QR bottom (no rise) + dovetail 1 + base plate ½ + camera 2½");
   });
 
   test("the block is rejected directly on the 2575 without a Euro plate", () => {
-    assert.throws(() => chainOf(picksFor()), /A-cam's QR Plate needs a QR receiver beneath it, but O'Connor 2575D ends in a Euro receiver/);
+    assert.throws(() => chainOf(picksFor()), /A-cam needs a QR receiver beneath it, but O'Connor 2575D ends in a Euro receiver/);
     assert.equal(missingSlot(seed, ...P, picksFor()), "attach", "the rig is incomplete, not silently summed");
     const attach = slotOptions(seed, ...P, picksFor()).attach;
     assert.ok(attach.every((a) => !a.available));
@@ -118,10 +119,17 @@ describe("the camera block on a head", () => {
     assert.equal(lensAboveHead(inBlock), 4.75);
     const { picks, notes } = revalidatePicks(seed, ...P, picksFor({ headId: "lambda-50", modeName: "upright", blockIds: ["euro-plate", ...A_CAM] }));
     assert.equal(picks.blockIds, null, "back to the block as defined");
-    assert.match(notes[0], /^Removed Euro Plate from A-cam\. .*Lambda 50 ends in a QR receiver/);
+    assert.deepEqual(notes, ["Removed Euro plate"]);
     const onHead = revalidatePicks(seed, ...P, picksFor({ headId: "lambda-50", modeName: "upright", plateIds: ["euro-plate"] }));
     assert.deepEqual(onHead.picks.plateIds, []);
-    assert.match(onHead.notes[0], /^Removed Euro Plate\. It needs a Euro receiver beneath it, but Lambda 50 ends in a QR receiver\.$/);
+    assert.deepEqual(onHead.notes, ["Removed Euro plate"]);
+  });
+
+  test("the QR bottom is the whole block's: it goes with the Arri dovetail when the block is stripped", () => {
+    const lambda = { headId: "lambda-50", modeName: "upright" };
+    assert.doesNotThrow(() => chainOf(picksFor(lambda)), "whole: its QR bottom in the lambda's QR receiver");
+    assert.throws(() => chainOf(picksFor({ ...lambda, blockIds: ["base-plate", "camera"] })), /A-cam's Base Plate needs a 3\/8″ bolt beneath it/);
+    assert.doesNotThrow(() => chainOf(picksFor({ plateIds: [], blockIds: ["euro-plate", ...A_CAM] })), "a Euro plate under the whole block mates with its QR bottom");
   });
 
   test("the default rig is complete: the Euro plate goes on the 2575", () => {
@@ -148,7 +156,8 @@ describe("inversion", () => {
     assert.equal(chain.min, 20 + 0 - 8.5 - 0.75 - 4);
     const layout = stackLayout(chain, null);
     const block = layout.blocks.at(-1);
-    assert.deepEqual(block.tag.lines, ["A-cam", "Camera inverted — flip image"]);
+    assert.equal(layout.warning, "Camera inverted — flip image");
+    assert.equal(block.tag, undefined, "no tags");
     assert.ok(block.shape.pieces.every((p) => p.box.y + p.box.height <= block.shape.body.y + 0.05), "its plates above the upside-down body");
   });
 
@@ -196,7 +205,7 @@ describe("the camera on the floor", () => {
   });
 
   test("not on track or spreaders, and not with only a support or only a head", () => {
-    assert.throws(() => chainOf(picksFor({ ...ON_FLOOR, baseItemIds: ["round-track"] })), /A-cam's QR Plate needs a QR receiver/);
+    assert.throws(() => chainOf(picksFor({ ...ON_FLOOR, baseItemIds: ["round-track"] })), /A-cam needs a QR receiver/);
     assert.equal(missingSlot(seed, ...P, picksFor({ ...ON_FLOOR, baseItemIds: ["rolling-spreaders"] })), "support");
     assert.throws(() => chainOf(picksFor({ supportId: null, plateIds: ["euro-plate"] })), /Incomplete: a head needs a support/);
     assert.throws(() => chainOf(picksFor({ headId: null, modeName: null })), /Incomplete: a support needs a head/);
@@ -220,14 +229,14 @@ describe("editing the camera side", () => {
   test("the block's sheet lists its pieces and rises, top to bottom", () => {
     const block = blockOptions(seed, ...P, rig);
     assert.equal(block.name, "A-cam");
-    assert.deepEqual(block.pieces.map((p) => [p.name, p.rise]), [["Camera", 2.5], ["Base Plate", 0.5], ["Arri Dovetail", 1], ["QR Plate", 0]]);
+    assert.deepEqual(block.pieces.map((p) => [p.name, p.rise]), [["Camera", 2.5], ["Base Plate", 0.5], ["Arri Dovetail", 1]]);
   });
 
   test("on a head, stripping is only offered while the block still fits; on the floor, all the way down", () => {
-    assert.equal(blockOptions(seed, ...P, rig).strip, null, "without its QR plate the block fits nothing on the Euro plate");
+    assert.equal(blockOptions(seed, ...P, rig).strip, null, "without its Arri dovetail, and the QR bottom with it, the block fits nothing on the Euro plate");
     assert.deepEqual(blockOptions(seed, ...P, rig).add, [], "the Euro plate is already on the head");
     let picks = picksFor(ON_FLOOR);
-    for (const expected of [["arri-dovetail", "base-plate", "camera"], ["base-plate", "camera"], ["camera"]]) {
+    for (const expected of [["base-plate", "camera"], ["camera"]]) {
       const { strip } = blockOptions(seed, ...P, picks);
       assert.deepEqual(strip.edit, { op: "block", ids: expected });
       picks = revalidatePicks(seed, ...P, applyEdit(picks, strip.edit)).picks;

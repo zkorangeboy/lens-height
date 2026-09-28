@@ -241,10 +241,12 @@ function fluidHead(block) {
   const f = frame(block.box);
   const h = Math.max(f.h, MIN_PX * 2);
   const top = f.bottom - h;
+  // Stacked with no gap, filling the whole rise: the receiver plate on top,
+  // the tilt body, the pan base on the Mitchell at the bottom (7.2).
   const inner =
-    rect(f.left + f.w * 0.2, f.bottom - h * 0.3, f.w * 0.6, h * 0.3, "o k-fixed pan") +
-    rect(f.left, top + h * 0.2, f.w, h * 0.5, fill(block.kind), { rx: h * 0.15 }) +
-    rect(f.left - f.w * 0.1, top, f.w * 1.2, h * 0.15, "o k-fixed plate");
+    rect(f.left - f.w * 0.1, top, f.w * 1.2, h * 0.15, "o k-fixed plate") +
+    rect(f.left, top + h * 0.15, f.w, h * 0.55, fill(block.kind), { rx: h * 0.1 }) +
+    rect(f.left + f.w * 0.2, top + h * 0.7, f.w * 0.6, h * 0.3, "o k-fixed pan");
   return block.shape.inverted ? flipped(block.box, inner) : inner;
 }
 
@@ -360,16 +362,4 @@ export function pieceAt(blocks, point) {
 /** An insertion marker: a visible dot with a 44px hit circle. */
 export function markerSvg(point, dataAttrs) {
   return `<g class="marker" ${dataAttrs}>${circle(point.x, point.y, 22, "marker-hit")}${circle(point.x, point.y, 9, "marker-dot")}</g>`;
-}
-
-/**
- * A piece's tag (7.2): its short name in a small box beside it, placed by
- * the layout; an inverted camera's tag has a second, warning line.
- * `dataAttrs` identifies the piece, so the tag opens its sheet too.
- */
-export function tagSvg(tag, dataAttrs, escape) {
-  const lines = tag.lines
-    .map((text, i) => `<text x="${n(tag.x + 5)}" y="${n(tag.y + 3 + 10 + i * 13)}" class="${i > 0 ? "tag-flag" : "tag-name"}">${escape(text)}</text>`)
-    .join("");
-  return `<g class="tag${tag.warn ? " is-warn" : ""}" ${dataAttrs}>${rect(tag.x, tag.y, tag.width, tag.height, "tag-box", { rx: 4 })}${lines}</g>`;
 }

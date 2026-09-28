@@ -1,35 +1,22 @@
-// The check screen's one-line verdict (SPEC.md 5.6). Picking the tightest
-// margin and deciding whether it's tight are comparisons of heights, so they
-// happen here, not in the UI: the UI shows `text` in the color `state` names.
-
-/** A margin under this many inches is tight: feasible, but flagged. */
-export const TIGHT_MARGIN = 1;
+// The check screen's one-line verdict (SPEC.md 5.6). Whether the rig reaches
+// the target is a comparison of heights, so it happens here, not in the UI:
+// the UI shows `text` in the color `state` names.
 
 import { inches, inchesSpan as span } from "./format.js";
 
-export const isTight = (amount) => amount < TIGHT_MARGIN;
-
-/** A moveable range's leftover travel once the move fits (5.2 step 3). */
-function travelSpare(chain, target) {
-  return chain.moveableInterval.max - chain.moveableInterval.min - (target.high - target.low);
-}
-
-const SIDES = {
-  bottom: { spare: "to spare at bottom", past: "past the bottom" },
-  top: { spare: "to spare at top", past: "past the top" },
-  travel: { spare: "of moveable travel to spare", past: "more travel than it has" },
-};
-
 /**
+ * Success is only what the rig does — "Reaches 30″", "Covers 20–30″" —
+ * with no margins and no warning state (a target inside the tolerance
+ * reads like any other). Failure is only the shortfall.
+ *
  * @param {object} chain - a resolved chain
  * @param {object|null} target - a normalized target, or null if none yet
  * @param {object|null} evaluation - evaluateChain(chain, target)
- * @returns {{state: "waiting"|"feasible"|"tight"|"infeasible", text: string,
- *   tightest: {side: "bottom"|"top"|"travel", amount: number}|null}}
+ * @returns {{state: "waiting"|"feasible"|"infeasible", text: string}}
  */
 export function checkVerdict(chain, target, evaluation) {
   if (!target || !evaluation) {
-    return { state: "waiting", text: `Reaches ${span(chain.min, chain.max)} · enter a target`, tightest: null };
+    return { state: "waiting", text: `Reaches ${span(chain.min, chain.max)} · enter a target` };
   }
 
   if (!evaluation.feasible) {
@@ -40,23 +27,9 @@ export function checkVerdict(chain, target, evaluation) {
         : s.direction === "tall"
           ? `${inches(s.amount)} too tall`
           : `Needs ${inches(s.amount)} more moveable travel`;
-    return { state: "infeasible", text, tightest: null };
+    return { state: "infeasible", text };
   }
 
-  const margins = [
-    { side: "bottom", amount: evaluation.marginBelow },
-    { side: "top", amount: evaluation.marginAbove },
-  ];
-  if (target.type === "range" && (target.rangeType || "moveable") === "moveable") {
-    margins.push({ side: "travel", amount: travelSpare(chain, target) });
-  }
-  const tightest = margins.reduce((best, m) => (m.amount < best.amount ? m : best));
-  const tight = isTight(tightest.amount);
-  const words = SIDES[tightest.side];
-  const room =
-    tightest.amount < 0
-      ? `${inches(-tightest.amount)} ${words.past}, within tolerance`
-      : `${tight ? "only " : ""}${inches(tightest.amount)} ${words.spare}`;
-  const what = target.type === "fixed" ? `Reaches ${inches(target.height)}` : `Covers ${span(target.low, target.high)}`;
-  return { state: tight ? "tight" : "feasible", text: `${what} · ${room}`, tightest };
+  const text = target.type === "fixed" ? `Reaches ${inches(target.height)}` : `Covers ${span(target.low, target.high)}`;
+  return { state: "feasible", text };
 }

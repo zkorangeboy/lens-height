@@ -56,24 +56,24 @@
       "rise": 8,
       "stability": "normal",
       "adjustability": "fixed",
-      "notes": "Orientation is a mode: only a full apple may stand on its 12\" or 20\" face (SPEC.md 2.1).",
+      "notes": "Orientation is a mode, called on set #1 LA (flat, 8″), #2 Chicago (12″), #3 NY (20″). Only a full apple may stand on its 12″ or 20″ face (SPEC.md 2.1).",
       "modes": [
         {
           "name": "flat",
-          "label": "Flat, 8″",
+          "label": "#1 LA",
           "rise": 8,
           "orientation": "flat"
         },
         {
           "name": "12in",
-          "label": "12″ face",
+          "label": "#2 Chicago",
           "rise": 12,
           "orientation": "12in",
           "stability": "low"
         },
         {
           "name": "20in",
-          "label": "20″ face",
+          "label": "#3 NY",
           "rise": 20,
           "orientation": "20in",
           "stability": "low"
@@ -174,19 +174,22 @@
           "name": "pneumatic",
           "label": "Pneumatic tires",
           "rise": 0,
-          "bottomMount": "ground"
+          "bottomMount": "ground",
+          "shortLabel": "Pneumatic"
         },
         {
           "name": "etw",
           "label": "ETW round track wheels",
           "rise": -0.5,
-          "bottomMount": "round-track"
+          "bottomMount": "round-track",
+          "shortLabel": "ETW"
         },
         {
           "name": "skateboard",
           "label": "Skateboard wheels",
           "rise": 2,
-          "bottomMount": "round-track"
+          "bottomMount": "round-track",
+          "shortLabel": "Skateboard"
         }
       ],
       "notes": "J.L. Fisher Model 11 (docs/fisher-11.md). baseRise is floor to nose, beam down, pneumatic tires, with an SLE at 0; the beam travels 33.375″. The wheel set is a mode."
@@ -459,18 +462,6 @@
       "notes": "SPEC.md 3.4: a Euro dovetail on the bottom (flat), a QR receiver on top. On the head as a plate, or added to a camera block's bottom."
     },
     {
-      "id": "qr-plate",
-      "name": "QR Plate",
-      "shortName": "QR",
-      "category": "camera-plate",
-      "bottomMount": "qr-plate",
-      "topMount": "bolt-38",
-      "rise": 0,
-      "length": 4,
-      "adjustability": "fixed",
-      "notes": "Bolted to the piece above; adds no height."
-    },
-    {
       "id": "arri-dovetail",
       "name": "Arri Dovetail",
       "shortName": "Arri dovetail",
@@ -535,7 +526,6 @@
         "oconnor-2575d",
         "lambda-50",
         "euro-plate",
-        "qr-plate",
         "arri-dovetail",
         "base-plate",
         "camera"
@@ -548,13 +538,13 @@
       "name": "A-cam",
       "shortName": "A-cam",
       "componentIds": [
-        "qr-plate",
         "arri-dovetail",
         "base-plate",
         "camera"
       ],
       "hasRatedTopHandle": true,
-      "topHandleOffset": -3
+      "topHandleOffset": -3,
+      "bottomInterface": "qr-plate"
     }
   ]
 }
