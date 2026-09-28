@@ -266,11 +266,25 @@ function lambda(block) {
 
 // --- Camera --------------------------------------------------------------------
 
+/** A thin plate at its true rise; a zero-rise plate (a QR plate) is a sliver. */
+function plateRect(box, cls) {
+  const f = frame(box);
+  const h = Math.max(f.h, MIN_PX / 2);
+  return rect(f.left, f.cy - h / 2, f.w, h, cls, { rx: 1 });
+}
+
+/** A plate between the head and the camera block (the Euro plate). */
+function plate(block) {
+  return plateRect(block.box, `o k-${block.kind} camera-plate`);
+}
+
 function camera(block) {
-  // The body, and a triangle at the optical center opening forward, the way
-  // the camera shoots. Inverted, the body flips (handle underneath); the
-  // triangle doesn't — it stays on the optical center, pointing forward.
-  const { body, cone, opticalCenter, inverted } = block.shape;
+  // The camera block (3.4): each plate at its true rise, the body, and a
+  // triangle at the optical center opening forward, the way the camera
+  // shoots. Inverted, the body flips (handle underneath) and the plates are
+  // above it; the triangle doesn't — it stays on the optical center,
+  // pointing forward.
+  const { body, cone, opticalCenter, inverted, pieces = [] } = block.shape;
   const b = frame(body);
   const y = opticalCenter.y;
   const handleY = inverted ? b.bottom : b.top;
@@ -278,8 +292,9 @@ function camera(block) {
     `M ${n(b.left + b.w * 0.2)} ${n(handleY)} v ${inverted ? 4 : -4} h ${n(b.w * 0.6)} v ${inverted ? -4 : 4}`,
     "o handle"
   );
+  const plates = pieces.map((piece) => plateRect(piece.box, "o k-fixed camera-plate")).join("");
   const triangle = poly([[cone.x0, y], [cone.x1, y - cone.half], [cone.x1, y + cone.half]], "lens-cone");
-  return rect(b.left, b.top, b.w, b.h, "o k-fixed camera", { rx: 2 }) + handle + triangle;
+  return plates + rect(b.left, b.top, b.w, b.h, "o k-fixed camera", { rx: 2 }) + handle + triangle;
 }
 
 const OUTLINES = {
@@ -297,6 +312,7 @@ const OUTLINES = {
   offset,
   "fluid-head": fluidHead,
   lambda,
+  plate,
   camera,
 };
 

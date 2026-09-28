@@ -15,7 +15,7 @@ import { stackLayout } from "../src/stack.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
-const P = ["test-package", "build-placeholder"];
+const P = ["test-package", "a-cam"];
 const byId = (id) => seed.components.find((c) => c.id === id);
 
 const fisher = (over = {}) => ({
@@ -28,6 +28,9 @@ const fisher = (over = {}) => ({
   noseMode: "upright",
   adapterIds: [],
   headId: "oconnor-2575d",
+  // The A-cam block's QR plate needs a Euro plate on the 2575D's Euro receiver.
+  plateIds: ["euro-plate"],
+  blockIds: null,
   modeName: "normal",
   attachName: "base",
   ...over,
@@ -35,10 +38,11 @@ const fisher = (over = {}) => ({
 const chainOf = (over) => buildChain(seed, fisher(over));
 
 /** The Mitchell's height above the floor: the brochure's figure, which is
- * the chain's interval without the head and camera on top. */
+ * the chain's interval without the head, plates, and camera block on top. */
+const aboveMitchell = (chain) => chain.mode.rise + chain.plates.reduce((sum, p) => sum + p.rise, 0) + chain.attach.rise;
 const mitchell = (chain) => ({
-  min: chain.min - chain.mode.rise - chain.attach.rise,
-  max: chain.max - chain.mode.rise - chain.attach.rise,
+  min: chain.min - aboveMitchell(chain),
+  max: chain.max - aboveMitchell(chain),
 });
 
 // ---------------------------------------------------------------------------
@@ -164,7 +168,7 @@ describe("nose fittings", () => {
   test("nose fittings require the fisher family", () => {
     for (const id of ["fisher-sle", "fisher-lhe"]) {
       const nose = byId(id);
-      assert.deepEqual([nose.category, nose.bottomMount, nose.topMount, nose.requiresFamily], ["nose", "fisher-nose", "mitchell", "fisher"]);
+      assert.deepEqual([nose.category, nose.bottomMount, nose.topMount, nose.requiresFamily], ["nose", "fisher-nose", "mitchell-female", "fisher"]);
     }
     const alien = { ...byId("fisher-11"), id: "other-dolly", family: "chapman" };
     const gear = { ...seed, components: [...seed.components, alien], packages: [{ ...seed.packages[0], componentIds: [...seed.packages[0].componentIds, "other-dolly"] }] };
@@ -198,7 +202,7 @@ describe("drawing a Fisher", () => {
 
   test("the SLE upright is an adjustable block with its range, set before the beam moves", () => {
     const chain = chainOf();
-    const headAndCamera = chain.mode.rise + chain.attach.rise;
+    const headAndCamera = aboveMitchell(chain);
     // Mitchell at 17.875: the SLE takes it all (to its top), the beam stays down.
     const layout = stackLayout(chain, { type: "fixed", height: 17.875 + headAndCamera });
     const nose = blockOf(layout, "nose");
@@ -234,7 +238,7 @@ describe("drawing a Fisher", () => {
 
   test("the SLE sits on the nose: the head is right above it, anywhere in its adjustment", () => {
     const chain = chainOf();
-    const headAndCamera = chain.mode.rise + chain.attach.rise;
+    const headAndCamera = aboveMitchell(chain);
     for (const mitchellAt of [13.875, 15, 16.5, 17.875]) {
       const layout = stackLayout(chain, { type: "fixed", height: mitchellAt + headAndCamera });
       const nose = blockOf(layout, "nose");

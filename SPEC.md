@@ -19,11 +19,13 @@ and contributes a **signed rise** — the vertical distance from its bottom
 mount to its top mount.
 
 ```
-ground → [base layer] → [support] → [nose fitting] → [adapters] → [head] → [camera build] → optical center
+ground → [base layer] → [support] → [nose fitting] → [adapters] → [head] → [plates] → [camera block] → optical center
 ```
 
 The nose fitting is present only on a support whose top needs one (a
-J.L. Fisher dolly's beam nose, 3.7).
+J.L. Fisher dolly's beam nose, 3.7). The support, nose fitting, adapters,
+and head are there together or not at all: a camera block may sit directly
+on the floor or on apple boxes (3.4).
 
 Lens height = sum of all rises in the chain.
 
@@ -47,27 +49,44 @@ entered into the database must respect this.
 ## 2. Mount types and compatibility
 
 Components declare a `bottomMount` and a `topMount`. Two components may be
-adjacent in a chain only if the lower one's `topMount` matches the upper
+adjacent in a chain only if the lower one's `topMount` mates with the upper
 one's `bottomMount`. A component that fits more than one mount declares
 `bottomMount` as a list and accepts any of them (baby and standard sticks
 sit on `ground` *or* on `spreader`).
 
-Mount type vocabulary (extend as needed):
+**Typed interfaces.** Head and camera mounts are typed interfaces with a
+**male** and a **female** side. A joint is legal when the lower piece's top
+and the upper piece's bottom are the two sides of the same type; either
+side may be the lower one. The pairs (`src/rules.js`, one table):
 
-- `ground` — rests on the floor
+| Type | Male | Female |
+|---|---|---|
+| Mitchell | `mitchell-male` — a head's or adapter's base | `mitchell-female` — the Mitchell on a support, riser, offset, or nose fitting |
+| Euro | `euro-dovetail` | `euro-receiver` |
+| QR | `qr-plate` | `qr-receiver` |
+| 3/8″ | `bolt-38` | `holes-38` |
+
+A QR plate (male) sits in a QR receiver (female); the 3/8″ bolt (male) on
+top of one camera plate goes into the holes (female) in the bottom of the
+next. Mitchell **keeps its facing** (below) for underslung. Messages name
+the side a piece needs: a piece with a QR plate on its bottom "needs a QR
+receiver beneath it".
+
+Other mounts are untyped and mate only with themselves:
+
+- `ground` — the floor, and the top of an apple box. **The floor and apple
+  box tops also accept the bottom of any camera-side piece** (a plate, a
+  camera-block piece, or the camera, 3.4), so a camera block can sit on
+  the floor or on apple boxes with no support or head.
+- `floor` — the bare floor only (rolling spreaders, 3.1).
+- `spreader` — the top of rolling spreaders; only sticks accept it.
 - `round-track` — the top of round dolly track, the only track. Whether a
   dolly can ride it depends on its wheel mode (3.2).
 - `fisher-nose` — the nose of a J.L. Fisher beam. Only a nose fitting
   (3.7) accepts it; the nose fitting provides the Mitchell mount.
-- `mitchell` — Mitchell mount. **The standard head mount**: supports, heads,
-  and adapters all use it unless they're genuinely something else.
 - `bowl-100`, `bowl-150` — tripod/dolly bowls, for gear that really is
-  bowl-mount. A bowl-mount head on a Mitchell support needs an adapter.
-- `flat-38`, `flat-14` — flat plate with 3/8-16 or 1/4-20
-- `euro` — Euro/Arri dovetail mount
-- `dovetail` — camera dovetail plate
-- `camera-base` — bottom of the camera body
-- `optical-center` — terminal node; only the camera build produces this
+  bowl-mount. Any other untyped name (older data, test fixtures) likewise
+  mates only with itself.
 
 The solver must reject chains with mismatched mounts rather than silently
 summing them.
@@ -86,6 +105,11 @@ one that needs a down-facing mount can't sit on something whose top faces
 up. Facing is checked separately from mount type, and the rejection says
 which two pieces disagreed. (Head mode to camera attach point keeps its
 own pairing, in 3.3 and 3.4.)
+
+**Camera-side pieces have no facing of their own.** A plate or a camera
+block that attaches to a down-facing interface (an underslung 2575D's
+receiver) hangs **inverted**: its rise is negated and its top faces down,
+so whatever attaches to it hangs inverted too (3.4).
 
 ### 2.1 Chain rules beyond mounts
 
@@ -234,8 +258,8 @@ and adapters can require.
 
 ### 3.3 Head
 
-`mitchell → flat-38 | dovetail`. Fixed rise per mode, unless the mode
-declares a `riseRange` (the Lambda 50). (A bowl-mount head declares
+`mitchell-male → euro-receiver | qr-receiver`. Fixed rise per mode, unless
+the mode declares a `riseRange` (the Lambda 50). (A bowl-mount head declares
 `bottomMount: bowl-*` and needs an adapter to sit on a Mitchell support.)
 
 A head has one or more **modes**. Each mode stores:
@@ -263,15 +287,19 @@ A head has one or more **modes**. Each mode stores:
 Examples:
 
 - **O'Connor, normal:** positive rise, facing `up`, needs an `up` mount
-  beneath. Seed data: the **O'Connor 2575D**, Mitchell base, +8.5″ normal;
-  its underslung rise is entered as −8.5″, a placeholder to be corrected.
+  beneath. Seed data: the **O'Connor 2575D**, Mitchell base
+  (`mitchell-male`), a **Euro receiver** on top (`euro-receiver`), +8.5″
+  normal — measured to the receiver, not including a Euro plate; its
+  underslung rise is entered as −8.5″, a placeholder to be corrected.
 - **O'Connor, underslung:** negative rise, facing `down`, needs a `down`
   mount beneath. The plate now faces the floor, so the camera must attach
   either inverted by its base or upright by its top handle (see 3.4).
 - **Lambda 50, upright and underslung:** an L-frame — a pan base on the
   mount, a base plate running forward from it, a column at the rear, and a
   camera platform cantilevered forward from the column that slides along
-  it. Its rise, mount to platform, is **adjustable over 10"–18"** in both
+  it; the platform has a **QR receiver** built in (`qr-receiver`), so a
+  camera block's QR plate goes straight on. Its rise, mount to platform,
+  is **adjustable over 10"–18"** in both
   modes: +10" to +18" upright, −18" to −10" underslung. Upright, it sits on
   an up-facing mount. Underslung, the whole frame is flipped and hangs from
   a **down-facing** mount (the bottom of an offset plate, an SLE
@@ -288,43 +316,69 @@ Inversion is never a flag on the head. It falls out of matching a
 `down`-facing mount to a camera attach point (3.4). Measure each mode
 separately; underslung rise is never simply `-rise`.
 
-### 3.4 Camera build
+### 3.4 Camera block
 
-`flat-38 | dovetail → optical-center`. Fixed rise, **composable** — do not
-store one number per camera body.
+A **camera block** is a named, ordered stack of camera-side pieces that
+travels as a unit: rigged once, and moved between heads whole. Blocks are
+stored in `gear.json` under `builds`, each with an `id`, `name`,
+`shortName`, and `componentIds` bottom to top. Composable — do not store
+one number per camera. Each piece is a component with typed interfaces (2)
+and a `rise`; the camera instead stores `opticalCenterAboveBase` (the
+bottom of the body to the lens's optical center) and, for the drawing
+only, `bodyHeight`. A piece may declare `length`, in inches, for the
+drawing only.
 
-A build is an ordered list of its own components:
+Seed pieces:
 
-- baseplate / bridgeplate (e.g. 19mm studio, 15mm LWS)
-- risers (each with a rise)
-- dovetail plate
-- camera body — stores `opticalCenterAboveBase`, the distance from the
-  bottom of the body to lens optical center, which depends on the lens
-  mount height of that specific camera
+| Piece | Bottom | Top | Rise | Short name |
+|---|---|---|---:|---|
+| Euro plate (`category: plate`) | Euro dovetail (flat) | QR receiver | +¾" | Euro plate |
+| QR plate | QR plate | 3/8″ bolt, bolted to the piece above | 0 | QR |
+| Arri dovetail (mount and plate as one piece) | 3/8″ holes | 3/8″ bolt | +1" | Arri dovetail |
+| Base plate | 3/8″ holes | 3/8″ bolt | +½" | Base plate |
+| Camera | 3/8″ holes | — | optical center +2½", 5" tall | Camera |
 
-The build's total rise is the sum. Builds are assembled once per show and
-reused across queries. A build may also declare `bodyHeight`, the body's
-height for the drawing only (5.8, 7.2); it never enters the math.
+Seed block: **A-cam** — QR plate, Arri dovetail, base plate, camera, bottom
+to top: +4" from the bottom of the QR plate to the optical center. On a
+2575D with a Euro plate between, the lens is 4¾" above the head's top.
 
-Seed data: the **A-Cam build** is its camera body alone, 6" tall with the
-optical center at the middle of that height — `opticalCenterAboveBase`
-3", so the build's rise is **+3"** — with a top handle 3" above the
-optical center (`topHandleOffset` −3").
+**The block as rigged.** The picks carry the block's pieces as rigged
+(`blockIds`, bottom to top; `null` means the block as defined). They may
+differ from the definition in two ways, both from the block's sheet (7.2):
 
-A build exposes one or more **attach points**, each with its own facing
-and signed offset to optical center:
+- **Stripped down**: pieces removed from the bottom up, one at a time (the
+  QR plate first). The camera itself always stays. A removed piece can be
+  put back, in order.
+- **A Euro plate added to its bottom**, where it travels with the block.
 
-- `base` — faces `down`; optical center is **above** it (positive).
-  Mates with an `up`-facing head mount.
-- `base-inverted` — the same base, camera flipped. Faces `up`; optical
-  center is **below** it (negative). Mates with a `down`-facing mount.
-  Results using it must be labeled "camera inverted — flip image."
-- `top-handle` — faces `up`; optical center is **below** it (negative).
-  Mates with a `down`-facing mount; camera hangs upright.
+Its internal joints must mate (2). A **plate** (`category: plate`, the Euro
+plate) can otherwise sit between the head and the block as an ordinary
+camera-side adapter (`plateIds`, bottom to top): its own piece, not part of
+the block.
 
-A down-facing head mount therefore produces up to two candidate chains
-(inverted vs. hung from the handle), and the solver evaluates both. A
-build only offers `top-handle` if it has a handle rated to carry it.
+**Attaching.** The block attaches by its bottom piece's bottom interface,
+which must mate with what's below: the head's top, a plate's top, or — as
+for any camera-side piece — the floor or an apple box (2). Attach points:
+
+- `base` — upright, on an up-facing interface. Rise: the block's total.
+- `base-inverted` — on a down-facing interface the **whole block hangs
+  inverted**: the same pieces, rises negated. Results using it are
+  labeled "Camera inverted — flip image."
+- `top-handle` — unchanged: on a down-facing interface the camera may
+  instead hang upright from its rated top handle (`hasRatedTopHandle`),
+  its optical center `topHandleOffset` below the mount. It needs the same
+  interface as the block's bottom.
+
+A down-facing camera mount therefore produces two candidate chains
+(inverted, or hung from the handle), and the solver evaluates both. A
+block may instead declare one `bottomMount` for the whole block (older
+data, test fixtures); its pieces' interfaces are then not checked.
+
+**No support, no head.** A chain with no support and no head is legal
+when the camera block — or anything stripped from it — sits, with any
+plates, on the floor or on apple boxes. The support, nose fitting,
+Mitchell adapters, and head come and go together: a support with no head,
+or a head with no support, is an incomplete rig (5.9).
 
 ### 3.5 Adjustability
 
@@ -341,8 +395,8 @@ Every component declares an `adjustability`:
 
 Supports (3.2) carry the main ranges. Besides them, a nose fitting's hand
 screw (3.7) and the Lambda 50's sliding platform (3.3) are `adjustable`;
-every other base-layer item, adapter, head, and camera-build part is
-`fixed`. The field still lives on
+every other base-layer item, adapter, head, plate, and camera-block piece
+is `fixed`. The field still lives on
 every component, so a future part with its own range (a second boom, a
 powered riser) needs no schema change to participate.
 
@@ -366,7 +420,8 @@ computes that width explicitly rather than trusting the label.
 the first), and each one's facing requirement (2) is met by the top of the
 one below. Each adapter declares:
 
-- `bottomMount` / `topMount` — usually both `mitchell`.
+- `bottomMount` / `topMount` — usually `mitchell-male` and
+  `mitchell-female` (2).
 - `shortName` — every component (and build) has one, for its tag in the
   drawing (7.2): "SLE", "LHE", "Riser 6″", "2575".
 - `rise` — signed distance from its bottom mount to its top mount.
@@ -579,7 +634,7 @@ suggested fixes: the user edits the rig in the drawing instead (7.2).
   needs to ask for it. A range entered high-to-low is read low-to-high
   (`normalizeTarget`), so a UI never has to compare heights.
 - `packageId` — restricts the component pool to gear actually on the show
-- `buildId` — the camera build in use
+- `buildId` — the camera block in use (3.4)
 - `tolerance` — default **±0.5"**, user-adjustable
 - `mode` — `"solve"` (default) or `"check"`
 - Solve mode also takes `dropDominated` (default on, 5.3 step 4) and
@@ -840,7 +895,12 @@ boxes for a drawing of a given size — so the UI does no height math.
 
 - **Blocks, bottom to top:** one per base item, the support (in its wheel
   mode), the nose fitting (if any, in its mode), each adapter, the head (in
-  its mode), and the camera build (at its attach point). Each has its signed
+  its mode), each plate (slot `plate`), and the camera block (slot `build`,
+  at its attach point). A rig with no support and no head has none of
+  those blocks: the plates and camera block start on the base. The camera
+  block is **one block** whose `shape` carries each of its pieces at true
+  scale — every plate at its own rise and `length`, the camera body and its
+  lens triangle — so it has one tag and one sheet. Each has its signed
   `rise`, a `kind` (`fixed`, `adjustable`, or `moveable`, 3.5), its
   `bottom` and `top` in inches (its lower and upper end, whichever way it
   runs), and `bottomPct` / `topPct` / `heightPct`. A block with a negative
@@ -908,14 +968,16 @@ boxes for a drawing of a given size — so the UI does no height math.
   the drawing's rail shows the reach they're measured against.
 - **Tags, not labels.** The drawing takes the full width; there is no
   label column. Each piece has a small `tag` — its `shortName` from the
-  gear ("SLE", "LHE", "Riser 6″", "2575"), and for an inverted camera
-  a second line, "Camera inverted — flip image" — placed beside the piece
+  gear ("SLE", "LHE", "Riser 6″", "2575"), one for the whole camera block
+  ("A-cam"), and for an inverted block a second line, "Camera inverted —
+  flip image" — placed beside the piece
   (to its right, or its left if there's no room), nudged up or down so no
   two tags overlap. The full name and rise are in the piece's sheet.
 - **Insertion points** (`gaps`) are identified by slot and index: `base` 0
   is the floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on
   the nose fitting (or the support, if it takes none), `adapter` *i* on
-  adapter *i*−1. Each carries its pixel `point`, where the Add flow's
+  adapter *i*−1; `plate` 0 sits on the head (or on the base, with no head),
+  `plate` *i* on plate *i*−1. Each carries its pixel `point`, where the Add flow's
   marker for it is drawn (7.2).
 
 ### 5.9 What may attach
@@ -943,6 +1005,13 @@ of it:
 - `swapOptions` — for one piece of the rig, what may replace it.
 - `applyEdit` — turn an insert, swap, remove, or mode change into the next
   picks, which then go through `revalidatePicks` like any other change.
+  Its block edits strip the camera block's bottom piece, put the last one
+  back, or add a plate to the block's bottom.
+- `blockOptions` — the camera block as rigged: its pieces and rises, and
+  which of those block edits fit right now.
+- `cameraRemedies` — when the camera block fits nothing below it, the edits
+  that would make it fit: a plate on the head, a plate added to the block,
+  or a stripped piece put back.
 
 **Picks are kept in stack order.** `revalidatePicks` returns the base items
 and adapters in the order they physically stack, ground up, so the picks,
@@ -964,8 +1033,11 @@ user tapped, so these are positional, not "anywhere in the stack":
   in its place. A support may be swapped for any other that sits on the
   base layer; a head for any other with a legal mode. Adapters that no
   longer fit the new support are removed with a note, as in any change.
-- Base items and adapters can be **removed**; the support and head can
-  only be swapped, never left empty by an edit.
+- Base items, adapters, and plates can be **removed**. The support can be
+  removed only together with everything that needs it — nose fitting,
+  Mitchell adapters, and head — and only when the camera block then fits
+  on the base (the floor or an apple box); it's then offered back in the
+  Add sheet. The head alone can only be swapped.
 - Options that don't fit still carry their reason (for tests and
   debugging); the UI shows only the ones that fit.
 
@@ -988,14 +1060,28 @@ The slots, ground up, and what each requires of what's beneath it:
    below; matches the support's family (2.1), and isn't already used.
 5. **Head**, with its mode: a head is offered if any mode is legal; a mode
    is legal if the mount and facing beneath the head suit it (3.3).
-6. **Camera attach point**: mates with the head mode's camera-mount facing
-   (3.3, 3.4).
+6. **Plates** (several): camera-side adapters (the Euro plate) on the
+   head's top, or on the base when there's no head; each must mate (2) and
+   isn't already used, and hangs inverted on a down-facing interface.
+7. **Camera block**, as rigged, and its **attach point**: the block's
+   bottom must mate with what's below, and its attach point with the
+   facing there (3.3, 3.4). When nothing fits — the A-cam's QR plate on a
+   2575D's Euro receiver — the rig is incomplete, and check mode says why
+   and offers the fixes (`cameraRemedies`): a Euro plate on the head, a Euro
+   plate added to the block, or a stripped piece put back.
+
+A rig is **complete** when every slot is filled and the camera block
+attaches — or when there's no support and no head and the camera block
+sits on the base. With a head but no support, or a support but no head,
+check mode asks for the missing one.
 
 **When a pick changes.** Picks are revalidated ground up. A base item,
-support, adapter, or head that a change made illegal is *cleared*, and a
-plain note says why ("Dolly can't go on apple boxes, so it was cleared").
-A pick above an empty required slot is kept, and revalidated once that slot
-is filled. A head mode or attach point that became illegal *switches* to the
+support, adapter, head, or plate that a change made illegal is *cleared*,
+and a plain note says why ("Dolly can't go on apple boxes, so it was
+cleared"); so is a plate added to the camera block that no longer fits
+under it. A pick above an empty required slot is kept, and revalidated
+once that slot is filled. A camera block whose pieces don't mate with each
+other goes back to its definition, with a note. A head mode or attach point that became illegal *switches* to the
 first legal option instead — the same as flipping a toggle off — with a
 note.
 
@@ -1124,13 +1210,18 @@ top to bottom:
      on the platform, between it and the top plate. The platform sits at
      the head's current rise, so it moves along the column as the rise is
      set.
-   - **Camera** — the body, drawn `bodyHeight` tall and centered on the
-     optical center, and a small triangle at the optical center whose
-     opening faces forward, the way the camera shoots. The triangle is
-     centered vertically on the optical center, so it sits exactly on the
-     target line when the rig is on target. Inverted, the body flips (its
-     handle underneath) but the triangle stays at the optical center,
-     still pointing forward.
+   - **Plate** (the Euro plate, and each plate in a camera block) — a thin
+     plate at its true rise and `length`; a zero-rise plate (the QR plate)
+     is drawn as a sliver.
+   - **Camera block** — its pieces at true scale, stacked as rigged, with
+     one tag for the whole block. The camera: the body, `bodyHeight` tall,
+     and a small triangle at the optical center whose opening faces
+     forward, the way the camera shoots, centered vertically on the
+     optical center so it sits exactly on the target line when the rig is
+     on target. Inverted, the whole block hangs upside down (the body's
+     handle underneath, the plates above it) but the triangle stays at the
+     optical center, still pointing forward. Hung from the top handle, the
+     camera hangs upright with its plates below it.
 4. **Edit in the drawing** (5.9). Tapping a piece — anywhere in its
    outline, or its tag — opens a sheet to swap it, change its mode (a
    toggle for two states, a segmented choice for more, like a full apple's
@@ -1142,8 +1233,17 @@ top to bottom:
    legality from `rules.js`, 5.9), each with at least a 44px hit area. Tap
    a marker to insert there; tap anywhere else to cancel. There is no text
    list of positions. Sheets show only compatible options, with no list of
-   what doesn't fit. The camera's sheet holds its mount (upright,
-   inverted, top handle). A change that invalidates another pick clears or
+   what doesn't fit. **The camera block's sheet** lists its pieces, top to
+   bottom, each with its rise; removes its bottom piece (stripping it
+   down), puts back the last one removed, or adds a Euro plate to its
+   bottom — each offered only when the rig still works after it; and
+   holds its mount (upright, inverted, top handle). The support's sheet
+   can remove it together with the adapters and head, when the camera
+   block then sits on the base. The Add sheet groups what fits under the
+   support, between support and head, and between head and camera (the
+   Euro plate as an ordinary plate), and offers supports when the rig has
+   none. When the camera fits nothing below it, the drawing area says why
+   and offers the fixes. A change that invalidates another pick clears or
    switches it with a plain-language note. There are no checkbox lists or
    dropdown sections.
 
@@ -1151,7 +1251,7 @@ top to bottom:
 tag in the drawing; its full name and signed rise are in its sheet. No
 text legend beside the drawing. All gear values are treated as correct, so
 there's no "estimated" marking (4). "Camera inverted — flip image" appears
-once, on the camera's tag. A base
+once, on the camera block's tag. A base
 layer over the stacking cap is noted in a line under the drawing. Adjustability is always called
 **moveable / adjustable / fixed** (3.5), in the drawing's key and in the
 words.

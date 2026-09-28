@@ -164,11 +164,12 @@ describe("seed: mounts, adapters, track, apple boxes", () => {
   const byCategory = (category) => seed.components.filter((c) => c.category === category);
 
   test("Mitchell is the standard mount: every head takes it, every support or nose fitting presents it, no bowls left", () => {
-    for (const h of byCategory("head")) assert.equal(h.bottomMount, "mitchell", h.id);
+    // Heads take the male side of a Mitchell; supports and nose fittings present the female side (SPEC.md 2).
+    for (const h of byCategory("head")) assert.equal(h.bottomMount, "mitchell-male", h.id);
     for (const s of byCategory("support")) {
-      assert.ok(["mitchell", "fisher-nose"].includes(s.topMount), s.id);
+      assert.ok(["mitchell-female", "fisher-nose"].includes(s.topMount), s.id);
     }
-    for (const n of byCategory("nose")) assert.equal(n.topMount, "mitchell", n.id);
+    for (const n of byCategory("nose")) assert.equal(n.topMount, "mitchell-female", n.id);
     for (const c of seed.components) {
       for (const mount of [].concat(c.bottomMount, c.topMount)) {
         assert.ok(!String(mount).startsWith("bowl"), `${c.id} still uses ${mount}`);
@@ -184,8 +185,8 @@ describe("seed: mounts, adapters, track, apple boxes", () => {
     );
     for (const r of risers) {
       assert.equal(r.requiresFamily, undefined, r.id);
-      assert.equal(r.bottomMount, "mitchell");
-      assert.equal(r.topMount, "mitchell");
+      assert.equal(r.bottomMount, "mitchell-male");
+      assert.equal(r.topMount, "mitchell-female");
     }
   });
 
@@ -216,7 +217,7 @@ describe("seed: mounts, adapters, track, apple boxes", () => {
   });
 
   test("the seed still solves end to end, and no result puts an apple box under a dolly", () => {
-    const result = solve(seed, { target: { type: "fixed", height: 30 }, packageId: "test-package", buildId: "build-placeholder" });
+    const result = solve(seed, { target: { type: "fixed", height: 30 }, packageId: "test-package", buildId: "a-cam" });
     assert.ok(result.feasible.length > 0);
     const everyChain = result.feasible.flatMap((c) => [c, ...c.alternates]);
     assert.ok(everyChain.some((c) => c.adapters.length > 0), "some solutions use adapters");
@@ -774,7 +775,7 @@ describe("head support-side facing", () => {
 
   test("seed: the real standard head can't be underslung on the real tripod, and can from the bottom of a U plate", () => {
     const seed = JSON.parse(readFileSync(path.join(__dirname, "..", "gear.json"), "utf8"));
-    const sel = { packageId: "test-package", buildId: "build-placeholder", supportId: "baby-sticks", headId: "oconnor-2575d", modeName: "underslung", attachName: "base-inverted" };
+    const sel = { packageId: "test-package", buildId: "a-cam", supportId: "baby-sticks", headId: "oconnor-2575d", modeName: "underslung", plateIds: ["euro-plate"], attachName: "base-inverted" };
     assert.throws(() => buildChain(seed, sel), /facing mismatch/i);
     const chain = buildChain(seed, { ...sel, adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } });
     assert.equal(chain.adapters[0].mode, "bottom");
@@ -1029,7 +1030,7 @@ describe("collapsing equivalent chains", () => {
   test("nothing is lost, and the seed's typical queries come in under 20 top-level results", () => {
     const seed = JSON.parse(readFileSync(path.join(__dirname, "..", "gear.json"), "utf8"));
     for (const target of [{ type: "fixed", height: 30 }, { type: "range", low: 25, high: 40 }]) {
-      const q = { target, packageId: "test-package", buildId: "build-placeholder" };
+      const q = { target, packageId: "test-package", buildId: "a-cam" };
       const pruned = solve(seed, { ...q, collapse: false });
       const collapsed = solve(seed, q);
       assert.equal(collapsed.feasible.reduce((sum, c) => sum + c.count, 0), pruned.feasible.length, "counts add up to what dominance left");

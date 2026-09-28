@@ -14,7 +14,7 @@ import { outlineOf } from "../src/outlines.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
-const P = ["test-package", "build-placeholder"];
+const P = ["test-package", "a-cam"];
 const byId = (id) => seed.components.find((c) => c.id === id);
 const picksFor = (over = {}) => ({
   baseItemIds: [],
@@ -26,6 +26,9 @@ const picksFor = (over = {}) => ({
   adapterIds: [],
   adapterModes: {},
   headId: "oconnor-2575d",
+  // The A-cam block's QR plate needs a Euro plate on the 2575D's Euro receiver.
+  plateIds: ["euro-plate"],
+  blockIds: null,
   modeName: "normal",
   attachName: "base",
   ...over,
@@ -59,7 +62,8 @@ describe("O'Connor 2575D", () => {
     const head = byId("oconnor-2575d");
     assert.equal(head.name, "O'Connor 2575D");
     assert.equal(head.shortName, "2575");
-    assert.equal(head.bottomMount, "mitchell");
+    assert.equal(head.bottomMount, "mitchell-male");
+    assert.equal(head.topMount, "euro-receiver", "a Euro receiver on top; the +8½″ excludes the Euro plate");
     assert.deepEqual(head.modes.map((m) => [m.name, m.rise]), [["normal", 8.5], ["underslung", -8.5]]);
     assert.ok(!byId("head-standard-placeholder"), "the old name is gone");
   });

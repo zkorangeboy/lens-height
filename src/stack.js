@@ -3,7 +3,7 @@
 // it is, its pixel box and outline points, where the target falls, where each
 // tag goes — is done here, so the UI and the outlines (outlines.js) draw
 // numbers they're handed and compute nothing.
-import { riseRangeOf, supportSegments } from "./model.js";
+import { pieceRise, riseRangeOf, supportSegments } from "./model.js";
 
 /** Which kind a piece's own adjustability puts it in (SPEC.md 3.5). */
 const kindOf = (component) => component.adjustability || "fixed";
@@ -68,7 +68,8 @@ const DRAW = {
     columnPast: 2, // how far the column runs past the platform
     cameraX: 3.5, // the camera, centered on the platform
   },
-  camera: { back: -5, front: 6, height: 6, cone: 3, coneHalf: 1.5 }, // body (height if the build gives none), the forward triangle
+  camera: { back: -5, front: 6, height: 6, cone: 3, coneHalf: 1.5 }, // body (height if the camera gives none), the forward triangle
+  plateLength: 6, // a plate with no `length` of its own
 };
 
 /** Tag text size, in pixels: an 11px font at about 6.2px a character. */
@@ -101,20 +102,21 @@ export function stackLayout(chain, target = null, options = {}) {
   // fitting's range, and the head's (SPEC.md 5.8): adjustable first — legs,
   // then the nose fitting's hand screw, then the Lambda 50's platform —
   // moveable last.
-  const segments = supportSegments(chain.support);
+  // No support and no head: the camera block sits on the base (3.4).
+  const segments = chain.support ? supportSegments(chain.support) : [];
   const noseRange = chain.nose ? riseRangeOf(chain.nose) : null;
   const noseSegment = noseRange && {
     kind: noseRange.max > noseRange.min ? chain.nose.adjustability || "adjustable" : "fixed",
     base: noseRange.min,
     extent: noseRange.max - noseRange.min,
   };
-  const headRange = riseRangeOf(chain.mode);
-  const headSegment = {
+  const headRange = chain.mode ? riseRangeOf(chain.mode) : null;
+  const headSegment = headRange && {
     kind: headRange.max > headRange.min ? chain.head.adjustability || "adjustable" : kindOf(chain.head),
     base: headRange.min,
     extent: headRange.max - headRange.min,
   };
-  const allSegments = [...segments, ...(noseSegment ? [noseSegment] : []), headSegment];
+  const allSegments = [...segments, ...(noseSegment ? [noseSegment] : []), ...(headSegment ? [headSegment] : [])];
   const noseIndex = segments.length;
   const headIndex = allSegments.length - 1;
   const allocation = allSegments.map(() => 0);
@@ -180,99 +182,140 @@ export function stackLayout(chain, target = null, options = {}) {
       ? "adjustable"
       : "fixed";
   const supportRise = supportParts.reduce((sum, part) => sum + part.rise, 0);
-  const supportShape = shapeOfSupport(chain.support);
+  const supportShape = chain.support ? shapeOfSupport(chain.support) : null;
   const supportStart = cursor;
   // The wheels' datum: where a pneumatic tire touches. A wheel mode's rise
   // (ETW −½″, skateboard +2″) moves the whole dolly by that much.
-  const datum = supportStart + (chain.support.modeRise || 0);
+  const datum = supportStart + (chain.support?.modeRise || 0);
   const D = DRAW.dolly;
-  place(
-    {
-      slot: "support",
-      index: 0,
-      name: chain.support.name,
-      component: chain.support,
-      kind: supportKind,
-      mode: chain.support.mode,
-      modeLabel: chain.support.modeLabel,
-      parts: supportParts,
-      range: {
-        min: segments.reduce((sum, s) => sum + s.base, 0),
-        max: segments.reduce((sum, s) => sum + s.base + s.extent, 0),
-      },
-    },
-    supportRise,
-    supportShape === "dolly"
-      ? [D.rear, D.noseX + D.noseRadius]
-      : supportShape === "tripod"
-        ? [-tripodSpread(supportRise) / 2, tripodSpread(supportRise) / 2]
-        : [-DRAW.standWidth[supportShape] / 2, DRAW.standWidth[supportShape] / 2],
-    supportShape === "dolly" ? D.noseX : 0,
-    supportShape === "dolly" ? [Math.min(supportStart, datum - 0.5), datum + D.posts.top] : null
-  );
-
-  if (chain.nose) {
-    const noseAllocation = allocation[noseIndex];
-    const bracket = Boolean(chain.nose.hangsAsBracket);
+  const cradles = Boolean(chain.head?.cradlesCamera);
+  const L = DRAW.lambda;
+  if (chain.support) {
     place(
       {
-        slot: "nose",
+        slot: "support",
         index: 0,
-        name: chain.nose.name,
-        component: chain.nose,
-        kind: noseSegment.kind,
-        mode: chain.nose.mode,
-        modeLabel: chain.nose.modeLabel,
-        nose: true,
-        bracket,
-        ...(noseSegment.extent > 0 ? { range: { min: noseRange.min, max: noseRange.max } } : {}),
+        name: chain.support.name,
+        component: chain.support,
+        kind: supportKind,
+        mode: chain.support.mode,
+        modeLabel: chain.support.modeLabel,
+        parts: supportParts,
+        range: {
+          min: segments.reduce((sum, s) => sum + s.base, 0),
+          max: segments.reduce((sum, s) => sum + s.base + s.extent, 0),
+        },
       },
-      noseSegment.base + noseAllocation,
-      bracket ? [-DRAW.bracketThickness, DRAW.bracketFoot + DRAW.mitchell] : [-DRAW.noseBlock / 2, DRAW.noseBlock / 2],
-      bracket ? mountX + DRAW.bracketFoot : mountX,
-      // The SLE's head hangs under its plate; the plate carries what's above.
-      bracket ? null : [cursor + noseSegment.base + noseAllocation - DRAW.noseBody, cursor]
+      supportRise,
+      supportShape === "dolly"
+        ? [D.rear, D.noseX + D.noseRadius]
+        : supportShape === "tripod"
+          ? [-tripodSpread(supportRise) / 2, tripodSpread(supportRise) / 2]
+          : [-DRAW.standWidth[supportShape] / 2, DRAW.standWidth[supportShape] / 2],
+      supportShape === "dolly" ? D.noseX : 0,
+      supportShape === "dolly" ? [Math.min(supportStart, datum - 0.5), datum + D.posts.top] : null
+    );
+
+    if (chain.nose) {
+      const noseAllocation = allocation[noseIndex];
+      const bracket = Boolean(chain.nose.hangsAsBracket);
+      place(
+        {
+          slot: "nose",
+          index: 0,
+          name: chain.nose.name,
+          component: chain.nose,
+          kind: noseSegment.kind,
+          mode: chain.nose.mode,
+          modeLabel: chain.nose.modeLabel,
+          nose: true,
+          bracket,
+          ...(noseSegment.extent > 0 ? { range: { min: noseRange.min, max: noseRange.max } } : {}),
+        },
+        noseSegment.base + noseAllocation,
+        bracket ? [-DRAW.bracketThickness, DRAW.bracketFoot + DRAW.mitchell] : [-DRAW.noseBlock / 2, DRAW.noseBlock / 2],
+        bracket ? mountX + DRAW.bracketFoot : mountX,
+        // The SLE's head hangs under its plate; the plate carries what's above.
+        bracket ? null : [cursor + noseSegment.base + noseAllocation - DRAW.noseBody, cursor]
+      );
+    }
+
+    chain.adapters.forEach((adapter, index) => {
+      const plate = adapter.plateLength;
+      const width = adapter.drawAs === "swivel" ? DRAW.swivel : DRAW.riser;
+      place(
+        { slot: "adapter", index, name: adapter.name, component: adapter, kind: kindOf(adapter), mode: adapter.mode, modeLabel: adapter.modeLabel },
+        adapter.rise,
+        plate ? [-DRAW.mitchell, plate + DRAW.mitchell] : [-width / 2, width / 2],
+        plate ? mountX + plate : mountX,
+        plate ? [cursor, cursor + DRAW.plateThickness] : null
+      );
+    });
+    const headRise = headSegment.base + allocation[headIndex];
+    place(
+      {
+        slot: "head",
+        index: 0,
+        name: chain.head.name,
+        component: chain.head,
+        kind: headSegment.kind,
+        mode: chain.mode.name,
+        ...(headSegment.extent > 0 ? { range: { min: headRange.min, max: headRange.max } } : {}),
+      },
+      headRise,
+      cradles ? [L.column[0], L.platform[1]] : [-DRAW.head / 2, DRAW.head / 2],
+      // The camera sits on the platform, forward of the column.
+      cradles ? mountX + L.cameraX : mountX,
+      // The L-frame: the column runs a little past the platform.
+      cradles
+        ? headRise < 0
+          ? [cursor + headRise - L.columnPast, cursor]
+          : [cursor, cursor + headRise + L.columnPast]
+        : null
     );
   }
 
-  chain.adapters.forEach((adapter, index) => {
-    const plate = adapter.plateLength;
-    const width = adapter.drawAs === "swivel" ? DRAW.swivel : DRAW.riser;
+  // Plates between the head and the camera block (3.4); a plate on a
+  // down-facing interface hangs, its rise negative.
+  chain.plates.forEach((plate, index) => {
+    const length = plate.length || DRAW.plateLength;
     place(
-      { slot: "adapter", index, name: adapter.name, component: adapter, kind: kindOf(adapter), mode: adapter.mode, modeLabel: adapter.modeLabel },
-      adapter.rise,
-      plate ? [-DRAW.mitchell, plate + DRAW.mitchell] : [-width / 2, width / 2],
-      plate ? mountX + plate : mountX,
-      plate ? [cursor, cursor + DRAW.plateThickness] : null
+      { slot: "plate", index, name: plate.name, component: plate, kind: kindOf(plate), hangs: Boolean(plate.inverted) },
+      plate.rise,
+      [-length / 2, length / 2]
     );
   });
-  const cradles = Boolean(chain.head.cradlesCamera);
-  const headRise = headSegment.base + allocation[headIndex];
-  const L = DRAW.lambda;
-  place(
-    {
-      slot: "head",
-      index: 0,
-      name: chain.head.name,
-      component: chain.head,
-      kind: headSegment.kind,
-      mode: chain.mode.name,
-      ...(headSegment.extent > 0 ? { range: { min: headRange.min, max: headRange.max } } : {}),
-    },
-    headRise,
-    cradles ? [L.column[0], L.platform[1]] : [-DRAW.head / 2, DRAW.head / 2],
-    // The camera sits on the platform, forward of the column.
-    cradles ? mountX + L.cameraX : mountX,
-    // The L-frame: the column runs a little past the platform.
-    cradles
-      ? headRise < 0
-        ? [cursor + headRise - L.columnPast, cursor]
-        : [cursor, cursor + headRise + L.columnPast]
-      : null
-  );
-  // The camera: its body is centered on the optical center, whichever way it's mounted.
+
+  // The camera block (3.4): its pieces at true scale, stacked as rigged —
+  // upright, hanging inverted (the same pieces, going down), or hung from
+  // the camera's top handle (the camera upright, its plates below it).
+  const camera = chain.blockPieces.find((piece) => piece.category === "camera-body");
+  const bodyHeight = camera?.bodyHeight || DRAW.camera.height;
+  const lensAbove = camera?.opticalCenterAboveBase ?? bodyHeight / 2;
+  const plates = chain.blockPieces.filter((piece) => piece !== camera);
   const lensAt = cursor + chain.attach.rise;
-  const bodyHalf = (chain.build.bodyHeight || DRAW.camera.height) / 2;
+  const spans = [];
+  let body;
+  if (chain.attach.name === "top-handle" || !camera) {
+    body = [lensAt - lensAbove, lensAt - lensAbove + bodyHeight];
+    let at = body[0];
+    for (const piece of [...plates].reverse()) {
+      spans.unshift({ piece, low: at - pieceRise(piece), high: at }); // kept in the block's order
+      at -= pieceRise(piece);
+    }
+  } else {
+    const dir = chain.attach.inverted ? -1 : 1;
+    let at = cursor;
+    for (const piece of plates) {
+      const next = at + dir * pieceRise(piece);
+      spans.push({ piece, low: Math.min(at, next), high: Math.max(at, next) });
+      at = next;
+    }
+    body = dir > 0 ? [at, at + bodyHeight] : [at - bodyHeight, at];
+  }
+  // The block's plates are centered under the camera body.
+  const middle = (DRAW.camera.back + DRAW.camera.front) / 2;
+  const widest = Math.max(0, ...plates.map((piece) => (piece.length || DRAW.plateLength) / 2));
   place(
     {
       slot: "build",
@@ -283,11 +326,12 @@ export function stackLayout(chain, target = null, options = {}) {
       attach: chain.attach.name,
       inverted: Boolean(chain.attach.inverted),
       cradled: cradles,
+      pieceSpans: { body, spans },
     },
     chain.attach.rise,
-    [DRAW.camera.back, DRAW.camera.front + DRAW.camera.cone],
+    [Math.min(DRAW.camera.back, middle - widest), Math.max(DRAW.camera.front + DRAW.camera.cone, middle + widest)],
     mountX,
-    [lensAt - bodyHalf, lensAt + bodyHalf]
+    [Math.min(body[0], ...spans.map((p) => p.low)), Math.max(body[1], ...spans.map((p) => p.high))]
   );
 
   // Insertion points (5.8): base i sits on base item i-1 (0 is the floor);
@@ -298,9 +342,15 @@ export function stackLayout(chain, target = null, options = {}) {
     const on = i === 0 ? null : raw[i - 1];
     gapSpots.push({ slot: "base", index: i, x: 0, height: on ? on.end : 0, on: on && on.name });
   }
-  for (let j = 0; j <= chain.adapters.length; j++) {
+  for (let j = 0; chain.support && j <= chain.adapters.length; j++) {
     const on = raw[firstAdapterOn + j];
     gapSpots.push({ slot: "adapter", index: j, x: on.mountX, height: on.end, on: on.name });
+  }
+  // plate j sits on the head (or the base, with no head) or on plate j−1.
+  const plateStart = raw.findIndex((b) => b.slot === "build") - chain.plates.length;
+  for (let j = 0; j <= chain.plates.length; j++) {
+    const on = raw[plateStart + j - 1];
+    gapSpots.push({ slot: "plate", index: j, x: on ? on.mountX : 0, height: on ? on.end : 0, on: on && on.name });
   }
 
   // The moveable portion: how far the lens can sweep from this setup with
@@ -419,13 +469,21 @@ export function stackLayout(chain, target = null, options = {}) {
           };
         }
         return { type: "fluid-head", inverted: b.rise < 0 };
+      case "plate":
+        return { type: "plate", hangs: b.hangs };
       case "build":
         return {
           type: "camera",
           inverted: Boolean(b.inverted),
           handle: b.attach === "top-handle",
           attach: pt(at, b.start),
-          body: box(at + DRAW.camera.back, at + DRAW.camera.front, b.drawnLow, b.drawnHigh),
+          body: box(at + DRAW.camera.back, at + DRAW.camera.front, ...b.pieceSpans.body),
+          // Every other piece of the block, as a plate at its true rise.
+          pieces: b.pieceSpans.spans.map(({ piece, low, high }) => {
+            const half = (piece.length || DRAW.plateLength) / 2;
+            const middle = at + (DRAW.camera.back + DRAW.camera.front) / 2;
+            return { id: piece.id, name: piece.name, box: box(middle - half, middle + half, low, high) };
+          }),
           // The triangle: its point at the body's front, on the optical
           // center; its opening forward, the way the camera shoots.
           cone: { x0: X(at + DRAW.camera.front), x1: X(at + DRAW.camera.front + DRAW.camera.cone), half: px(DRAW.camera.coneHalf) },
@@ -448,7 +506,7 @@ export function stackLayout(chain, target = null, options = {}) {
         return { kind: part.kind, rise: part.rise, ...span(Math.min(from, partCursor), Math.max(from, partCursor)) };
       });
     }
-    const { start, end, x0, x1, drawnLow, drawnHigh, ...rest } = block;
+    const { start, end, x0, x1, drawnLow, drawnHigh, pieceSpans, ...rest } = block;
     return {
       ...rest,
       direction: block.rise > 0 ? "up" : block.rise < 0 ? "down" : "flat",

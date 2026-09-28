@@ -71,38 +71,46 @@ export function getBuild(gear, buildId) {
 }
 
 /**
- * A build's rise contribution, per SPEC.md 3.4: the sum of its own
- * components' rises (a plain "rise" field, or opticalCenterAboveBase for
- * the camera body).
+ * A camera block's pieces as rigged (SPEC.md 3.4): `pieceIds` bottom to top
+ * (stripped, or with a plate added), or the block as defined.
  */
-export function buildTotalRise(build, gear) {
+export function blockPieces(build, gear, pieceIds = build.componentIds) {
   const byId = componentsById(gear);
-  return build.componentIds.reduce((sum, id) => {
-    const c = byId[id];
-    const contribution = c.rise !== undefined ? c.rise : c.opticalCenterAboveBase;
-    return sum + (contribution || 0);
-  }, 0);
+  return (pieceIds || build.componentIds).map((id) => byId[id]).filter(Boolean);
+}
+
+/** A piece's rise: its `rise`, or the camera's optical center above its base. */
+export function pieceRise(piece) {
+  return (piece.rise !== undefined ? piece.rise : piece.opticalCenterAboveBase) || 0;
 }
 
 /**
- * The candidate attach points a build exposes (SPEC.md 3.4). "base" and
- * "base-inverted" are two facings of the same physical mount and always
- * available; "top-handle" only when the build declares a rated handle.
+ * A camera block's rise, per SPEC.md 3.4: the sum of its pieces' rises, from
+ * the bottom of its bottom piece to the lens's optical center.
  */
-export function buildAttachPoints(build, gear) {
-  const totalRise = buildTotalRise(build, gear);
+export function buildTotalRise(build, gear, pieceIds) {
+  return blockPieces(build, gear, pieceIds).reduce((sum, piece) => sum + pieceRise(piece), 0);
+}
+
+/**
+ * The attach points a camera block exposes (SPEC.md 3.4), by its bottom
+ * piece's bottom interface (or the block's own `bottomMount`, in older
+ * data). "base" is upright; "base-inverted" is the whole block hanging
+ * inverted, its rise negated; "top-handle" only when the block declares a
+ * rated handle.
+ */
+export function buildAttachPoints(build, gear, pieceIds) {
+  const pieces = blockPieces(build, gear, pieceIds);
+  const totalRise = buildTotalRise(build, gear, pieceIds);
+  const mount = build.bottomMount ?? pieces[0]?.bottomMount;
+  const bottomName = build.bottomMount ? null : pieces[0]?.name;
+  const common = { mount, bottomName, blockName: build.name || build.id };
   const points = [
-    { name: "base", mount: build.bottomMount, facing: "down", rise: totalRise, inverted: false },
-    { name: "base-inverted", mount: build.bottomMount, facing: "up", rise: -totalRise, inverted: true },
+    { name: "base", ...common, facing: "down", rise: totalRise, inverted: false },
+    { name: "base-inverted", ...common, facing: "up", rise: -totalRise, inverted: true },
   ];
   if (build.hasRatedTopHandle) {
-    points.push({
-      name: "top-handle",
-      mount: build.bottomMount,
-      facing: "up",
-      rise: build.topHandleOffset,
-      inverted: false,
-    });
+    points.push({ name: "top-handle", ...common, facing: "up", rise: build.topHandleOffset, inverted: false });
   }
   return points;
 }
@@ -230,16 +238,21 @@ export function describeCurrentRig(chain) {
     baseItemIds: chain.baseItems.map((c) => c.id),
     // Each base item's mode by position (a full apple's face), null for none.
     baseModes: chain.baseItems.map((c) => c.mode ?? null),
-    supportId: chain.support.id,
+    supportId: chain.support ? chain.support.id : null,
     // The support's mode (a dolly's wheel set), if it has modes.
-    supportMode: chain.support.mode ?? null,
+    supportMode: chain.support ? chain.support.mode ?? null : null,
     noseId: chain.nose ? chain.nose.id : null,
     noseMode: chain.nose ? chain.nose.mode ?? null : null,
     adapterIds: chain.adapters.map((c) => c.id),
     // Which mode each multi-mode adapter is in (single-mode adapters have none).
     adapterModes: Object.fromEntries(chain.adapters.filter((c) => c.mode).map((c) => [c.id, c.mode])),
-    headId: chain.head.id,
-    modeName: chain.mode.name,
+    headId: chain.head ? chain.head.id : null,
+    modeName: chain.mode ? chain.mode.name : null,
+    plateIds: chain.plates.map((c) => c.id),
+    // The camera block's pieces as rigged, or null for the block as defined.
+    blockIds: sameIds(chain.blockPieces.map((c) => c.id), chain.build.componentIds) ? null : chain.blockPieces.map((c) => c.id),
     attachName: chain.attach.name,
   };
 }
+
+const sameIds = (a, b) => a.length === b.length && a.every((id, i) => id === b[i]);

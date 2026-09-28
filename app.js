@@ -13,7 +13,20 @@
 // here calls them.
 
 import { buildChain, evaluateChain, normalizeTarget, exceedsBaseLayerCap, DEFAULT_MAX_BASE_LAYER_ITEMS } from "./src/solver.js";
-import { addOptions, applyEdit, baseModeAt, defaultPicks, missingSlot, modeControl, revalidatePicks, slotOptions, swapOptions } from "./src/rules.js";
+import {
+  addOptions,
+  applyEdit,
+  baseModeAt,
+  blockOptions,
+  cameraRemedies,
+  defaultPicks,
+  missingSlot,
+  modeControl,
+  revalidatePicks,
+  slotOptions,
+  supportRemoval,
+  swapOptions,
+} from "./src/rules.js";
 import { checkVerdict } from "./src/verdict.js";
 import { inches, signedInches as fmtSigned } from "./src/format.js";
 import { stackLayout } from "./src/stack.js";
@@ -178,7 +191,8 @@ function wireEdits() {
       render();
     } else if (t.dataset.edit) {
       const change = JSON.parse(t.dataset.edit);
-      if (change.op !== "mode") closeSheet();
+      // A mode or a camera block edit keeps its sheet open, to strip a block piece by piece.
+      if (change.op !== "mode" && change.op !== "block") closeSheet();
       edit(change);
     } else if (t.dataset.toggle) {
       const change = JSON.parse(t.dataset.toggle);
@@ -263,20 +277,29 @@ function renderNotes() {
   el.notesList.innerHTML = state.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("");
 }
 
-/** A rig with an empty required slot: offer what fits there. */
+/** A rig with an empty required slot: offer what fits there. When the camera
+ * block fits nothing below it, say why and offer what would make it fit (rules.js). */
 function renderIncomplete(missing) {
   const opts = slotOptions(gear, state.packageId, state.buildId, state.picks);
-  const words = { support: "Choose a support", nose: "Choose a nose fitting", head: "Choose a head", attach: "Nothing on this camera fits the head" };
+  const words = { support: "Choose a support", nose: "Choose a nose fitting", head: "Choose a head", attach: "The camera doesn't fit" };
   setVerdict("waiting", words[missing]);
   el.rig.dataset.state = "waiting";
   el.footer.innerHTML = "";
   el.addButton.hidden = true;
   el.placingHint.hidden = true;
-  const choices = missing === "attach" ? [] : opts[missing].filter((o) => o.available);
+  if (missing === "attach") {
+    const remedies = cameraRemedies(gear, state.packageId, state.buildId, state.picks);
+    const reason = opts.attach.find((a) => a.reason)?.reason || "";
+    el.rig.innerHTML = `<div class="empty-slot"><p class="hint">${escapeHtml(reason)}</p>${
+      remedies.length ? `<h3>Add</h3><div class="option-list">${remedies.map((r) => optionButton(editAttr(r.edit), r.label, null)).join("")}</div>` : ""
+    }</div>`;
+    return;
+  }
+  const choices = opts[missing].filter((o) => o.available);
   el.rig.innerHTML = `<div class="empty-slot">${
     choices.length
       ? `<div class="option-list">${choices.map((o) => optionButton(editAttr({ op: "swap", slot: missing, id: o.id }), o.name, null)).join("")}</div>`
-      : `<p class="hint">${escapeHtml(opts.attach.find((a) => a.reason)?.reason || "Nothing fits here.")}</p>`
+      : `<p class="hint">Nothing fits here.</p>`
   }</div>`;
 }
 
@@ -413,7 +436,7 @@ function renderSheet() {
 
 function pieceSheetHtml({ slot, id, at }) {
   const p = state.picks;
-  const ids = slot === "base" ? p.baseItemIds : slot === "adapter" ? p.adapterIds : null;
+  const ids = { base: p.baseItemIds, adapter: p.adapterIds, plate: p.plateIds }[slot] || null;
   // The same position if it still holds this piece, else wherever it moved.
   const index = !ids ? 0 : ids[at] === id ? at : ids.indexOf(id);
   if (index < 0) return null; // it was removed
@@ -426,20 +449,12 @@ function pieceSheetHtml({ slot, id, at }) {
   const head = `<h2>${escapeHtml(block.name)}</h2>
     <p class="sheet-sub">${fmtSigned(block.rise)} at this setup${range}</p>`;
 
-  if (slot === "build") {
-    const control = modeControl(opts.attach);
-    const builds =
-      gear.builds.length > 1
-        ? `<h3>Camera build</h3><div class="option-list">${gear.builds
-            .filter((b) => b.id !== state.buildId)
-            .map((b) => optionButton(`data-build="${escapeHtml(b.id)}"`, b.name, null))
-            .join("")}</div>`
-        : "";
-    return `${head}<h3>Camera mount</h3>${modeHtml(control, { op: "mode", slot: "build" }, p.attachName)}${builds}`;
-  }
+  if (slot === "build") return blockSheetHtml(head, opts);
 
   let mode = "";
-  if (slot === "head") {
+  if (slot === "plate") {
+    // A plate has no modes; it hangs inverted under a down-facing head (3.4).
+  } else if (slot === "head") {
     const entry = opts.head.find((o) => o.id === p.headId);
     mode = `<h3>Mode</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot: "head" }, p.modeName)}`;
   } else {
@@ -458,11 +473,37 @@ function pieceSheetHtml({ slot, id, at }) {
     (o) => ({ op: "swap", slot, index, id: o.id, mode: o.mode }),
     "Nothing else fits here."
   );
+  const removal = slot === "support" ? supportRemoval(gear, state.packageId, state.buildId, p) : null;
   const remove =
-    slot === "base" || slot === "adapter"
+    slot === "base" || slot === "adapter" || slot === "plate"
       ? `<button type="button" class="remove" ${editAttr({ op: "remove", slot, index })}>Remove ${escapeHtml(block.name)}</button>`
-      : "";
+      : removal
+        ? `<button type="button" class="remove" ${editAttr(removal.edit)}>${escapeHtml(removal.label)}</button>`
+        : "";
   return `${head}${mode}<h3>Swap for</h3>${swap}${remove}`;
+}
+
+/** The camera block's sheet (3.4): its pieces and rises, the edits that fit
+ * (strip the bottom piece, put one back, add a Euro plate), and its mount. */
+function blockSheetHtml(head, opts) {
+  const block = blockOptions(gear, state.packageId, state.buildId, state.picks);
+  const pieces = `<ul class="block-pieces">${block.pieces
+    .map((piece) => `<li><span>${escapeHtml(piece.name)}</span><span class="option-rise">${piece.camera ? `lens ${fmtSigned(piece.rise)}` : fmtSigned(piece.rise)}</span></li>`)
+    .join("")}</ul>`;
+  const edits = [block.strip, block.restore, ...block.add].filter(Boolean);
+  const editList = edits.length ? `<div class="option-list">${edits.map((e) => optionButton(editAttr(e.edit), e.label, null)).join("")}</div>` : "";
+  const builds =
+    gear.builds.length > 1
+      ? `<h3>Camera block</h3><div class="option-list">${gear.builds
+          .filter((b) => b.id !== state.buildId)
+          .map((b) => optionButton(`data-build="${escapeHtml(b.id)}"`, b.name, null))
+          .join("")}</div>`
+      : "";
+  // On the floor or an apple box there's only one way up: no mount to choose.
+  const mount = state.picks.headId
+    ? `<h3>Camera mount</h3>${modeHtml(modeControl(opts.attach), { op: "mode", slot: "build" }, state.picks.attachName)}`
+    : "";
+  return `${head}<h3>Pieces, top to bottom</h3>${pieces}${editList}${mount}${builds}`;
 }
 
 /** The Add sheet: everything that fits; an item with several positions
@@ -484,5 +525,5 @@ function addSheetHtml() {
     const list = options.filter((o) => o.component.category === category);
     return list.length ? `<h3>${title}</h3><div class="option-list">${list.map(item).join("")}</div>` : "";
   };
-  return `<h2>Add to the rig</h2>${group("Under the support", "base")}${group("Between support and head", "adapter")}`;
+  return `<h2>Add to the rig</h2>${group("Support", "support")}${group(state.picks.supportId ? "Under the support" : "Under the camera", "base")}${group("Between support and head", "adapter")}${group(state.picks.headId ? "Between head and camera" : "Plates", "plate")}`;
 }

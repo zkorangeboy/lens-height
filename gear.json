@@ -116,7 +116,7 @@
         "ground",
         "spreader"
       ],
-      "topMount": "mitchell",
+      "topMount": "mitchell-female",
       "riseRange": {
         "specMin": 20,
         "specMax": 36,
@@ -138,7 +138,7 @@
         "ground",
         "spreader"
       ],
-      "topMount": "mitchell",
+      "topMount": "mitchell-female",
       "riseRange": {
         "specMin": 36,
         "specMax": 66,
@@ -197,7 +197,7 @@
       "shortName": "Hi-hat",
       "category": "support",
       "bottomMount": "ground",
-      "topMount": "mitchell",
+      "topMount": "mitchell-female",
       "rise": 8,
       "adjustability": "fixed",
       "notes": "Fixed rise, no range.",
@@ -209,7 +209,7 @@
       "shortName": "Low hat",
       "category": "support",
       "bottomMount": "ground",
-      "topMount": "mitchell",
+      "topMount": "mitchell-female",
       "rise": 3.5,
       "adjustability": "fixed",
       "notes": "Fixed rise, no range.",
@@ -221,7 +221,7 @@
       "shortName": "SLE",
       "category": "nose",
       "bottomMount": "fisher-nose",
-      "topMount": "mitchell",
+      "topMount": "mitchell-female",
       "requiresFamily": "fisher",
       "modes": [
         {
@@ -260,7 +260,7 @@
       "shortName": "LHE",
       "category": "nose",
       "bottomMount": "fisher-nose",
-      "topMount": "mitchell",
+      "topMount": "mitchell-female",
       "requiresFamily": "fisher",
       "rise": -14.875,
       "mountFacing": "up",
@@ -273,8 +273,8 @@
       "name": "Mitchell Riser 3\"",
       "shortName": "Riser 3″",
       "category": "adapter",
-      "bottomMount": "mitchell",
-      "topMount": "mitchell",
+      "bottomMount": "mitchell-male",
+      "topMount": "mitchell-female",
       "rise": 3,
       "mountFacing": "up",
       "adjustability": "fixed",
@@ -285,8 +285,8 @@
       "name": "Mitchell Riser 6\"",
       "shortName": "Riser 6″",
       "category": "adapter",
-      "bottomMount": "mitchell",
-      "topMount": "mitchell",
+      "bottomMount": "mitchell-male",
+      "topMount": "mitchell-female",
       "rise": 6,
       "mountFacing": "up",
       "adjustability": "fixed",
@@ -297,8 +297,8 @@
       "name": "Mitchell Riser 12\"",
       "shortName": "Riser 12″",
       "category": "adapter",
-      "bottomMount": "mitchell",
-      "topMount": "mitchell",
+      "bottomMount": "mitchell-male",
+      "topMount": "mitchell-female",
       "rise": 12,
       "mountFacing": "up",
       "adjustability": "fixed",
@@ -309,8 +309,8 @@
       "name": "Mitchell Riser 18\"",
       "shortName": "Riser 18″",
       "category": "adapter",
-      "bottomMount": "mitchell",
-      "topMount": "mitchell",
+      "bottomMount": "mitchell-male",
+      "topMount": "mitchell-female",
       "rise": 18,
       "mountFacing": "up",
       "adjustability": "fixed",
@@ -321,8 +321,8 @@
       "name": "Mitchell Riser 24\"",
       "shortName": "Riser 24″",
       "category": "adapter",
-      "bottomMount": "mitchell",
-      "topMount": "mitchell",
+      "bottomMount": "mitchell-male",
+      "topMount": "mitchell-female",
       "rise": 24,
       "mountFacing": "up",
       "adjustability": "fixed",
@@ -333,8 +333,8 @@
       "name": "Mitchell Offset, 10″",
       "shortName": "Offset 10″",
       "category": "adapter",
-      "bottomMount": "mitchell",
-      "topMount": "mitchell",
+      "bottomMount": "mitchell-male",
+      "topMount": "mitchell-female",
       "adjustability": "fixed",
       "modes": [
         {
@@ -358,8 +358,8 @@
       "name": "Mitchell Offset, 24″",
       "shortName": "Offset 24″",
       "category": "adapter",
-      "bottomMount": "mitchell",
-      "topMount": "mitchell",
+      "bottomMount": "mitchell-male",
+      "topMount": "mitchell-female",
       "adjustability": "fixed",
       "modes": [
         {
@@ -383,8 +383,8 @@
       "name": "Rotating Offset",
       "shortName": "Rotating offset",
       "category": "adapter",
-      "bottomMount": "mitchell",
-      "topMount": "mitchell",
+      "bottomMount": "mitchell-male",
+      "topMount": "mitchell-female",
       "rise": 4,
       "mountFacing": "up",
       "adjustability": "fixed",
@@ -396,8 +396,8 @@
       "name": "O'Connor 2575D",
       "shortName": "2575",
       "category": "head",
-      "bottomMount": "mitchell",
-      "topMount": "flat-38",
+      "bottomMount": "mitchell-male",
+      "topMount": "euro-receiver",
       "modes": [
         {
           "name": "normal",
@@ -420,8 +420,8 @@
       "name": "Lambda 50",
       "shortName": "Lambda 50",
       "category": "head",
-      "bottomMount": "mitchell",
-      "topMount": "flat-38",
+      "bottomMount": "mitchell-male",
+      "topMount": "qr-receiver",
       "modes": [
         {
           "name": "upright",
@@ -447,35 +447,63 @@
       "cradlesCamera": true
     },
     {
-      "id": "baseplate-19-placeholder",
-      "name": "19mm Studio Baseplate",
-      "shortName": "Baseplate",
-      "category": "baseplate",
-      "bottomMount": "flat-38",
-      "topMount": "dovetail",
-      "rise": 1.5,
-      "adjustability": "fixed"
-    },
-    {
-      "id": "riser-1in-placeholder",
-      "name": "1in Riser Block",
-      "shortName": "1″ riser",
-      "category": "riser",
-      "bottomMount": "dovetail",
-      "topMount": "dovetail",
-      "rise": 1,
-      "adjustability": "fixed"
-    },
-    {
-      "id": "camera-body-placeholder",
-      "name": "Camera Body",
-      "shortName": "Camera body",
-      "category": "camera-body",
-      "bottomMount": "camera-base",
-      "topMount": "optical-center",
-      "opticalCenterAboveBase": 3,
+      "id": "euro-plate",
+      "name": "Euro Plate",
+      "shortName": "Euro plate",
+      "category": "plate",
+      "bottomMount": "euro-dovetail",
+      "topMount": "qr-receiver",
+      "rise": 0.75,
+      "length": 6,
       "adjustability": "fixed",
-      "notes": "6″ tall, optical center at the middle."
+      "notes": "SPEC.md 3.4: a Euro dovetail on the bottom (flat), a QR receiver on top. On the head as a plate, or added to a camera block's bottom."
+    },
+    {
+      "id": "qr-plate",
+      "name": "QR Plate",
+      "shortName": "QR",
+      "category": "camera-plate",
+      "bottomMount": "qr-plate",
+      "topMount": "bolt-38",
+      "rise": 0,
+      "length": 4,
+      "adjustability": "fixed",
+      "notes": "Bolted to the piece above; adds no height."
+    },
+    {
+      "id": "arri-dovetail",
+      "name": "Arri Dovetail",
+      "shortName": "Arri dovetail",
+      "category": "camera-plate",
+      "bottomMount": "holes-38",
+      "topMount": "bolt-38",
+      "rise": 1,
+      "length": 10,
+      "adjustability": "fixed",
+      "notes": "Dovetail mount and plate as one piece."
+    },
+    {
+      "id": "base-plate",
+      "name": "Base Plate",
+      "shortName": "Base plate",
+      "category": "camera-plate",
+      "bottomMount": "holes-38",
+      "topMount": "bolt-38",
+      "rise": 0.5,
+      "length": 7,
+      "adjustability": "fixed"
+    },
+    {
+      "id": "camera",
+      "name": "Camera",
+      "shortName": "Camera",
+      "category": "camera-body",
+      "bottomMount": "holes-38",
+      "topMount": "optical-center",
+      "opticalCenterAboveBase": 2.5,
+      "bodyHeight": 5,
+      "adjustability": "fixed",
+      "notes": "5″ tall, optical center 2½″ above its base."
     }
   ],
   "packages": [
@@ -506,24 +534,27 @@
         "rotating-offset",
         "oconnor-2575d",
         "lambda-50",
-        "baseplate-19-placeholder",
-        "riser-1in-placeholder",
-        "camera-body-placeholder"
+        "euro-plate",
+        "qr-plate",
+        "arri-dovetail",
+        "base-plate",
+        "camera"
       ]
     }
   ],
   "builds": [
     {
-      "id": "build-placeholder",
-      "name": "A-Cam Build",
-      "shortName": "Camera",
+      "id": "a-cam",
+      "name": "A-cam",
+      "shortName": "A-cam",
       "componentIds": [
-        "camera-body-placeholder"
+        "qr-plate",
+        "arri-dovetail",
+        "base-plate",
+        "camera"
       ],
-      "bottomMount": "flat-38",
       "hasRatedTopHandle": true,
-      "topHandleOffset": -3,
-      "bodyHeight": 6
+      "topHandleOffset": -3
     }
   ]
 }

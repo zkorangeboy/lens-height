@@ -15,7 +15,7 @@ import { checkVerdict, TIGHT_MARGIN } from "../src/verdict.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
-const P = ["test-package", "build-placeholder"];
+const P = ["test-package", "a-cam"];
 
 const picksFor = (over = {}) => ({
   baseItemIds: [],
@@ -27,6 +27,9 @@ const picksFor = (over = {}) => ({
   adapterIds: [],
   adapterModes: {},
   headId: "oconnor-2575d",
+  // The A-cam block's QR plate needs a Euro plate on the 2575D's Euro receiver.
+  plateIds: ["euro-plate"],
+  blockIds: null,
   modeName: "normal",
   attachName: "base",
   ...over,
@@ -40,13 +43,13 @@ const UNDERSLUNG = picksFor({
 });
 // The Lambda 50 hung underslung from the bottom of an offset plate, and upright on the sticks.
 const LAMBDA = picksFor({
-  headId: "lambda-50",
+  headId: "lambda-50", plateIds: [],
   modeName: "underslung",
   attachName: "base",
   adapterIds: ["mitchell-offset-10"],
   adapterModes: { "mitchell-offset-10": "bottom" },
 });
-const LAMBDA_UP = picksFor({ headId: "lambda-50", modeName: "upright", attachName: "base" });
+const LAMBDA_UP = picksFor({ headId: "lambda-50", plateIds: [], modeName: "upright", attachName: "base" });
 const available = (options) => options.filter((o) => o.available).map((o) => o.label);
 const gap = (picks, slot, index) => insertOptions(seed, ...P, picks).find((g) => g.slot === slot && g.index === index);
 
@@ -55,49 +58,49 @@ const gap = (picks, slot, index) => insertOptions(seed, ...P, picks).find((g) =>
 // ---------------------------------------------------------------------------
 
 describe("checkVerdict: one line, the tightest margin in plain words", () => {
-  const chain = chainOf(picksFor()); // reach 31.5..47.5
+  const chain = chainOf(picksFor()); // reach 33.25..49.25: sticks 20–36″, 2575 +8½″, Euro plate +¾″, A-cam +4″
   const verdict = (target) => checkVerdict(chain, target, evaluateChain(chain, target));
 
   test("feasible names the tightest margin and which side it's on", () => {
-    const v = verdict({ type: "fixed", height: 38.5 });
+    const v = verdict({ type: "fixed", height: 40.25 });
     assert.equal(v.state, "feasible");
-    assert.equal(v.text, "Reaches 38½″ · 7″ to spare at bottom");
+    assert.equal(v.text, "Reaches 40¼″ · 7″ to spare at bottom");
     assert.deepEqual(v.tightest, { side: "bottom", amount: 7 });
-    assert.equal(verdict({ type: "fixed", height: 41.5 }).text, "Reaches 41½″ · 6″ to spare at top");
+    assert.equal(verdict({ type: "fixed", height: 43.25 }).text, "Reaches 43¼″ · 6″ to spare at top");
   });
 
   test(`a margin under ${TIGHT_MARGIN}″ is feasible but tight, and says "only"`, () => {
-    const v = verdict({ type: "fixed", height: 47 });
+    const v = verdict({ type: "fixed", height: 48.75 });
     assert.equal(v.state, "tight");
-    assert.equal(v.text, "Reaches 47″ · only ½″ to spare at top");
-    assert.equal(verdict({ type: "fixed", height: 46.5 }).state, "feasible", "exactly 1″ is not tight");
+    assert.equal(v.text, "Reaches 48¾″ · only ½″ to spare at top");
+    assert.equal(verdict({ type: "fixed", height: 48.25 }).state, "feasible", "exactly 1″ is not tight");
   });
 
   test("inside the tolerance but past the end says so", () => {
-    const v = verdict({ type: "fixed", height: 47.75 });
+    const v = verdict({ type: "fixed", height: 49.5 });
     assert.equal(v.state, "tight");
-    assert.equal(v.text, "Reaches 47¾″ · ¼″ past the top, within tolerance");
+    assert.equal(v.text, "Reaches 49½″ · ¼″ past the top, within tolerance");
   });
 
   test("infeasible gives the shortfall: too short, too tall, or not enough moveable travel", () => {
-    assert.deepEqual(verdict({ type: "fixed", height: 51 }), { state: "infeasible", text: "3½″ too short", tightest: null });
-    assert.equal(verdict({ type: "fixed", height: 28 }).text, "3½″ too tall");
-    assert.equal(verdict({ type: "range", low: 34.5, high: 39.5 }).text, "Needs 5″ more moveable travel", "a tripod can't move live");
+    assert.deepEqual(verdict({ type: "fixed", height: 52.75 }), { state: "infeasible", text: "3½″ too short", tightest: null });
+    assert.equal(verdict({ type: "fixed", height: 29.75 }).text, "3½″ too tall");
+    assert.equal(verdict({ type: "range", low: 36.25, high: 41.25 }).text, "Needs 5″ more moveable travel", "a tripod can't move live");
   });
 
   test("a moveable range weighs the travel left over, too", () => {
-    // Fisher 11, SLE upright (−4″ to 0″): reach 25.375..62.75, with 33.375″ of beam.
+    // Fisher 11, SLE upright (−4″ to 0″): reach 27.125..64.5, with 33.375″ of beam.
     const dolly = chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" }));
     const move = (low, high) => ({ type: "range", low, high });
     const verdictFor = (target) => checkVerdict(dolly, target, evaluateChain(dolly, target));
-    assert.equal(verdictFor(move(27.375, 39)).text, "Covers 27¼–39″ · 2″ to spare at bottom");
-    const top = verdictFor(move(30, 62.75)); // 32.75″ of 33.375″ of beam, 0″ above
+    assert.equal(verdictFor(move(29.125, 40.75)).text, "Covers 29–40¾″ · 2″ to spare at bottom");
+    const top = verdictFor(move(31.75, 64.5)); // 32.75″ of 33.375″ of beam, 0″ above
     assert.equal(top.state, "tight");
-    assert.equal(top.text, "Covers 30–62¾″ · only 0″ to spare at top");
+    assert.equal(top.text, "Covers 31¾–64½″ · only 0″ to spare at top");
     // The SLE's 4″ widens the reach, not the live move: this one barely fits the beam.
-    const wide = verdictFor(move(28, 60.625)); // 32.625″ move, 0.75″ of beam left
+    const wide = verdictFor(move(29.75, 62.375)); // 32.625″ move, 0.75″ of beam left
     assert.deepEqual(wide.tightest, { side: "travel", amount: 0.75 });
-    assert.equal(wide.text, "Covers 28–60½″ · only ¾″ of moveable travel to spare");
+    assert.equal(wide.text, "Covers 29¾–62¼″ · only ¾″ of moveable travel to spare");
 
     // Legs plus a short boom: plenty of reach, but the move barely fits the boom.
     const legsAndBoom = { min: 0, max: 50, moveableInterval: { min: 0, max: 10.5 } };
@@ -110,7 +113,7 @@ describe("checkVerdict: one line, the tightest margin in plain words", () => {
   });
 
   test("no target yet: the reach, and a prompt", () => {
-    assert.deepEqual(checkVerdict(chain, null, null), { state: "waiting", text: "Reaches 31½–47½″ · enter a target", tightest: null });
+    assert.deepEqual(checkVerdict(chain, null, null), { state: "waiting", text: "Reaches 33¼–49¼″ · enter a target", tightest: null });
   });
 });
 
@@ -156,7 +159,11 @@ describe("stackLayout: horizontal position and pixel geometry", () => {
     const tripodRig = stackLayout(chainOf(picksFor()), null, { frame: { width: 320, height: 520 } });
     const { scale } = tripodRig.frame;
     assert.ok(close(tripodRig.blocks[0].shape.topWidth, 4 * scale, 0.05), "the tripod's 4″ top");
-    assert.ok(close(tripodRig.blocks[2].shape.body.width, 11 * scale, 0.1), "an 11″ camera body");
+    const block = tripodRig.blocks.find((b) => b.slot === "build").shape;
+    assert.ok(close(block.body.width, 11 * scale, 0.1), "an 11″ camera body");
+    assert.ok(close(block.body.height, 5 * scale, 0.1), "5″ tall");
+    const dovetail = block.pieces.find((p) => p.id === "arri-dovetail").box;
+    assert.ok(close(dovetail.width, 10 * scale, 0.1) && close(dovetail.height, 1 * scale, 0.1), "a 10″ Arri dovetail, 1″ thick");
     const fisher = stackLayout(chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" })), null, { frame: { width: 320, height: 520 } });
     const dolly = fisher.blocks.find((b) => b.slot === "support").shape;
     const k = fisher.frame.scale;
@@ -174,7 +181,9 @@ describe("stackLayout: horizontal position and pixel geometry", () => {
     assert.ok(close(plate.shape.far.x - plate.shape.near.x, 10 * layout.frame.scale, 0.2), "and drawn 10″ long at the true scale");
     assert.equal(plate.shape.side, "bottom");
     assert.equal(at(layout, "head").top, at(layout, "support").top, "the head hangs from the plate, at the top of the support");
-    assert.equal(at(layout, "build").top, at(layout, "head").bottom, "the camera hangs from the head");
+    assert.equal(at(layout, "plate").top, at(layout, "head").bottom, "the Euro plate hangs from the head");
+    assert.equal(at(layout, "plate").rise, -0.75, "inverted, its rise negated");
+    assert.equal(at(layout, "build").top, at(layout, "plate").bottom, "the camera block hangs from the plate");
     assert.equal(layout.lens.height, at(layout, "build").bottom, "the lens is at the bottom of the hanging camera");
     assert.equal(at(layout, "build").shape.inverted, true);
   });
@@ -240,12 +249,12 @@ describe("stackLayout: horizontal position and pixel geometry", () => {
   });
 
   test("the scale fits the content: the reach rail is clipped, not the drawing stretched", () => {
-    const chain = chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" })); // reach 25.375..62.75
+    const chain = chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle" })); // reach 27.125..64.5
     const layout = stackLayout(chain, { type: "fixed", height: 30 }, { frame: { width: 400, height: 520 } });
     assert.equal(layout.lens.height, 30);
     // The current rig tops out at the push posts, 39¾″: the drawing fits that, not the 63¾″ reach.
     assert.ok(layout.lens.pct > 60 && layout.lens.pct < 90, `the lens at ${layout.lens.pct}%, under the push posts`);
-    assert.deepEqual([layout.reach.min, layout.reach.max], [25.375, 62.75], "the rail is labeled with the real reach");
+    assert.deepEqual([layout.reach.min, layout.reach.max], [27.125, 64.5], "the rail is labeled with the real reach");
     assert.equal(layout.reach.topPct, 100);
     assert.equal(layout.reach.continuesAbove, true);
     assert.equal(layout.reach.continuesBelow, false);
@@ -267,7 +276,11 @@ describe("stackLayout: horizontal position and pixel geometry", () => {
     assert.deepEqual(g("adapter", 0).point, support.mount);
     assert.deepEqual(g("adapter", 1).point, riser.mount);
     assert.equal(g("adapter", 1).on, riser.name);
-    assert.equal(layout.gaps.length, 4);
+    const head = layout.blocks.find((b) => b.slot === "head");
+    const plate = layout.blocks.find((b) => b.slot === "plate");
+    assert.deepEqual(g("plate", 0).point, head.mount, "a plate goes on the head");
+    assert.deepEqual(g("plate", 1).point, plate.mount, "or on the Euro plate, under the camera block");
+    assert.equal(layout.gaps.length, 6);
     const hung = stackLayout(chainOf(UNDERSLUNG), null);
     assert.equal(hung.gaps.find((x) => x.slot === "adapter" && x.index === 1).x, 10, "on the far end of the plate");
   });
@@ -284,13 +297,13 @@ describe("stackLayout: tags beside the pieces", () => {
 
   test("each piece's tag is its short name from the gear", () => {
     const layout = stackLayout(chainOf(picksFor({ supportId: "fisher-11", noseId: "fisher-sle", adapterIds: ["mitchell-riser-6"] })), null);
-    assert.deepEqual(layout.blocks.map((b) => b.tag.lines[0]), ["Fisher 11", "SLE", "Riser 6″", "2575", "Camera"]);
+    assert.deepEqual(layout.blocks.map((b) => b.tag.lines[0]), ["Fisher 11", "SLE", "Riser 6″", "2575", "Euro plate", "A-cam"]);
     assert.equal(layout.lane, undefined, "no label column");
   });
 
   test("an inverted camera's tag says so, once", () => {
     const camera = stackLayout(chainOf(UNDERSLUNG), null).blocks.at(-1);
-    assert.deepEqual(camera.tag.lines, ["Camera", "Camera inverted — flip image"]);
+    assert.deepEqual(camera.tag.lines, ["A-cam", "Camera inverted — flip image"], "one tag for the whole camera block");
     assert.equal(camera.tag.warn, true);
     assert.equal(stackLayout(chainOf(picksFor()), null).blocks.at(-1).tag.lines.length, 1);
   });
@@ -660,7 +673,7 @@ describe("the Lambda 50: upright and underslung, cradling the camera", () => {
   });
 
   test("underslung is rejected directly on sticks and on the SLE, and accepted under an offset plate's bottom side", () => {
-    const hung = (over) => ({ ...picksFor({ headId: "lambda-50", modeName: "underslung", attachName: "base" }), ...over });
+    const hung = (over) => ({ ...picksFor({ headId: "lambda-50", plateIds: [], modeName: "underslung", attachName: "base" }), ...over });
     assert.throws(() => chainOf(hung()), /underslung mode needs a down-facing mount beneath it, but "Baby sticks"/);
     assert.throws(
       () => chainOf(hung({ supportId: "fisher-11", noseId: "fisher-sle", noseMode: "upright" })),
@@ -689,9 +702,10 @@ describe("the Lambda 50: upright and underslung, cradling the camera", () => {
     for (const picks of [LAMBDA, LAMBDA_UP]) assert.ok(!chainOf(picks).attach.inverted);
     const up = chainOf(LAMBDA_UP);
     const sticks = chainOf(picksFor());
-    // Baby sticks 20–36″, camera +3″: 2575 +8½″ vs the lambda's +10″ to +18″.
-    assert.equal(up.min - sticks.min, 10 - 8.5);
-    assert.equal(up.max - sticks.max, 18 - 8.5);
+    // Baby sticks 20–36″ and the A-cam block either way: 2575 +8½″ vs the lambda's +10″ to +18″.
+    // The lambda takes the block's QR plate directly; the 2575 needs the Euro plate (+¾″).
+    assert.equal(up.min - sticks.min, 10 - (8.5 + 0.75));
+    assert.equal(up.max - sticks.max, 18 - (8.5 + 0.75));
     assert.equal(up.adjustability, "adjustable");
   });
 });

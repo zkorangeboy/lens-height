@@ -12,7 +12,7 @@ import { stackLayout } from "../src/stack.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
-const P = ["test-package", "build-placeholder"];
+const P = ["test-package", "a-cam"];
 const picksFor = (over = {}) => ({
   baseItemIds: [],
   baseModes: [],
@@ -23,6 +23,9 @@ const picksFor = (over = {}) => ({
   adapterIds: [],
   adapterModes: {},
   headId: "oconnor-2575d",
+  // The A-cam block's QR plate needs a Euro plate on the 2575D's Euro receiver.
+  plateIds: ["euro-plate"],
+  blockIds: null,
   modeName: "normal",
   attachName: "base",
   ...over,

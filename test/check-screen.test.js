@@ -16,7 +16,7 @@ import { stackLayout } from "../src/stack.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
-const P = ["test-package", "build-placeholder"];
+const P = ["test-package", "a-cam"];
 
 const picksFor = (over = {}) => ({
   baseItemIds: [],
@@ -28,6 +28,9 @@ const picksFor = (over = {}) => ({
   adapterIds: [],
   adapterModes: {},
   headId: "oconnor-2575d",
+  // The A-cam block's QR plate needs a Euro plate on the 2575D's Euro receiver.
+  plateIds: ["euro-plate"],
+  blockIds: null,
   modeName: "normal",
   attachName: "base",
   ...over,
@@ -288,7 +291,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
       ...seed,
       components: seed.components.map((c) => (c.id === "lambda-50" ? { ...c, modes: c.modes.filter((m) => m.name === "upright") } : c)),
     };
-    const { picks, notes } = revalidatePicks(uprightOnly, ...P, picksFor({ headId: "lambda-50", modeName: "upright", attachName: "base", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }));
+    const { picks, notes } = revalidatePicks(uprightOnly, ...P, picksFor({ headId: "lambda-50", plateIds: [], modeName: "upright", attachName: "base", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }));
     assert.equal(picks.headId, null);
     assert.match(notes[0], /^Cleared Lambda 50\. /);
   });

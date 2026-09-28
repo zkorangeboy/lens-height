@@ -33,7 +33,7 @@ describe("gear.json seed data", () => {
     const result = solve(seed, {
       target: { type: "fixed", height: 30 },
       packageId: "test-package",
-      buildId: "build-placeholder",
+      buildId: "a-cam",
     });
     assert.ok(result.feasible.length > 0);
   });

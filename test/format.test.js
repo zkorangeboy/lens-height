@@ -56,6 +56,7 @@ describe("signedInches and inchesSpan", () => {
 
   test("a span has one unit mark", () => {
     assert.equal(inchesSpan(20, 32.5), "20–32½″");
+    assert.equal(inchesSpan(4, 4), "4″", "one height, not a span (a camera on the floor)");
     assert.equal(inchesSpan(26.375, 63.75), "26¼–63¾″");
     assert.equal(inchesSpan(-3, 4), "−3–4″");
   });

@@ -606,6 +606,22 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
+/* The camera block's pieces in its sheet (SPEC.md 7.2): a plain list, top to bottom. */
+.block-pieces {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.block-pieces li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.95rem;
+}
+
 .remove,
 .sheet-done {
   width: 100%;

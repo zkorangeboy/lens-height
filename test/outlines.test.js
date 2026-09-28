@@ -14,11 +14,14 @@ import { markerSvg, outlineOf, pieceAt, pieceSvg, tagSvg } from "../src/outlines
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
-const P = { packageId: "test-package", buildId: "build-placeholder" };
+const P = { packageId: "test-package", buildId: "a-cam" };
 const rig = (over = {}) => ({
   ...P,
   supportId: "baby-sticks",
   headId: "oconnor-2575d",
+  // The A-cam block's QR plate needs a Euro plate on the 2575D's Euro receiver.
+  plateIds: ["euro-plate"],
+  blockIds: null,
   modeName: "normal",
   attachName: "base",
   ...over,
@@ -34,8 +37,8 @@ const RIGS = {
   fisherRound: fisher({ baseItemIds: ["round-track"], supportMode: "etw", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" }),
   fisherFloor: fisher(),
   lhe: fisher({ noseId: "fisher-lhe", noseMode: undefined }),
-  lambda: rig({ headId: "lambda-50", modeName: "upright" }),
-  lambdaHung: fisher({ headId: "lambda-50", modeName: "underslung", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }),
+  lambda: rig({ headId: "lambda-50", plateIds: [], modeName: "upright" }),
+  lambdaHung: fisher({ headId: "lambda-50", plateIds: [], modeName: "underslung", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }),
   handle: rig({ adapterIds: ["mitchell-offset-24"], adapterModes: { "mitchell-offset-24": "bottom" }, modeName: "underslung", attachName: "top-handle" }),
 };
 
@@ -43,7 +46,7 @@ describe("one outline per kind of gear", () => {
   test("every kind in the seed has its own outline", () => {
     const kinds = new Set(Object.values(RIGS).flatMap((selection) => layoutOf(selection).blocks.map((b) => b.shape.type)));
     assert.deepEqual([...kinds].sort(), [
-      "apple", "camera", "dolly", "fluid-head", "hi-hat", "lambda", "lhe", "lo-hat", "offset", "riser", "sle", "swivel", "track", "tripod",
+      "apple", "camera", "dolly", "fluid-head", "hi-hat", "lambda", "lhe", "lo-hat", "offset", "plate", "riser", "sle", "swivel", "track", "tripod",
     ]);
     for (const selection of Object.values(RIGS)) {
       for (const [type, svg] of svgOf(selection)) {
@@ -98,16 +101,21 @@ describe("one outline per kind of gear", () => {
     assert.match(off, /class="in-use"/);
   });
 
-  test("the camera: a 6″ body centered on the optical center, and a forward triangle on it", () => {
+  test("the camera block: its plates and a 5″ body at true scale, and a forward triangle at the optical center", () => {
     const upright = layoutOf(rig()).blocks.at(-1);
     const inverted = layoutOf(RIGS.fisherRound).blocks.at(-1);
     const handle = layoutOf(RIGS.handle).blocks.at(-1);
+    const piece = (camera, id) => camera.shape.pieces.find((p) => p.id === id).box;
     for (const camera of [upright, inverted, handle]) {
       const { body, cone, opticalCenter } = camera.shape;
-      const scale = camera.box.height / 6;
-      assert.ok(Math.abs(body.height - 6 * scale) < 0.05, "a 6″ body");
-      assert.ok(Math.abs(body.y + body.height / 2 - opticalCenter.y) < 0.05, "centered on the optical center");
       const selection = camera === upright ? rig() : camera === inverted ? RIGS.fisherRound : RIGS.handle;
+      const scale = layoutOf(selection).frame.scale;
+      assert.ok(Math.abs(body.height - 5 * scale) < 0.05, "a 5″ body");
+      // The optical center is 2½″ above the body's base: its middle.
+      assert.ok(Math.abs(body.y + body.height / 2 - opticalCenter.y) < 0.05, "the optical center at the body's middle");
+      assert.deepEqual(camera.shape.pieces.map((p) => p.id), ["qr-plate", "arri-dovetail", "base-plate"], "every plate of the block drawn");
+      assert.ok(Math.abs(piece(camera, "arri-dovetail").height - 1 * scale) < 0.05, "the Arri dovetail 1″ thick");
+      assert.equal(camera.tag.lines[0], "A-cam", "one tag for the whole block");
       assert.equal(opticalCenter.y, layoutOf(selection).lens.y, "on the lens height, so on the target line when on target");
       // The triangle: its point on the optical center, its opening forward.
       const points = outlineOf(camera).match(/<polygon points="([^"]+)" class="lens-cone"/)[1].split(" ").map((p) => p.split(",").map(Number));
@@ -119,6 +127,11 @@ describe("one outline per kind of gear", () => {
       assert.ok(ay < py && by > py);
       assert.doesNotMatch(outlineOf(camera), /lens-dot|<circle/, "no lens square or dot");
     }
+    // Upright, the plates are under the body; hanging inverted, above it (nearer the mount);
+    // hung from the top handle, the camera is upright with its plates below it.
+    assert.ok(piece(upright, "base-plate").y >= upright.shape.body.y + upright.shape.body.height - 0.05);
+    assert.ok(piece(inverted, "base-plate").y + piece(inverted, "base-plate").height <= inverted.shape.body.y + 0.05);
+    assert.ok(piece(handle, "base-plate").y >= handle.shape.body.y + handle.shape.body.height - 0.05);
     assert.equal(upright.shape.inverted, false);
     assert.equal(inverted.shape.inverted, true);
     assert.match(outlineOf(inverted), /v 4/, "the handle is drawn on the underside");
@@ -145,7 +158,9 @@ describe("one outline per kind of gear", () => {
     assert.ok(hung.column.y + hung.column.height > hung.platform.y + hung.platform.height, "the column drops past the platform");
     for (const { camera, platform, plate } of [up, hung]) {
       assert.equal(camera.shape.inverted, false, "the camera is never inverted");
-      assert.ok(Math.abs(camera.shape.body.y + camera.shape.body.height - platform.y) < 0.5, "it sits on top of the platform");
+      const qr = camera.shape.pieces.find((p) => p.id === "qr-plate").box;
+      assert.ok(Math.abs(qr.y + qr.height / 2 - platform.y) < 0.5, "its QR plate sits in the platform's QR receiver");
+      assert.ok(camera.shape.body.y + camera.shape.body.height <= platform.y, "the camera upright above it");
     }
     assert.ok(hung.camera.shape.body.y > hung.plate.y + hung.plate.height, "between the platform and the top plate");
     const svg = outlineOf(up.head);

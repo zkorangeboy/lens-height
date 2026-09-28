@@ -7,8 +7,8 @@
 //   node cli.js <low> <high> <packageId> <buildId>
 //
 // Examples:
-//   node cli.js 32 test-package build-placeholder
-//   node cli.js 25 40 test-package build-placeholder
+//   node cli.js 32 test-package a-cam
+//   node cli.js 25 40 test-package a-cam
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -24,8 +24,8 @@ function usageAndExit() {
   console.error("       node cli.js <low> <high> <packageId> <buildId>");
   console.error("");
   console.error("Examples:");
-  console.error("  node cli.js 32 test-package build-placeholder");
-  console.error("  node cli.js 25 40 test-package build-placeholder");
+  console.error("  node cli.js 32 test-package a-cam");
+  console.error("  node cli.js 25 40 test-package a-cam");
   process.exit(1);
 }
 
@@ -89,12 +89,15 @@ function printChain(index, chain, target) {
     const label = adapter.mode ? `${adapter.name} (${adapter.mode})` : adapter.name;
     console.log(`     adapter    ${label.padEnd(38)} ${signed(adapter.rise)}`);
   }
-  console.log(
-    `     head       ${chain.head.name.padEnd(38)} ${signed(chain.mode.rise)}  (${chain.mode.name}, faces ${chain.mode.cameraMountFacing})`
-  );
+  const headRange = riseRangeOf(chain.mode);
+  const headRise = headRange.min === headRange.max ? signed(headRange.min) : `${signed(headRange.min)} to ${signed(headRange.max)}`;
+  console.log(`     head       ${chain.head.name.padEnd(38)} ${headRise}  (${chain.mode.name}, faces ${chain.mode.cameraMountFacing})`);
+  for (const plate of chain.plates) {
+    console.log(`     plate      ${plate.name.padEnd(38)} ${signed(plate.rise)}${plate.inverted ? "  (inverted)" : ""}`);
+  }
   const invertedNote = chain.attach.inverted ? " (inverted)" : "";
   console.log(
-    `     build      ${chain.build.name.padEnd(38)} ${signed(chain.attach.rise)}  (${chain.attach.name}${invertedNote})`
+    `     block      ${chain.build.name.padEnd(38)} ${signed(chain.attach.rise)}  (${chain.attach.name}${invertedNote})`
   );
 
   const m = margin(chain, target);
@@ -118,7 +121,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`Target: ${formatTarget(target)}    Package: ${packageId}    Build: ${buildId}`);
+  console.log(`Target: ${formatTarget(target)}    Package: ${packageId}    Camera block: ${buildId}`);
   console.log("");
 
   if (result.feasible.length === 0) {

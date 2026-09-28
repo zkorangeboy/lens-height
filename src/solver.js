@@ -1,10 +1,9 @@
 // Solver for the Lens Height Solver. See SPEC.md section 5.
-import { getPackage, getBuild, buildAttachPoints, riseRangeOf, supportInterval, supportMoveableInterval } from "./model.js";
+import { getPackage, getBuild, blockPieces, buildAttachPoints, riseRangeOf, supportInterval, supportMoveableInterval } from "./model.js";
 import {
   acceptsMount,
   adapterVariants,
   appleBoxCount,
-  facingsMate,
   needsNoseFitting,
   orderStack,
   ruleViolations,
@@ -12,6 +11,10 @@ import {
   supportFacingOk,
   headModeSupportFacing,
   isRepeatable,
+  stackPlates,
+  whyAttach,
+  whyBlockJoints,
+  appleBoxOrientationViolation,
   supportVariants,
   tripodOnAppleBoxes,
 } from "./rules.js";
@@ -41,15 +44,18 @@ function packagePool(gear, packageId) {
   return getPackage(gear, packageId).componentIds.map((id) => gear.components.find((c) => c.id === id));
 }
 
+/** No contribution: a missing support, nose fitting, or head (3.4). */
+const NONE = { min: 0, max: 0 };
+
 /**
- * A chain's interval, given a {min, max} contribution from the support.
- * The one formula both computeInterval (full range) and
- * computeMoveableInterval (moveable range only) apply, so they can't
- * drift from each other on how base/head/build rises get folded in.
+ * A chain's interval, given {min, max} contributions from the support, the
+ * nose fitting, and the head. The one formula both computeInterval (full
+ * range) and computeMoveableInterval (moveable range only) apply, so they
+ * can't drift from each other on how base, adapter, plate, and camera-block
+ * rises get folded in.
  */
-function foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportRange, noseRange, headRange = riseRangeOf(mode)) {
-  const fixedRise =
-    baseItems.reduce((sum, c) => sum + c.rise, 0) + adapters.reduce((sum, c) => sum + c.rise, 0);
+function foldIntoChain({ baseItems, adapters, plates = [], attach }, supportRange, noseRange, headRange) {
+  const fixedRise = [...baseItems, ...adapters, ...plates].reduce((sum, c) => sum + c.rise, 0);
   return {
     min: fixedRise + supportRange.min + noseRange.min + headRange.min + attach.rise,
     max: fixedRise + supportRange.max + noseRange.max + headRange.max + attach.rise,
@@ -57,16 +63,17 @@ function foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportRan
 }
 
 /** A nose fitting's rise range (SPEC.md 3.7), or nothing when there's none. */
-const noseRangeOf = (nose) => (nose ? riseRangeOf(nose) : { min: 0, max: 0 });
+const noseRangeOf = (nose) => (nose ? riseRangeOf(nose) : NONE);
 
 /**
  * A chain's rise interval (SPEC.md 5.2 step 1): sum of fixed rises (base
- * layer, adapters, head mode, build attach point) plus the support's full
- * adjustable range. Shared by every way a chain gets built so the
- * arithmetic lives in exactly one place.
+ * layer, adapters, plates, camera block at its attach point) plus the
+ * support's, nose fitting's, and head's full ranges. Shared by every way a
+ * chain gets built so the arithmetic lives in exactly one place.
  */
-function computeInterval(baseItems, adapters, support, nose, mode, attach) {
-  return foldSupportRangeIntoChain(baseItems, adapters, mode, attach, supportInterval(support), noseRangeOf(nose));
+function computeInterval(parts) {
+  const { support, nose, mode } = parts;
+  return foldIntoChain(parts, support ? supportInterval(support) : NONE, noseRangeOf(nose), mode ? riseRangeOf(mode) : NONE);
 }
 
 /**
@@ -75,15 +82,13 @@ function computeInterval(baseItems, adapters, support, nose, mode, attach) {
  * contributes — an `adjustable` sub-range like `legRange` (3.2) is
  * excluded. Zero-width when the chain has no moveable component at all.
  */
-function computeMoveableInterval(baseItems, adapters, support, nose, mode, attach) {
+function computeMoveableInterval(parts) {
+  const { support, nose, mode } = parts;
   // A nose fitting's range is adjustable, not moveable: it adds no width here.
   const noseLow = noseRangeOf(nose).min;
   // Nor is a head's (the Lambda 50's platform).
-  const headLow = riseRangeOf(mode).min;
-  return foldSupportRangeIntoChain(
-    baseItems, adapters, mode, attach, supportMoveableInterval(support),
-    { min: noseLow, max: noseLow }, { min: headLow, max: headLow }
-  );
+  const headLow = mode ? riseRangeOf(mode).min : 0;
+  return foldIntoChain(parts, support ? supportMoveableInterval(support) : NONE, { min: noseLow, max: noseLow }, { min: headLow, max: headLow });
 }
 
 /**
@@ -96,12 +101,11 @@ const ADJUSTABILITY_BY_RANK = ["fixed", "adjustable", "moveable"];
 
 /**
  * A chain's adjustability is the most capable type found among its
- * components (SPEC.md 3.5) — today that's always the support, since it's
- * the only component that carries a range, but this scans every slot so
- * a future part with its own range needs no change here.
+ * components (SPEC.md 3.5): it scans every slot, so any part with its own
+ * range counts.
  */
-function chainAdjustability({ baseItems, adapters, support, nose, head, build }) {
-  const components = [...baseItems, ...adapters, support, ...(nose ? [nose] : []), head, build];
+function chainAdjustability({ baseItems, adapters, support, nose, head, plates = [], build }) {
+  const components = [...baseItems, ...adapters, support, nose, head, ...plates, build].filter(Boolean);
   const maxRank = Math.max(...components.map((c) => ADJUSTABILITY_RANK[c.adjustability] ?? ADJUSTABILITY_RANK.fixed));
   return ADJUSTABILITY_BY_RANK[maxRank];
 }
@@ -110,11 +114,13 @@ function chainAdjustability({ baseItems, adapters, support, nose, head, build })
  * Assemble a chain's derived fields (interval, moveable interval, piece
  * count, adjustability) from its resolved parts. The one place a chain
  * object is built, so enumerateChains, buildChain, and deltaSearch can't
- * drift from each other on what a chain even is.
+ * drift from each other on what a chain even is. A chain with no support
+ * has no nose fitting, adapters, or head either (3.4).
  */
-function assembleChain({ baseItems, adapters, support, nose, head, mode, build, attach }) {
-  const { min, max } = computeInterval(baseItems, adapters, support, nose, mode, attach);
-  const moveableInterval = computeMoveableInterval(baseItems, adapters, support, nose, mode, attach);
+function assembleChain(parts) {
+  const { baseItems, adapters, support = null, nose = null, head = null, mode = null, plates = [], build, blockPieces = [], attach } = parts;
+  const { min, max } = computeInterval(parts);
+  const moveableInterval = computeMoveableInterval(parts);
   return {
     baseItems,
     adapters,
@@ -122,13 +128,16 @@ function assembleChain({ baseItems, adapters, support, nose, head, mode, build, 
     nose,
     head,
     mode,
+    plates,
     build,
+    blockPieces,
     attach,
     min,
     max,
     moveableInterval,
-    pieceCount: baseItems.length + adapters.length + (nose ? 4 : 3), // + support, nose fitting, head, build
-    adjustability: chainAdjustability({ baseItems, adapters, support, nose, head, build }),
+    // Every piece, the camera block counted as one.
+    pieceCount: baseItems.length + adapters.length + plates.length + [support, nose, head].filter(Boolean).length + 1,
+    adjustability: chainAdjustability(parts),
   };
 }
 
@@ -156,35 +165,45 @@ export const DEFAULT_MAX_ADAPTERS = 2;
  * enumerateChains drops violating chains; buildChain throws; deltaSearch
  * skips them.
  */
-function resolveChain({ baseItems, adapters, support, nose = null, head, mode, build, attach }) {
+function resolveChain({ baseItems, adapters, support = null, nose = null, head = null, mode = null, plates = [], build, blockPieces: pieces = [], attach }) {
   const violations = [];
 
   const baseStack = orderStack(baseItems, "ground", "up");
   if (!baseStack) {
     violations.push(`Mount mismatch: base-layer items ${names(baseItems)} can't be stacked on the ground`);
-  } else if (!acceptsMount(support, baseStack.topMount)) {
+  } else if (support && !acceptsMount(support, baseStack.topMount)) {
     violations.push(
       `Mount mismatch: support "${support.name || support.id}" doesn't sit on "${baseStack.topMount}" (it accepts ${[].concat(support.bottomMount).join(" or ")})`
     );
   }
 
-  // The nose fitting (SPEC.md 3.7): exactly one on a beam nose, none elsewhere.
-  if (needsNoseFitting(support) && !nose) {
-    violations.push(`Missing nose fitting: support "${support.name || support.id}" needs one`);
-  } else if (nose && !acceptsMount(nose, support.topMount)) {
-    violations.push(
-      `Mount mismatch: nose fitting "${nose.name || nose.id}" doesn't mount to support "${support.name || support.id}" (top mount "${support.topMount}")`
-    );
-  }
-
-  const base = stackBaseOf(support, nose);
-  const adapterStack = orderStack(adapters, base.topMount, base.topFacing);
-  if (!adapterStack) {
-    violations.push(
-      `Mount or facing mismatch: adapters ${names(adapters)} can't be stacked on "${base.piece.name || base.piece.id}" (top mount "${base.topMount}") in any order`
-    );
+  // The support, nose fitting, adapters, and head come and go together (3.4).
+  let adapterStack = { items: adapters };
+  let below = null; // what the camera side starts on
+  if (!support || !head) {
+    if (support || head || nose || adapters.length) {
+      violations.push(`Incomplete: a ${support ? "support needs a head" : "head needs a support"} (only the camera block may sit on the base alone)`);
+    } else if (baseStack) {
+      const last = baseStack.items[baseStack.items.length - 1];
+      below = { topMount: baseStack.topMount, topFacing: "up", name: last ? last.name || last.id : "the floor" };
+    }
   } else {
-    if (!acceptsMount(head, adapterStack.topMount)) {
+    // The nose fitting (SPEC.md 3.7): exactly one on a beam nose, none elsewhere.
+    if (needsNoseFitting(support) && !nose) {
+      violations.push(`Missing nose fitting: support "${support.name || support.id}" needs one`);
+    } else if (nose && !acceptsMount(nose, support.topMount)) {
+      violations.push(
+        `Mount mismatch: nose fitting "${nose.name || nose.id}" doesn't mount to support "${support.name || support.id}" (top mount "${support.topMount}")`
+      );
+    }
+
+    const base = stackBaseOf(support, nose);
+    adapterStack = orderStack(adapters, base.topMount, base.topFacing);
+    if (!adapterStack) {
+      violations.push(
+        `Mount or facing mismatch: adapters ${names(adapters)} can't be stacked on "${base.piece.name || base.piece.id}" (top mount "${base.topMount}") in any order`
+      );
+    } else if (!acceptsMount(head, adapterStack.topMount)) {
       violations.push(
         `Mount mismatch: head "${head.name || head.id}" (bottomMount "${head.bottomMount}") doesn't mount to "${adapterStack.topMount}"`
       );
@@ -196,23 +215,41 @@ function resolveChain({ baseItems, adapters, support, nose = null, head, mode, b
         `Facing mismatch: head "${head.name || head.id}" in ${mode.name} mode needs ${headModeSupportFacing(mode) === "up" ? "an up" : "a down"}-facing mount beneath it, but "${beneath.name || beneath.id}"${beneath.mode ? ` (${beneath.mode} mode)` : ""} has its top mount facing ${adapterStack.topFacing}`
       );
     }
+    below = { topMount: head.topMount, topFacing: mode.cameraMountFacing || "up", name: head.name || head.id, headMode: mode.name };
   }
 
-  if (attach.mount !== head.topMount) {
-    violations.push(
-      `Mount mismatch: build attach "${attach.name}" (mount "${attach.mount}") doesn't mount to head "${head.name || head.id}" (topMount "${head.topMount}")`
-    );
-  } else if (!facingsMate(mode.cameraMountFacing, attach.facing)) {
-    violations.push(
-      `Facing mismatch: build attach "${attach.name}" (faces ${attach.facing}) can't mate with head mode "${mode.name}" (faces ${mode.cameraMountFacing})`
-    );
+  // The camera side (3.4): plates, then the camera block at its attach point.
+  let plateStack = { items: [] };
+  if (below) {
+    plateStack = stackPlates(plates, below);
+    if (plateStack.why) {
+      violations.push(`Mount mismatch: ${plateStack.why}`);
+    } else {
+      const onBlock = { ...below, topMount: plateStack.topMount, topFacing: plateStack.topFacing, name: plateStack.name, headMode: plates.length ? null : below.headMode };
+      const why = whyAttach(attach, onBlock);
+      if (why) violations.push(`Camera mismatch: ${why}`);
+    }
   }
+  const joints = whyBlockJoints(build, pieces);
+  if (joints) violations.push(`Camera block mismatch: ${joints}`);
 
-  violations.push(...ruleViolations(baseItems, adapters, support, nose));
+  if (support) violations.push(...ruleViolations(baseItems, adapters, support, nose));
+  else violations.push(...[appleBoxOrientationViolation(baseItems)].filter(Boolean));
 
   if (violations.length > 0) return { violations };
   return {
-    chain: assembleChain({ baseItems: baseStack.items, adapters: adapterStack.items, support, nose, head, mode, build, attach }),
+    chain: assembleChain({
+      baseItems: baseStack.items,
+      adapters: adapterStack.items,
+      support,
+      nose,
+      head,
+      mode,
+      plates: plateStack.items,
+      build,
+      blockPieces: pieces,
+      attach,
+    }),
   };
 }
 
@@ -247,6 +284,9 @@ export function enumerateChains(
   const nosesFor = (support) => (needsNoseFitting(support) ? noseVariantPool : [null]);
   const heads = pool.filter((c) => c.category === "head");
   const attachPoints = buildAttachPoints(build, gear);
+  const pieces = blockPieces(build, gear);
+  // No plate, or one (the Euro plate under a QR-plated block).
+  const plateCombos = [[], ...pool.filter((c) => c.category === "plate").map((plate) => [plate])];
 
   // One physical box is in one orientation at a time.
   const baseCombos = combinations(baseVariantPool, maxBaseLayerItems).filter(
@@ -265,18 +305,22 @@ export function enumerateChains(
       for (const adapterCombo of adapterCombos) {
         for (const head of heads) {
           for (const mode of head.modes) {
-            for (const attach of attachPoints) {
-              const { chain } = resolveChain({
-                baseItems: baseCombo,
-                adapters: adapterCombo,
-                support,
-                nose,
-                head,
-                mode,
-                build,
-                attach,
-              });
-              if (chain) chains.push(chain);
+            for (const plates of plateCombos) {
+              for (const attach of attachPoints) {
+                const { chain } = resolveChain({
+                  baseItems: baseCombo,
+                  adapters: adapterCombo,
+                  support,
+                  nose,
+                  head,
+                  mode,
+                  plates,
+                  build,
+                  blockPieces: pieces,
+                  attach,
+                });
+                if (chain) chains.push(chain);
+              }
             }
           }
         }
@@ -323,6 +367,8 @@ export function buildChain(
     adapterModes = {},
     headId,
     modeName,
+    plateIds = [],
+    blockIds = null,
     attachName,
   }
 ) {
@@ -353,7 +399,8 @@ export function buildChain(
   const baseModeOf = (index) =>
     (Array.isArray(baseModes) ? baseModes[index] : baseModes[baseItemIds[index]]) ?? undefined;
   const baseItems = baseItemIds.map((id, index) => inMode(resolveInPool(id, "base item"), baseModeOf(index), "Base item"));
-  const support = inMode(resolveInPool(supportId, "support"), supportMode ?? undefined, "Support", supportVariants);
+  // No support and no head: the camera block on the base (3.4).
+  const support = supportId ? inMode(resolveInPool(supportId, "support"), supportMode ?? undefined, "Support", supportVariants) : null;
   const nose = noseId ? inMode(resolveInPool(noseId, "nose fitting"), noseMode ?? undefined, "Nose fitting") : null;
   const adapters = adapterIds.map((id) => {
     const adapter = resolveInPool(id, "adapter");
@@ -364,16 +411,19 @@ export function buildChain(
     if (!variant) throw new Error(`Adapter "${id}" has no mode "${wanted}"`);
     return variant;
   });
-  const head = resolveInPool(headId, "head");
+  const head = headId ? resolveInPool(headId, "head") : null;
   const build = getBuild(gear, buildId);
 
-  const mode = head.modes.find((m) => m.name === modeName);
-  if (!mode) throw new Error(`Head "${headId}" has no mode "${modeName}"`);
+  const mode = head ? head.modes.find((m) => m.name === modeName) : null;
+  if (head && !mode) throw new Error(`Head "${headId}" has no mode "${modeName}"`);
 
-  const attach = buildAttachPoints(build, gear).find((a) => a.name === attachName);
+  if (new Set(plateIds).size !== plateIds.length) throw new Error("The same plate can't be used twice in one chain");
+  const plates = plateIds.map((id) => resolveInPool(id, "plate"));
+  const pieces = blockPieces(build, gear, blockIds);
+  const attach = buildAttachPoints(build, gear, blockIds).find((a) => a.name === attachName);
   if (!attach) throw new Error(`Build "${buildId}" has no attach point "${attachName}"`);
 
-  const { chain, violations } = resolveChain({ baseItems, adapters, support, nose, head, mode, build, attach });
+  const { chain, violations } = resolveChain({ baseItems, adapters, support, nose, head, mode, plates, build, blockPieces: pieces, attach });
   if (violations) throw new Error(violations.join("; "));
   return chain;
 }
@@ -646,7 +696,9 @@ function formatFallbackMessage(nearest, target, gap, direction, suggestion) {
 /** A resolved chain's parts, in the shape resolveChain takes. */
 function partsOf(chain) {
   const { baseItems, adapters, support, nose, head, mode, build, attach } = chain;
-  return { baseItems, adapters, support, nose, head, mode, build, attach };
+  // Plates as picked (unsigned): resolveChain turns them over again if they hang.
+  const plates = chain.plates.map((p) => (p.inverted ? { ...p, rise: -p.rise, inverted: false } : p));
+  return { baseItems, adapters, support, nose, head, mode, plates, build, blockPieces: chain.blockPieces, attach };
 }
 
 function buildFallback(gear, target, packageId, buildId) {

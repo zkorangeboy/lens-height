@@ -4,15 +4,60 @@
 // a candidate; the soft apple-box preference lives in solver.js's
 // RANKING_CRITERIA, deliberately separate.
 
-import { buildAttachPoints, getBuild, getPackageComponents } from "./model.js";
+import { blockPieces, buildAttachPoints, getBuild, getPackageComponents, pieceRise } from "./model.js";
 
 // --- Mounts and facing (SPEC.md 2) -----------------------------------------
 
+/**
+ * Typed interfaces (SPEC.md 2): each type has a male and a female side, and
+ * a joint is legal when the two pieces meeting are the two sides of one
+ * type — either side may be the lower one. The one table of pairs.
+ */
+export const INTERFACES = {
+  "mitchell-male": { type: "mitchell", side: "male" },
+  "mitchell-female": { type: "mitchell", side: "female" },
+  "euro-dovetail": { type: "euro", side: "male" },
+  "euro-receiver": { type: "euro", side: "female" },
+  "qr-plate": { type: "qr", side: "male" },
+  "qr-receiver": { type: "qr", side: "female" },
+  "bolt-38": { type: "3/8", side: "male" },
+  "holes-38": { type: "3/8", side: "female" },
+};
+
+/** Whether a lower piece's top and an upper piece's bottom mate. Typed
+ * interfaces mate male to female of one type; any other mount (ground,
+ * track, a beam nose, older names) mates only with itself. */
+export function mates(lowerTop, upperBottom) {
+  const lower = INTERFACES[lowerTop];
+  const upper = INTERFACES[upperBottom];
+  if (lower && upper) return lower.type === upper.type && lower.side !== upper.side;
+  return lowerTop === upperBottom;
+}
+
+/** What a mount mates with: the other side of a typed interface, or itself. */
+export function mateOf(mount) {
+  const own = INTERFACES[mount];
+  if (!own) return mount;
+  return Object.keys(INTERFACES).find((m) => INTERFACES[m].type === own.type && INTERFACES[m].side !== own.side);
+}
+
+/** Camera-side pieces (SPEC.md 3.4): plates, camera-block pieces, the camera. */
+const CAMERA_SIDE = new Set(["plate", "camera-plate", "camera-body"]);
+export function isCameraSide(component) {
+  return CAMERA_SIDE.has(component.category);
+}
+
 /** A component's bottomMount is a string, or a list when it fits several
- * (sticks accept `ground` or `spreader`). */
+ * (sticks accept `ground` or `spreader`). The floor and apple box tops
+ * (`ground`) also take the bottom of any camera-side piece (SPEC.md 2). */
 export function acceptsMount(component, mount) {
-  const accepted = component.bottomMount;
-  return Array.isArray(accepted) ? accepted.includes(mount) : accepted === mount;
+  if (mount === "ground" && isCameraSide(component)) return true;
+  return [].concat(component.bottomMount).some((bottom) => mates(mount, bottom));
+}
+
+/** The mounts a component can sit on, for plain-language reasons. */
+export function acceptedMounts(component) {
+  return [].concat(component.bottomMount).map(mateOf);
 }
 
 /** Whether `item` can sit on `mount`, where `first` means it's the first
@@ -125,6 +170,61 @@ export function stackBaseOf(support, nose) {
   return { topMount: top.topMount, topFacing: topFacingOf(top), piece: top };
 }
 
+// --- The camera side (SPEC.md 3.4) ----------------------------------------
+
+/**
+ * Stack plates on a mount, bottom to top, in the order given: each must mate
+ * with what's below (2). A plate on a down-facing interface hangs inverted —
+ * its rise negated, its top facing down — so the facing carries up. `below`
+ * is `{topMount, topFacing, name}`. Returns `{items, topMount, topFacing,
+ * name}`, or `{why, index}` for the first plate that doesn't fit.
+ */
+export function stackPlates(plates, below) {
+  let { topMount, topFacing, name } = below;
+  const items = [];
+  for (const [index, plate] of plates.entries()) {
+    if (!acceptsMount(plate, topMount)) {
+      return { why: `${nameOf(plate)} needs ${plainMounts(acceptedMounts(plate))} beneath it, but ${name} ends in ${plainMount(topMount)}.`, index };
+    }
+    const inverted = topFacing === "down";
+    items.push({ ...plate, rise: inverted ? -plate.rise : plate.rise, inverted });
+    topMount = plate.topMount;
+    name = nameOf(plate);
+  }
+  return { items, topMount, topFacing, name };
+}
+
+/** Why a camera block's pieces, as rigged, don't mate with each other (3.4),
+ * or null. A block with its own `bottomMount` (older data) isn't checked. */
+export function whyBlockJoints(build, pieces) {
+  if (build.bottomMount) return null;
+  if (pieces.length === 0) return `${nameOf(build)} has no pieces.`;
+  for (let i = 1; i < pieces.length; i++) {
+    if (!mates(pieces[i - 1].topMount, pieces[i].bottomMount)) {
+      return `${nameOf(pieces[i])} needs ${plainMounts(acceptedMounts(pieces[i]))} beneath it, but ${nameOf(pieces[i - 1])} ends in ${plainMount(pieces[i - 1].topMount)}.`;
+    }
+  }
+  return null;
+}
+
+/** Why a camera block can't attach this way on what's below, or null.
+ * `below` is `{topMount, topFacing, name, headMode}`; the floor and apple
+ * box tops take any camera-side piece (2). */
+export function whyAttach(attach, below) {
+  if (below.topMount !== "ground" && !mates(below.topMount, attach.mount)) {
+    const needs = plainMount(mateOf(attach.mount));
+    const who = attach.bottomName ? `${attach.blockName}'s ${attach.bottomName}` : "The camera";
+    return `${who} needs ${needs} beneath it, but ${below.name} ends in ${plainMount(below.topMount)}.`;
+  }
+  if (!facingsMate(below.topFacing, attach.facing)) {
+    const label = ATTACH_LABELS[attach.name] || attach.name;
+    return below.headMode
+      ? `In ${below.headMode} mode the head's camera mount faces ${below.topFacing}, so "${label}" doesn't fit.`
+      : `The top of ${below.name} faces ${below.topFacing}, so "${label}" doesn't fit.`;
+  }
+  return null;
+}
+
 /**
  * Stack `items` on top of a mount, bottom to top, in an order where every
  * item's bottom mount and facing mate with what's below it. Returns
@@ -233,6 +333,14 @@ const MOUNT_WORDS = {
   "round-track": "round track",
   "fisher-nose": "a Fisher beam nose",
   mitchell: "a Mitchell mount",
+  "mitchell-female": "a Mitchell mount",
+  "mitchell-male": "a Mitchell base",
+  "euro-dovetail": "a Euro dovetail",
+  "euro-receiver": "a Euro receiver",
+  "qr-plate": "a QR plate",
+  "qr-receiver": "a QR receiver",
+  "bolt-38": "a 3/8″ bolt",
+  "holes-38": "3/8″ holes",
   "bowl-100": "a 100mm bowl",
   "bowl-150": "a 150mm bowl",
   "flat-38": "a 3/8 flat plate",
@@ -277,6 +385,8 @@ const EMPTY_PICKS = () => ({
   adapterModes: {},
   headId: null,
   modeName: null,
+  plateIds: [],
+  blockIds: null,
   attachName: null,
 });
 
@@ -296,14 +406,14 @@ function whyBaseItem(item, keptBase) {
   if (orderStack([...keptBase, item], "ground", "up")) return null;
   if (acceptsMount(item, "floor")) return `${nameOf(item)} sit on the bare floor only — nothing goes underneath them.`;
   const top = orderStack(keptBase, "ground", "up")?.topMount ?? "ground";
-  return `${nameOf(item)} needs ${plainMounts(item.bottomMount)} to sit on, but the base layer below already ends in ${plainMount(top)}.`;
+  return `${nameOf(item)} needs ${plainMounts(acceptedMounts(item))} to sit on, but the base layer below already ends in ${plainMount(top)}.`;
 }
 
 /** `support` is a resolved variant: in a wheel mode, if it has modes. */
 function whySupport(support, keptBase) {
   const top = orderStack(keptBase, "ground", "up")?.topMount ?? "ground";
   if (!acceptsMount(support, top)) {
-    return `${withMode(support)} sits on ${plainMounts(support.bottomMount)}, not on ${plainMount(top)}.`;
+    return `${withMode(support)} sits on ${plainMounts(acceptedMounts(support))}, not on ${plainMount(top)}.`;
   }
   if (appleBoxPlacementViolation(keptBase, support)) {
     return `${nameOf(support)} is a dolly, and apple boxes can't go under a dolly — use track.`;
@@ -313,14 +423,14 @@ function whySupport(support, keptBase) {
 
 function whyNose(nose, support) {
   if (!needsNoseFitting(support)) {
-    return `${nameOf(nose)} mounts on ${plainMounts(nose.bottomMount)}, and ${nameOf(support)} tops out in ${plainMount(support.topMount)} — it takes no nose fitting.`;
+    return `${nameOf(nose)} mounts on ${plainMounts(acceptedMounts(nose))}, and ${nameOf(support)} tops out in ${plainMount(support.topMount)} — it takes no nose fitting.`;
   }
   if (nose.requiresFamily && nose.requiresFamily !== support.family) {
     const has = support.family ? `is ${support.family} family` : "has no family";
     return `${nameOf(nose)} only fits a ${nose.requiresFamily}-family support, and ${nameOf(support)} ${has}.`;
   }
   if (!acceptsMount(nose, support.topMount)) {
-    return `${nameOf(nose)} mounts on ${plainMounts(nose.bottomMount)}, but ${nameOf(support)} tops out in ${plainMount(support.topMount)}.`;
+    return `${nameOf(nose)} mounts on ${plainMounts(acceptedMounts(nose))}, but ${nameOf(support)} tops out in ${plainMount(support.topMount)}.`;
   }
   return null;
 }
@@ -336,7 +446,7 @@ function whyAdapter(variant, base, keptAdapters, support) {
   const below = orderStack(keptAdapters, base.topMount, base.topFacing);
   const beneath = keptAdapters.length ? withMode(keptAdapters[keptAdapters.length - 1]) : withMode(base.piece);
   if (below && !acceptsMount(variant, below.topMount)) {
-    return `${withMode(variant)} needs ${plainMounts(variant.bottomMount)} beneath it, but what's below ends in ${plainMount(below.topMount)}.`;
+    return `${withMode(variant)} needs ${plainMounts(acceptedMounts(variant))} beneath it, but what's below ends in ${plainMount(below.topMount)}.`;
   }
   const required = requiredSupportFacingOf(variant);
   return `${withMode(variant)} needs ${anFacing(required)} mount beneath it, but the top of ${beneath} faces ${below ? below.topFacing : "the wrong way"}.`;
@@ -344,7 +454,7 @@ function whyAdapter(variant, base, keptAdapters, support) {
 
 function whyHeadMode(head, mode, stackTop, beneathName) {
   if (!acceptsMount(head, stackTop.topMount)) {
-    return `${nameOf(head)} fits ${plainMounts(head.bottomMount)}, but what's below it ends in ${plainMount(stackTop.topMount)}.`;
+    return `${nameOf(head)} fits ${plainMounts(acceptedMounts(head))}, but what's below it ends in ${plainMount(stackTop.topMount)}.`;
   }
   const required = headModeSupportFacing(mode);
   if (!supportFacingOk(stackTop.topFacing, required)) {
@@ -357,15 +467,6 @@ function whyHeadMode(head, mode, stackTop, beneathName) {
   return null;
 }
 
-function whyAttach(attach, head, mode) {
-  if (attach.mount !== head.topMount) {
-    return `The camera build mounts on ${plainMount(attach.mount)}, but ${nameOf(head)} tops out in ${plainMount(head.topMount)}.`;
-  }
-  if (!facingsMate(mode.cameraMountFacing, attach.facing)) {
-    return `In ${mode.name} mode the head's camera mount faces ${mode.cameraMountFacing}, so "${ATTACH_LABELS[attach.name] || attach.name}" doesn't fit.`;
-  }
-  return null;
-}
 
 /** The variant of `component` in `modeName` (the first mode if unspecified). */
 function variantOf(component, modeName, variantsOf = adapterVariants) {
@@ -427,12 +528,17 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
   const build = getBuild(gear, buildId);
   const notes = [];
   const out = EMPTY_PICKS();
+  const keepCameraAsIs = () => {
+    out.plateIds = [...(picks.plateIds || [])];
+    out.blockIds = picks.blockIds ?? null;
+    out.attachName = picks.attachName ?? null;
+  };
   const keepRestAsIs = () => {
     out.adapterIds = [...(picks.adapterIds || [])];
     out.adapterModes = { ...(picks.adapterModes || {}) };
     out.headId = picks.headId ?? null;
     out.modeName = picks.modeName ?? null;
-    out.attachName = picks.attachName ?? null;
+    keepCameraAsIs();
     return { picks: out, notes };
   };
 
@@ -457,10 +563,14 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
   out.supportId = support ? support.id : null;
   out.supportMode = support ? support.mode : null;
   if (!support) {
-    // Nothing to validate the rest against yet: keep it as it was.
     out.noseId = picks.noseId ?? null;
     out.noseMode = picks.noseMode ?? null;
-    return keepRestAsIs();
+    // With a head (or anything else that needs a support) still picked, the
+    // support is missing: keep the rest to revalidate once one is chosen.
+    if (picks.headId || picks.noseId || (picks.adapterIds || []).length) return keepRestAsIs();
+    // No support and no head: the camera block sits on the base (3.4).
+    settleCamera(baseTopOf(baseStack), build, gear, byId, picks, out, notes);
+    return { picks: out, notes };
   }
 
   // Nose fitting: exactly one on a beam nose, none elsewhere (SPEC.md 3.7).
@@ -497,7 +607,7 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
   out.headId = head ? head.id : null;
   if (!head) {
     out.modeName = picks.modeName ?? null;
-    out.attachName = picks.attachName ?? null;
+    keepCameraAsIs();
     return { picks: out, notes };
   }
 
@@ -511,20 +621,115 @@ export function revalidatePicks(gear, packageId, buildId, picks) {
   }
   out.modeName = mode.name;
 
-  // Camera attach point.
-  const attachPoints = buildAttachPoints(build, gear);
-  const legalAttaches = attachPoints.filter((a) => !whyAttach(a, head, mode));
+  settleCamera(headTopOf(head, mode), build, gear, byId, picks, out, notes);
+  return { picks: out, notes };
+}
+
+/** What the camera side starts on with no support and no head: the top of
+ * the base stack (the floor, an apple box, track, spreaders). */
+function baseTopOf(baseStack) {
+  const last = baseStack.items[baseStack.items.length - 1];
+  return { topMount: baseStack.topMount, topFacing: "up", name: last ? withMode(last) : "the floor" };
+}
+
+/** What the camera side starts on: the head's top, facing its mode's way. */
+function headTopOf(head, mode) {
+  return { topMount: head.topMount, topFacing: mode.cameraMountFacing || "up", name: nameOf(head), headMode: mode.name };
+}
+
+/** The camera block's pieces as rigged (3.4): `blockIds`, checked against
+ * the block's definition — plates added at its bottom, then what's left of
+ * the block after stripping from the bottom (the camera always stays).
+ * Returns `{added, rest}` ids, or null if `blockIds` isn't that shape. */
+function blockShape(build, byId, blockIds) {
+  const defined = build.componentIds;
+  if (blockIds == null) return { added: [], rest: [...defined] };
+  const ids = blockIds.filter((id) => byId[id] || defined.includes(id));
+  const firstDefined = ids.findIndex((id) => defined.includes(id));
+  if (firstDefined < 0) return null;
+  const added = ids.slice(0, firstDefined);
+  const rest = ids.slice(firstDefined);
+  const suffix = defined.slice(defined.length - rest.length);
+  if (rest.length === 0 || rest.some((id, i) => id !== suffix[i])) return null;
+  if (added.some((id) => byId[id]?.category !== "plate")) return null;
+  return { added, rest };
+}
+
+/**
+ * Settle the camera side on `below` (SPEC.md 3.4): plates that no longer
+ * mate are removed; a plate added to the block's bottom that no longer
+ * mates is taken off it; a block whose pieces don't mate goes back to its
+ * definition; and the attach point settles like a head mode, or is left
+ * empty when nothing fits (the rig is then incomplete, `missingSlot`).
+ */
+function settleCamera(below, build, gear, byId, picks, out, notes) {
+  const kept = [];
+  for (const id of picks.plateIds || []) {
+    const plate = byId[id];
+    if (!plate || plate.category !== "plate" || kept.some((p) => p.id === id)) continue;
+    const stack = stackPlates([...kept, plate], below);
+    if (stack.why) notes.push(noteFor("Removed", plate, stack.why));
+    else kept.push(plate);
+  }
+  out.plateIds = kept.map((p) => p.id);
+  const plates = stackPlates(kept, below);
+  const onBlock = { topMount: plates.topMount, topFacing: plates.topFacing, name: plates.name, headMode: kept.length ? null : below.headMode };
+
+  let shape = blockShape(build, byId, picks.blockIds);
+  const piecesOf = (ids) => blockPieces(build, gear, ids);
+  if (!shape || whyBlockJoints(build, piecesOf([...shape.added, ...shape.rest]))) {
+    if (shape && shape.added.length && !whyBlockJoints(build, piecesOf(shape.rest))) {
+      for (const id of shape.added) notes.push(`Removed ${nameOf(byId[id])} from ${nameOf(build)}. It doesn't fit under ${nameOf(byId[shape.rest[0]] || piecesOf(shape.rest)[0])}.`);
+      shape = { added: [], rest: shape.rest };
+    } else {
+      notes.push(`Put ${nameOf(build)} back together as defined. Its pieces as rigged didn't fit each other.`);
+      shape = { added: [], rest: [...build.componentIds] };
+    }
+  }
+  // A plate added to the block's bottom that no longer mates below comes off it.
+  while (shape.added.length) {
+    const bottom = byId[shape.added[0]];
+    if (acceptsMount(bottom, onBlock.topMount)) break;
+    notes.push(`Removed ${nameOf(bottom)} from ${nameOf(build)}. ${nameOf(bottom)} needs ${plainMounts(acceptedMounts(bottom))} beneath it, but ${onBlock.name} ends in ${plainMount(onBlock.topMount)}.`);
+    shape = { added: shape.added.slice(1), rest: shape.rest };
+  }
+  const ids = [...shape.added, ...shape.rest];
+  const asDefined = ids.length === build.componentIds.length && ids.every((id, i) => id === build.componentIds[i]);
+  out.blockIds = asDefined ? null : ids;
+
+  const attachPoints = buildAttachPoints(build, gear, ids);
+  const legal = attachPoints.filter((a) => !whyAttach(a, onBlock));
   let attach = attachPoints.find((a) => a.name === picks.attachName);
-  if (!attach || whyAttach(attach, head, mode)) {
-    const replacement = legalAttaches[0] || null;
+  if (!attach || whyAttach(attach, onBlock)) {
+    const replacement = legal[0] || null;
     if (attach && replacement) {
-      notes.push(`Switched the camera mount to "${ATTACH_LABELS[replacement.name] || replacement.name}". ${whyAttach(attach, head, mode)}`);
+      notes.push(`Switched the camera mount to "${ATTACH_LABELS[replacement.name] || replacement.name}". ${whyAttach(attach, onBlock)}`);
     }
     attach = replacement;
   }
   out.attachName = attach ? attach.name : null;
+}
 
-  return { picks: out, notes };
+/** What the camera block attaches to right now, given revalidated picks:
+ * `{below, onBlock, plates}`, or null while the rig below is incomplete. */
+function cameraBelow(gear, packageId, picks) {
+  const pool = getPackageComponents(gear, packageId);
+  const byId = Object.fromEntries(pool.map((c) => [c.id, c]));
+  let below = null;
+  if (!picks.supportId && !picks.headId) {
+    const base = picks.baseItemIds.map((id, i) => variantOf(byId[id], baseModeAt(picks, i)));
+    below = baseTopOf(orderStack(base, "ground", "up") || { items: base, topMount: "ground" });
+  } else if (picks.headId && picks.modeName) {
+    const head = byId[picks.headId];
+    below = headTopOf(head, head.modes.find((m) => m.name === picks.modeName));
+  }
+  if (!below) return null;
+  const plates = stackPlates(picks.plateIds.map((id) => byId[id]), below);
+  return {
+    below,
+    plates,
+    onBlock: { topMount: plates.topMount, topFacing: plates.topFacing, name: plates.name, headMode: picks.plateIds.length ? null : below.headMode },
+  };
 }
 
 /**
@@ -607,8 +812,18 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
       return entry(candidate, modes.some((m) => m.available) ? null : modes[0].reason, { modes });
     });
 
-  const attach = buildAttachPoints(build, gear).map((point) => {
-    const reason = head && mode ? whyAttach(point, head, mode) : "Choose a head first.";
+  // The camera side (3.4): plates, then the block at its attach points.
+  const camera = cameraBelow(gear, packageId, picks);
+  const NEED_HEAD = support ? "Choose a head first." : NEED_SUPPORT;
+  const plates = pool
+    .filter((c) => c.category === "plate")
+    .map((plate) => {
+      if (!camera) return entry(plate, NEED_HEAD);
+      const others = picks.plateIds.filter((id) => id !== plate.id).map((id) => byId[id]);
+      return entry(plate, stackPlates([...others, plate], camera.below).why || null);
+    });
+  const attach = buildAttachPoints(build, gear, picks.blockIds).map((point) => {
+    const reason = camera ? whyAttach(point, camera.onBlock) : NEED_HEAD;
     return {
       name: point.name,
       label: ATTACH_LABELS[point.name] || point.name,
@@ -619,18 +834,23 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
     };
   });
 
-  return { picks, base: baseItems, support: supports, nose: noses, adapters, head: heads, attach };
+  return { picks, base: baseItems, support: supports, nose: noses, adapters, head: heads, plates, attach };
 }
 
 /**
  * Which required slot is empty, ground up, or null when the rig is
  * complete: "support", "nose" (a beam nose with no nose fitting, SPEC.md
- * 3.7), "head", or "attach" (nothing on the camera fits the head). The UI
- * asks this rather than knowing which supports take a nose fitting.
+ * 3.7), "head", or "attach" (the camera block fits nothing below it). With
+ * no support and no head, the rig is complete when the camera block sits
+ * on the base (3.4). The UI asks this rather than knowing which supports
+ * take a nose fitting.
  */
 export function missingSlot(gear, packageId, buildId, rawPicks) {
   const { picks } = revalidatePicks(gear, packageId, buildId, rawPicks);
-  if (!picks.supportId) return "support";
+  if (!picks.supportId) {
+    const onBase = !picks.headId && !picks.noseId && picks.adapterIds.length === 0;
+    return onBase && picks.attachName ? null : "support";
+  }
   const support = getPackageComponents(gear, packageId).find((c) => c.id === picks.supportId);
   if (needsNoseFitting(support) && !picks.noseId) return "nose";
   if (!picks.headId || !picks.modeName) return "head";
@@ -650,7 +870,10 @@ export function defaultPicks(gear, packageId, buildId) {
   const head = firstAvailable(slotOptions(gear, packageId, buildId, picks).head);
   if (head) picks = { ...picks, headId: head.id };
   // Revalidating fills in the first legal modes and attach point.
-  return revalidatePicks(gear, packageId, buildId, picks).picks;
+  picks = revalidatePicks(gear, packageId, buildId, picks).picks;
+  // A camera block that fits nothing on the head gets the first fix (a plate).
+  const [fix] = missingSlot(gear, packageId, buildId, picks) === "attach" ? cameraRemedies(gear, packageId, buildId, picks) : [];
+  return fix ? revalidatePicks(gear, packageId, buildId, applyEdit(picks, fix.edit)).picks : picks;
 }
 
 /**
@@ -690,7 +913,7 @@ function whyNotInOrder(items, startMount, startFacing, startName) {
     if (!sitsOn(item, mount, i === 0)) {
       if (i > 0 && acceptsMount(item, "floor")) return `${withMode(item)} sit on the bare floor only — nothing goes underneath them.`;
       const where = belowName ? `${belowName} ends in ${plainMount(mount)}` : `here it would sit on ${plainMount(mount)}`;
-      return `${withMode(item)} needs ${plainMounts(item.bottomMount)} beneath it, but ${where}.`;
+      return `${withMode(item)} needs ${plainMounts(acceptedMounts(item))} beneath it, but ${where}.`;
     }
     const required = requiredSupportFacingOf(item);
     if (!supportFacingOk(facing, required)) {
@@ -705,13 +928,15 @@ function whyNotInOrder(items, startMount, startFacing, startName) {
 
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const MODES_KEY = { base: "baseModes", adapter: "adapterModes" };
-const IDS_KEY = { base: "baseItemIds", adapter: "adapterIds" };
+const IDS_KEY = { base: "baseItemIds", adapter: "adapterIds", plate: "plateIds" };
 
 /** Would `next` survive revalidation with every piece still in it, in the
  * same order and mode? A head mode or camera mount switching is fine.
  * Returns the reason it wouldn't, or null. */
 function whyLost(gear, packageId, buildId, next) {
   const { picks, notes } = revalidatePicks(gear, packageId, buildId, next);
+  // The camera block's pieces: null is the block as defined.
+  const asRigged = (ids) => ids ?? getBuild(gear, buildId).componentIds;
   const sameModes = (slot) =>
     next[IDS_KEY[slot]].every((id) => ((next[MODES_KEY[slot]] || {})[id] ?? null) === (picks[MODES_KEY[slot]][id] ?? null));
   const sameBaseModes = next.baseItemIds.every((_, i) => baseModeAt(next, i) === baseModeAt(picks, i));
@@ -722,8 +947,10 @@ function whyLost(gear, packageId, buildId, next) {
     (picks.noseId ?? null) === (next.noseId ?? null) &&
     sameList(picks.adapterIds, next.adapterIds) &&
     sameModes("adapter") &&
-    picks.headId === next.headId &&
-    Boolean(picks.modeName) &&
+    (picks.headId ?? null) === (next.headId ?? null) &&
+    (!next.headId || Boolean(picks.modeName)) &&
+    sameList(picks.plateIds, next.plateIds || []) &&
+    sameList(asRigged(picks.blockIds), asRigged(next.blockIds)) &&
     Boolean(picks.attachName);
   if (kept) return null;
   return notes.find((n) => /^(Cleared|Removed)/.test(n)) || notes[0] || "The rest of the rig wouldn't fit with it.";
@@ -757,7 +984,11 @@ function whyAtPosition(ctx, slot, list, index, candidate, replacing) {
   const items = [...list];
   items.splice(index, replacing ? 1 : 0, candidate);
 
-  if (slot === "base") {
+  if (slot === "plate") {
+    if (!ctx.camera) return "Choose a head first.";
+    const why = stackPlates(items, ctx.camera.below).why;
+    if (why) return why;
+  } else if (slot === "base") {
     if (appleBoxOrientationViolation([candidate])) return whyBaseItem(candidate, []);
     const why = whyNotInOrder(items, "ground", "up", null);
     if (why) return why;
@@ -777,10 +1008,14 @@ function whyAtPosition(ctx, slot, list, index, candidate, replacing) {
   const next = {
     ...picks,
     [IDS_KEY[slot]]: items.map((c) => c.id),
-    [MODES_KEY[slot]]:
-      slot === "base"
-        ? items.map((c) => c.mode ?? null)
-        : Object.fromEntries(items.filter((c) => c.mode).map((c) => [c.id, c.mode])),
+    ...(MODES_KEY[slot]
+      ? {
+          [MODES_KEY[slot]]:
+            slot === "base"
+              ? items.map((c) => c.mode ?? null)
+              : Object.fromEntries(items.filter((c) => c.mode).map((c) => [c.id, c.mode])),
+        }
+      : {}),
   };
   return whyLost(gear, packageId, buildId, next);
 }
@@ -797,13 +1032,16 @@ function editContext(gear, packageId, buildId, rawPicks) {
   const head = byId[picks.headId] || null;
   const base = picks.baseItemIds.map((id, i) => variantOf(byId[id], baseModeAt(picks, i)));
   const adapters = picks.adapterIds.map((id) => variantOf(byId[id], picks.adapterModes[id]));
-  return { gear, packageId, buildId, picks, pool, byId, supportComponent, support, nose, stackBase, head, base, adapters };
+  const plates = picks.plateIds.map((id) => byId[id]);
+  const camera = cameraBelow(gear, packageId, picks);
+  return { gear, packageId, buildId, picks, pool, byId, supportComponent, support, nose, stackBase, head, base, adapters, plates, camera };
 }
 
 /** Where an insertion point is, in plain words: "on the floor", "on SLE —
  * 4-way Level Head (Upright)", "under O'Connor 2575D". */
 function positionWords(ctx, slot, index) {
   if (slot === "base") return index === 0 ? "on the floor" : `on ${withMode(ctx.base[index - 1])}`;
+  if (slot === "plate") return `on ${index === 0 ? ctx.camera.below.name : nameOf(ctx.plates[index - 1])}`;
   if (index > 0 && index === ctx.adapters.length && ctx.head) return `under ${nameOf(ctx.head)}`;
   return `on ${index === 0 ? withMode(ctx.stackBase.piece) : withMode(ctx.adapters[index - 1])}`;
 }
@@ -822,6 +1060,7 @@ export function insertOptions(gear, packageId, buildId, rawPicks) {
   const gaps = [];
   const slots = [["base", ctx.base]];
   if (ctx.stackBase) slots.push(["adapter", ctx.adapters]);
+  if (ctx.camera) slots.push(["plate", ctx.plates]);
   for (const [slot, list] of slots) {
     for (let index = 0; index <= list.length; index++) {
       const options = candidatesFor(ctx.pool, slot).map((candidate) =>
@@ -842,6 +1081,20 @@ export function insertOptions(gear, packageId, buildId, rawPicks) {
  */
 export function addOptions(gear, packageId, buildId, rawPicks) {
   const byComponent = new Map();
+  // With no support and no head, a support can go back under the camera (3.4).
+  const ctx = editContext(gear, packageId, buildId, rawPicks);
+  if (!ctx.picks.supportId && !ctx.picks.headId) {
+    for (const option of slotOptions(gear, packageId, buildId, ctx.picks).support.filter((o) => o.available)) {
+      byComponent.set(option.id, {
+        id: option.id,
+        name: option.name,
+        label: option.name,
+        rise: null,
+        component: option.component,
+        positions: [{ slot: "support", index: 0, mode: null, where: "under the camera" }],
+      });
+    }
+  }
   for (const gap of insertOptions(gear, packageId, buildId, rawPicks)) {
     const placed = new Set();
     for (const option of gap.options) {
@@ -864,8 +1117,8 @@ export function addOptions(gear, packageId, buildId, rawPicks) {
  */
 export function swapOptions(gear, packageId, buildId, rawPicks, slot, index = 0) {
   const ctx = editContext(gear, packageId, buildId, rawPicks);
-  if (slot === "base" || slot === "adapter") {
-    const list = slot === "base" ? ctx.base : ctx.adapters;
+  if (slot === "base" || slot === "adapter" || slot === "plate") {
+    const list = { base: ctx.base, adapter: ctx.adapters, plate: ctx.plates }[slot];
     const current = list[index];
     return candidatesFor(ctx.pool, slot)
       .filter((c) => !(current && c.id === current.id))
@@ -899,7 +1152,17 @@ export function applyEdit(picks, edit) {
     baseModes: picks.baseItemIds.map((_, i) => baseModeAt(picks, i)),
     adapterIds: [...picks.adapterIds],
     adapterModes: { ...picks.adapterModes },
+    plateIds: [...(picks.plateIds || [])],
+    blockIds: picks.blockIds ?? null,
   };
+  // The camera block's pieces as rigged (3.4): the edit carries them, from blockOptions.
+  if (edit.op === "block") return { ...next, blockIds: edit.ids };
+  // Taking the support away takes everything that needs it (3.4, 5.9).
+  if (edit.op === "remove" && edit.slot === "support") {
+    return { ...next, supportId: null, supportMode: null, noseId: null, noseMode: null, adapterIds: [], adapterModes: {}, headId: null, modeName: null };
+  }
+  // A support added back under the camera.
+  if (edit.op === "insert" && edit.slot === "support") return { ...next, supportId: edit.id, supportMode: null };
   const ids = next[IDS_KEY[edit.slot]];
   const modes = next[MODES_KEY[edit.slot]];
   // Base modes go by position (an array); adapter modes by id.
@@ -948,4 +1211,104 @@ export function applyEdit(picks, edit) {
       throw new Error(`Unknown edit "${edit.op}"`);
   }
   return next;
+}
+
+// --- The camera block's sheet, and fixing a camera that fits nothing (3.4) ---
+
+/** Whether `next` is a complete rig that kept every piece `next` names. */
+function stillWorks(gear, packageId, buildId, next) {
+  return !whyLost(gear, packageId, buildId, next) && !missingSlot(gear, packageId, buildId, next);
+}
+
+/**
+ * The camera block as rigged, for its sheet (SPEC.md 3.4, 7.2): its pieces
+ * top to bottom with their rises, and the block edits that fit right now —
+ * strip the bottom piece, put the last removed one back, add a plate to its
+ * bottom. Each edit is `{op: "block", ids}`, offered only when the rig
+ * still works after it.
+ *
+ * @returns {{name, pieces: {id, name, rise}[], strip, restore, add: {label, edit}[]}}
+ */
+export function blockOptions(gear, packageId, buildId, rawPicks) {
+  const { picks } = revalidatePicks(gear, packageId, buildId, rawPicks);
+  const build = getBuild(gear, buildId);
+  const pool = getPackageComponents(gear, packageId);
+  const ids = picks.blockIds ?? build.componentIds;
+  const pieces = blockPieces(build, gear, ids);
+  const works = (edit) => stillWorks(gear, packageId, buildId, applyEdit(picks, edit));
+  const offer = (label, ids) => {
+    const edit = { op: "block", ids };
+    return works(edit) ? { label, edit } : null;
+  };
+
+  const strip = pieces.length > 1 ? offer(`Remove ${nameOf(pieces[0])}`, ids.slice(1)) : null;
+  // Put back the piece just below what's left of the block as defined.
+  const { restoreId } = blockOptionsUnchecked(gear, buildId, picks);
+  const restore = restoreId ? offer(`Put ${nameOf(blockPieces(build, gear, [restoreId])[0])} back`, [restoreId, ...ids]) : null;
+  const add = pool
+    .filter((c) => c.category === "plate" && ids[0] !== c.id)
+    .map((plate) => offer(`Add ${nameOf(plate)} to the bottom`, [plate.id, ...ids]))
+    .filter(Boolean);
+
+  return {
+    name: nameOf(build),
+    pieces: [...pieces].reverse().map((piece) => ({ id: piece.id, name: nameOf(piece), rise: pieceRise(piece), camera: piece.category === "camera-body" })),
+    strip,
+    restore,
+    add,
+  };
+}
+
+/**
+ * When the camera block fits nothing below it (`missingSlot` says
+ * "attach"), the edits that would make the rig complete (SPEC.md 5.9): a
+ * plate on the head, a plate added to the block's bottom, or the last
+ * stripped piece put back. `{label, edit}` each; empty if nothing helps.
+ */
+export function cameraRemedies(gear, packageId, buildId, rawPicks) {
+  const { picks } = revalidatePicks(gear, packageId, buildId, rawPicks);
+  const camera = cameraBelow(gear, packageId, picks);
+  if (!camera) return [];
+  const pool = getPackageComponents(gear, packageId);
+  const block = blockOptionsUnchecked(gear, buildId, picks);
+  const candidates = [
+    ...pool
+      .filter((c) => c.category === "plate" && !picks.plateIds.includes(c.id))
+      .map((plate) => ({ label: `${nameOf(plate)} on ${camera.onBlock.name}`, edit: { op: "insert", slot: "plate", index: picks.plateIds.length, id: plate.id } })),
+    ...pool
+      .filter((c) => c.category === "plate" && block.ids[0] !== c.id)
+      .map((plate) => ({ label: `${nameOf(plate)} on the bottom of ${block.name}`, edit: { op: "block", ids: [plate.id, ...block.ids] } })),
+    ...(block.restoreId ? [{ label: `Put ${nameOf(blockPieces(getBuild(gear, buildId), gear, [block.restoreId])[0])} back on ${block.name}`, edit: { op: "block", ids: [block.restoreId, ...block.ids] } }] : []),
+  ];
+  return candidates.filter(({ edit }) => {
+    const next = applyEdit(picks, edit);
+    return !missingSlot(gear, packageId, buildId, next) && !whyLost(gear, packageId, buildId, next);
+  });
+}
+
+/** The block's ids as rigged, and the stripped piece that would go back first. */
+function blockOptionsUnchecked(gear, buildId, picks) {
+  const build = getBuild(gear, buildId);
+  const ids = picks.blockIds ?? build.componentIds;
+  const defined = build.componentIds;
+  const firstDefined = defined.indexOf(ids.find((id) => defined.includes(id)));
+  return { name: nameOf(build), ids, restoreId: ids[0] === defined[firstDefined] && firstDefined > 0 ? defined[firstDefined - 1] : null };
+}
+
+/**
+ * Taking the support away (SPEC.md 5.9): with it go the nose fitting, the
+ * Mitchell adapters, and the head, and the camera block sits on the base.
+ * Offered only when that rig works. `{label, edit}`, or null.
+ */
+export function supportRemoval(gear, packageId, buildId, rawPicks) {
+  const { picks } = revalidatePicks(gear, packageId, buildId, rawPicks);
+  if (!picks.supportId) return null;
+  const pool = getPackageComponents(gear, packageId);
+  const byId = Object.fromEntries(pool.map((c) => [c.id, c]));
+  const edit = { op: "remove", slot: "support" };
+  const next = revalidatePicks(gear, packageId, buildId, applyEdit(picks, edit)).picks;
+  if (missingSlot(gear, packageId, buildId, next)) return null;
+  const gone = [picks.supportId, picks.noseId, ...picks.adapterIds, picks.headId].filter(Boolean).map((id) => nameOf(byId[id]));
+  const list = gone.length > 1 ? `${gone.slice(0, -1).join(", ")} and ${gone[gone.length - 1]}` : gone[0];
+  return { label: `Remove ${list}`, edit };
 }

@@ -32,7 +32,10 @@ export function signedInches(n) {
   return `${n > 0 ? "+" : n < 0 ? MINUS : ""}${magnitude(n)}″`;
 }
 
-/** A span of heights, one unit mark: (20, 32.5) -> "20–32½″". */
+/** A span of heights, one unit mark: (20, 32.5) -> "20–32½″". A span that
+ * reads the same at both ends is one height: (4, 4) -> "4″" (a camera on the
+ * floor, SPEC.md 3.4). */
 export function inchesSpan(low, high) {
+  if (inches(low) === inches(high)) return inches(high);
   return `${low < 0 ? MINUS : ""}${magnitude(low)}–${inches(high)}`;
 }
