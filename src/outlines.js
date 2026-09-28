@@ -257,11 +257,16 @@ function rotatingOffset(block) {
   const f = frame(block.box);
   const h = Math.max(f.h, MIN_PX * 4);
   const top = f.bottom - h;
-  const atW = (a, b) => [f.left + f.w * a, f.left + f.w * b];
+  const { near, far, mitchell } = block.shape;
   const atH = (a, b) => [top + h * a, top + h * b];
-  const [footL, footR] = atW(0, 0.525);
-  const [boxL, boxR] = atW(0.5, 0.925);
-  const [capL, capR] = atW(0.45, 0.975);
+  // The near (support-side) and far (camera-side) Mitchell mounts, centered
+  // on the same x the chain actually mounts through — not a fraction of
+  // the box, which drifts whenever the plate length or scale changes.
+  const mountW = mitchell * 2.1;
+  const [footL, footR] = [near.x - mountW / 2, near.x + mountW / 2];
+  const [capL, capR] = [far.x - mountW / 2, far.x + mountW / 2];
+  const cageInset = mitchell * 0.5;
+  const [boxL, boxR] = [capL + cageInset, capR - cageInset];
   const [capY0, capY1] = atH(0, 0.14);
   const [boxY0, boxY1] = atH(0.12, 0.74);
   const [plankY0, plankY1] = atH(0.74, 0.86);
@@ -299,12 +304,29 @@ function fluidHead(block) {
   const f = frame(block.box);
   const h = Math.max(f.h, MIN_PX * 2);
   const top = f.bottom - h;
-  // Stacked with no gap, filling the whole rise: the receiver plate on top,
-  // the tilt body, the pan base on the Mitchell at the bottom (7.2).
+  // Stacked with no gap, filling the whole rise: a pan base at the
+  // Mitchell — as wide as the plate, narrowing as it rises behind the
+  // ball — a round tilt body as wide as the plate, and the receiver plate
+  // on top, lowered so its own top edge is tangent to the ball's rather
+  // than floating above it (7.2).
+  const plateW = f.w * 1.16;
+  const plateH = Math.min(h * 0.12, h * 0.3);
+  const bodyR = plateW / 2;
+  const bodyCY = top + bodyR;
+  const panH = Math.max(h - bodyR * 1.75, MIN_PX * 1.5);
+  const panTopW = plateW * 0.4;
   const inner =
-    rect(f.left - f.w * 0.1, top, f.w * 1.2, h * 0.15, "o k-fixed plate") +
-    rect(f.left, top + h * 0.15, f.w, h * 0.55, fill(block.kind), { rx: h * 0.1 }) +
-    rect(f.left + f.w * 0.2, top + h * 0.7, f.w * 0.6, h * 0.3, "o k-fixed pan");
+    poly(
+      [
+        [f.cx - plateW / 2, f.bottom],
+        [f.cx + plateW / 2, f.bottom],
+        [f.cx + panTopW / 2, f.bottom - panH],
+        [f.cx - panTopW / 2, f.bottom - panH],
+      ],
+      "o k-fixed pan"
+    ) +
+    circle(f.cx, bodyCY, bodyR, fill(block.kind)) +
+    rect(f.cx - plateW / 2, top, plateW, plateH, "o k-fixed plate");
   return block.shape.inverted ? flipped(block.box, inner) : inner;
 }
 

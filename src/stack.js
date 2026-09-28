@@ -531,7 +531,9 @@ export function stackLayout(chain, target = null, options = {}) {
         };
       }
       case "adapter":
-        if (b.component.drawAs === "swivel") return { type: "rotating-offset" };
+        if (b.component.drawAs === "swivel") {
+          return { type: "rotating-offset", near: pt(at, b.start), far: pt(b.mountX, b.start), mitchell: px(DRAW.mitchell) };
+        }
         if (b.component.plateLength) {
           return {
             type: "offset",
