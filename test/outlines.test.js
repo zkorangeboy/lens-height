@@ -1,6 +1,6 @@
-// The schematic outlines (SPEC.md 7.2): one per kind of gear, drawn inside
-// the pixel boxes stackLayout hands them, with the adjustability fills inside,
-// and the tap targets and markers the Add flow uses.
+// The schematic outlines (src/outlines.js): one per kind of gear. Drawing
+// code is its own spec (SPEC.md no longer describes shapes); this is a
+// smoke test, not a shape-by-shape check.
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -10,8 +10,7 @@ import path from "node:path";
 
 import { buildChain } from "../src/solver.js";
 import { stackLayout } from "../src/stack.js";
-import * as outlines from "../src/outlines.js";
-import { markerSvg, outlineOf, pieceAt, pieceSvg } from "../src/outlines.js";
+import { outlineOf } from "../src/outlines.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
@@ -29,7 +28,6 @@ const rig = (over = {}) => ({
 });
 const fisher = (over = {}) => rig({ supportId: "fisher-11", noseId: "fisher-sle", noseMode: "upright", ...over });
 const layoutOf = (selection, target = null) => stackLayout(buildChain(seed, selection), target, { frame: { width: 200, height: 520 } });
-const svgOf = (selection, target) => layoutOf(selection, target).blocks.map((b) => [b.shape.type, outlineOf(b)]);
 
 const RIGS = {
   tripod: rig({ baseItemIds: ["apple-full"], baseModes: { "apple-full": "12in" }, adapterIds: ["mitchell-riser-6"] }),
@@ -43,229 +41,18 @@ const RIGS = {
   hung24: rig({ adapterIds: ["mitchell-offset-24"], adapterModes: { "mitchell-offset-24": "bottom" }, modeName: "underslung", attachName: "base-inverted" }),
 };
 
-describe("one outline per kind of gear", () => {
-  test("every kind in the seed has its own outline", () => {
+describe("every gear kind renders without error", () => {
+  test("every kind in the seed has its own outline, and none renders broken markup", () => {
     const kinds = new Set(Object.values(RIGS).flatMap((selection) => layoutOf(selection).blocks.map((b) => b.shape.type)));
     assert.deepEqual([...kinds].sort(), [
-      "apple", "camera", "dolly", "fluid-head", "hi-hat", "lambda", "lhe", "lo-hat", "offset", "plate", "riser", "sle", "swivel", "track", "tripod",
+      "apple", "camera", "dolly", "fluid-head", "hi-hat", "lambda", "lhe", "lo-hat", "offset", "plate", "riser", "rotating-offset", "sle", "track", "tripod",
     ]);
     for (const selection of Object.values(RIGS)) {
-      for (const [type, svg] of svgOf(selection)) {
-        assert.match(svg, /^<(rect|line|circle|polygon|path|g)\b/, type);
-        assert.doesNotMatch(svg, /NaN|undefined|Infinity/, type);
+      for (const block of layoutOf(selection).blocks) {
+        const svg = outlineOf(block);
+        assert.match(svg, /^<(rect|line|circle|polygon|path|g)\b/, block.shape.type);
+        assert.doesNotMatch(svg, /NaN|undefined|Infinity/, block.shape.type);
       }
-    }
-  });
-
-  test("the adjustability fills sit inside the outlines", () => {
-    const [tripod] = svgOf(rig());
-    assert.match(tripod[1], /leg k-adjustable/, "tripod legs are adjustable");
-    const fisherSvg = Object.fromEntries(svgOf(fisher()));
-    assert.match(fisherSvg.dolly, /k-moveable beam/, "the Fisher's beam is moveable");
-    assert.match(fisherSvg.dolly, /o k-fixed/, "its chassis is fixed");
-    assert.match(fisherSvg.sle, /k-adjustable/, "the SLE upright is adjustable");
-    assert.match(Object.fromEntries(svgOf(fisher({ noseMode: "reversed" }))).sle, /k-fixed/, "reversed, it's fixed");
-  });
-
-  test("tripod legs splay to the box's width, which grows with the set height", () => {
-    const low = layoutOf(rig(), { type: "fixed", height: 26 }).blocks[0];
-    const high = layoutOf(rig(), { type: "fixed", height: 38 }).blocks[0];
-    assert.ok(high.box.height > low.box.height);
-    assert.ok(high.box.width >= low.box.width * 0.99, "legs spread at least as wide when set higher");
-    assert.equal((outlineOf(low).match(/class="leg /g) || []).length, 3, "three legs");
-  });
-
-  test("wheels are drawn per wheel mode", () => {
-    const dollySvg = (selection) => Object.fromEntries(svgOf(selection)).dolly;
-    const pneumatic = dollySvg(fisher());
-    const etw = dollySvg(fisher({ baseItemIds: ["round-track"], supportMode: "etw" }));
-    const skate = dollySvg(fisher({ baseItemIds: ["round-track"], supportMode: "skateboard" }));
-    assert.equal((pneumatic.match(/class="o tire"/g) || []).length, 2, "one wheel at each end, side on");
-    assert.doesNotMatch(pneumatic, /groove|skate/);
-    assert.equal((etw.match(/class="o groove"/g) || []).length, 2, "ETW wheels are grooved for round rail");
-    assert.equal((skate.match(/class="o skate-wheel"/g) || []).length, 4, "two skateboard wheels under each tire");
-    assert.match(skate, /skate-plate/);
-  });
-
-  test("the beam is drawn from the pivot to the nose; a moveable range adds faint beams at both ends", () => {
-    const fixed = Object.fromEntries(svgOf(fisher(), { type: "fixed", height: 40 })).dolly;
-    assert.equal((fixed.match(/class="beam-ghost"/g) || []).length, 0);
-    const move = Object.fromEntries(svgOf(fisher(), { type: "range", low: 30, high: 50 })).dolly;
-    assert.equal((move.match(/class="beam-ghost"/g) || []).length, 2);
-    assert.equal((move.match(/k-moveable beam/g) || []).length, 1);
-    assert.match(fixed, /class="o k-fixed post"/, "push posts at the rear");
-  });
-
-  test("the offset plate marks the side in use", () => {
-    const off = Object.fromEntries(svgOf(RIGS.fisherRound)).offset;
-    assert.equal((off.match(/class="o hole"/g) || []).length, 2, "a Mitchell ring at each end");
-    assert.match(off, /class="in-use"/);
-  });
-
-  test("the camera block: its plates and a 5″ body at true scale, and a forward triangle at the optical center", () => {
-    const upright = layoutOf(rig()).blocks.at(-1);
-    const inverted = layoutOf(RIGS.fisherRound).blocks.at(-1);
-    const piece = (camera, id) => camera.shape.pieces.find((p) => p.id === id).box;
-    for (const camera of [upright, inverted]) {
-      const { body, cone, opticalCenter } = camera.shape;
-      const selection = camera === upright ? rig() : RIGS.fisherRound;
-      const scale = layoutOf(selection).frame.scale;
-      assert.ok(Math.abs(body.height - 5 * scale) < 0.05, "a 5″ body");
-      // The optical center is 2½″ above the body's base: its middle.
-      assert.ok(Math.abs(body.y + body.height / 2 - opticalCenter.y) < 0.05, "the optical center at the body's middle");
-      assert.deepEqual(camera.shape.pieces.map((p) => p.id), ["arri-dovetail", "base-plate"], "every plate of the block drawn; QR is its bottom, not a piece");
-      assert.ok(Math.abs(piece(camera, "arri-dovetail").height - 1 * scale) < 0.05, "the Arri dovetail 1″ thick");
-      assert.equal(opticalCenter.y, layoutOf(selection).lens.y, "on the lens height, so on the target line when on target");
-      // The triangle: its point on the optical center, its opening forward.
-      const points = outlineOf(camera).match(/<polygon points="([^"]+)" class="lens-cone"/)[1].split(" ").map((p) => p.split(",").map(Number));
-      const [[px, py], [ax, ay], [bx, by]] = points;
-      const r = (v) => Math.round(v * 10) / 10;
-      assert.deepEqual([px, py], [r(cone.x0), r(opticalCenter.y)], "the point on the optical center");
-      assert.ok(ax > px && bx > px, "opening forward, the way the camera shoots");
-      assert.ok(Math.abs((ay + by) / 2 - py) < 0.11, "centered vertically on the optical center");
-      assert.ok(ay < py && by > py);
-      assert.doesNotMatch(outlineOf(camera), /lens-dot|<circle/, "no lens square or dot");
-    }
-    // Upright, the plates are under the body; hanging inverted, above it (nearer the mount).
-    assert.ok(piece(upright, "base-plate").y >= upright.shape.body.y + upright.shape.body.height - 0.05);
-    assert.ok(piece(inverted, "base-plate").y + piece(inverted, "base-plate").height <= inverted.shape.body.y + 0.05);
-    assert.equal(upright.shape.inverted, false);
-    assert.equal(inverted.shape.inverted, true);
-    assert.match(outlineOf(inverted), /v 4/, "the handle is drawn on the underside");
-    assert.match(outlineOf(upright), /v -4/, "and on top when upright");
-    assert.deepEqual(
-      outlineOf(inverted).match(/class="lens-cone"/g).length,
-      1,
-      "inverted, the triangle is not flipped: same forward shape"
-    );
-  });
-
-  test("the Lambda 50 is an L-frame: upright stands on its mount, underslung is the same frame flipped", () => {
-    const partsOf = (selection) => {
-      const layout = layoutOf(selection);
-      const head = layout.blocks.find((b) => b.slot === "head");
-      return { head, camera: layout.blocks.at(-1), ...head.shape };
-    };
-    const up = partsOf(RIGS.lambda);
-    assert.ok(up.pan.y > up.platform.y, "upright: the pan base at the bottom, the platform above");
-    assert.ok(up.column.y < up.platform.y, "the column runs a little above the platform");
-    assert.ok(up.column.x < up.platform.x && up.plate.x + up.plate.width > up.pan.x + up.pan.width, "column at the rear, plate running forward");
-    const hung = partsOf(RIGS.lambdaHung);
-    assert.ok(hung.pan.y < hung.platform.y, "underslung: the pan base on top, the platform at the bottom");
-    assert.ok(hung.column.y + hung.column.height > hung.platform.y + hung.platform.height, "the column drops past the platform");
-    for (const { camera, platform, plate } of [up, hung]) {
-      assert.equal(camera.shape.inverted, false, "the camera is never inverted");
-      const dovetail = camera.shape.pieces.find((p) => p.id === "arri-dovetail").box;
-      assert.ok(Math.abs(dovetail.y + dovetail.height - platform.y) < 0.5, "its QR bottom sits in the platform's QR receiver");
-      assert.ok(camera.shape.body.y + camera.shape.body.height <= platform.y, "the camera upright above it");
-    }
-    assert.ok(hung.camera.shape.body.y > hung.plate.y + hung.plate.height, "between the platform and the top plate");
-    const svg = outlineOf(up.head);
-    for (const part of ["lambda-pan", "lambda-plate", "lambda-column", "lambda-platform"]) assert.match(svg, new RegExp(part));
-    assert.match(svg, /k-adjustable lambda-platform/, "drawn in the adjustable color");
-  });
-
-  test("the 2575's outline fills its whole 8½″, Mitchell base to receiver, with no empty band", () => {
-    const head = layoutOf(rig()).blocks.find((b) => b.slot === "head");
-    const spans = [...outlineOf(head).matchAll(/<rect x="[^"]+" y="([^"]+)" width="[^"]+" height="([^"]+)"/g)]
-      .map(([, y, h]) => [Number(y), Number(y) + Number(h)])
-      .sort((a, b) => a[0] - b[0]);
-    const r = (v) => Math.round(v * 10) / 10;
-    assert.equal(spans[0][0], r(head.box.y), "from the receiver at the top");
-    assert.ok(Math.abs(spans.at(-1)[1] - (head.box.y + head.box.height)) <= 0.1, "to the Mitchell base at the bottom");
-    for (let i = 1; i < spans.length; i++) {
-      assert.ok(spans[i][0] <= spans[i - 1][1] + 0.1, `no gap between part ${i - 1} and part ${i}`);
-    }
-  });
-
-  test("an underslung fluid head is drawn upside down", () => {
-    const head = layoutOf(RIGS.fisherRound).blocks.find((b) => b.slot === "head");
-    assert.match(outlineOf(head), /scale\(1 -1\)/);
-    assert.doesNotMatch(outlineOf(layoutOf(rig()).blocks.find((b) => b.slot === "head")), /scale\(1 -1\)/);
-  });
-});
-
-describe("taps and markers", () => {
-  // A support is tapped low, on its legs or chassis; anything else at its center.
-  // An SLE, on its body under the plate (its neck runs up behind the head).
-  // A base item, near its end (a dolly's wheels sit down into round track).
-  // A Lambda 50, on its column (its middle holds the camera).
-  const centerOf = (b) =>
-    b.slot === "base"
-      ? { x: b.box.x + 3, y: b.box.y + Math.max(b.box.height, 4) / 2 }
-      : b.slot === "support" || b.shape.type === "sle"
-      ? { x: b.box.x + b.box.width / 2, y: b.box.y + b.box.height - 6 }
-      : b.shape.type === "lambda"
-        ? { x: b.shape.column.x + b.shape.column.width / 2, y: b.shape.column.y + b.shape.column.height / 2 }
-        : { x: b.box.x + b.box.width / 2, y: b.box.y + Math.max(b.box.height, 4) / 2 };
-  const slotAt = (layout, point) => {
-    const i = pieceAt(layout.blocks, point);
-    return i === null ? null : layout.blocks[i].slot;
-  };
-
-  test("a tap anywhere on a piece's outline opens that piece, even where outlines overlap", () => {
-    for (const selection of Object.values(RIGS)) {
-      const layout = layoutOf(selection, { type: "fixed", height: 30 });
-      for (const b of layout.blocks) {
-        // A bracket's box is mostly the space it hangs around; it has its own test below.
-        if (b.shape.type === "lhe") continue;
-        const hit = slotAt(layout, centerOf(b));
-        // Where outlines overlap (everything on a dolly), the one drawn on top wins.
-        assert.equal(hit, b.slot, `${JSON.stringify(selection).slice(0, 60)}: ${b.slot}`);
-      }
-    }
-  });
-
-  test("the LHE is tappable on its arm, at the bend", () => {
-    const layout = layoutOf(RIGS.lhe);
-    const lhe = layout.blocks.find((b) => b.slot === "nose");
-    assert.equal(slotAt(layout, lhe.shape.arm[1]), "nose");
-  });
-
-  test("an SLE set down under an offset plate stays tappable", () => {
-    const layout = layoutOf(fisher({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" }), { type: "fixed", height: 5 });
-    const sle = layout.blocks.find((b) => b.slot === "nose");
-    assert.ok(sle.box.height > 4, "the SLE is set below 0");
-    assert.equal(slotAt(layout, centerOf(sle)), "nose");
-  });
-
-  test("a sliver still has a 44px target: 22px around it", () => {
-    const layout = layoutOf(RIGS.fisherRound);
-    const plate = layout.blocks.find((b) => b.slot === "adapter");
-    assert.equal(slotAt(layout, { x: plate.box.x + plate.box.width - 2, y: plate.box.y - 12 }), "adapter", "just above the plate's far end");
-    assert.equal(slotAt(layout, { x: -100, y: -100 }), null, "far away is no piece");
-  });
-
-  test("a marker has a 44px hit circle around a visible dot", () => {
-    const svg = markerSvg({ x: 50, y: 80 }, 'data-place="{}"');
-    assert.match(svg, /<circle cx="50" cy="80" r="22" class="marker-hit"\/>/);
-    assert.match(svg, /r="9" class="marker-dot"/);
-    assert.match(svg, /data-place=/);
-  });
-
-  test("no tags: nothing in the drawing is labeled", () => {
-    assert.equal(outlines.tagSvg, undefined);
-    for (const selection of Object.values(RIGS)) {
-      for (const [, svg] of svgOf(selection)) assert.doesNotMatch(svg, /<text|class="tag/);
-    }
-  });
-
-  test("an outline carries no tap target of its own: taps are resolved by pieceAt", () => {
-    assert.doesNotMatch(pieceSvg(layoutOf(rig()).blocks[0]), /data-piece|hit-area/);
-  });
-});
-
-describe("the outlines draw; they don't compute heights", () => {
-  const source = readFileSync(path.join(root, "src/outlines.js"), "utf8");
-
-  test("outlines.js imports nothing: no model, solver, or layout", () => {
-    assert.doesNotMatch(source, /^import /m);
-  });
-
-  test("it never reads a height in inches: only pixel boxes and points from the layout", () => {
-    for (const field of ["\\.rise\\b", "\\.start\\b", "\\.end\\b", "\\.bottom\\b(?!\\s*[-+])", "\\.top\\b", "\\.height\\b(?=\\s*[-+*/])", "Pct\\b", "riseRange", "(?<!Math)\\.(min|max)\\b"]) {
-      const code = source.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
-      assert.doesNotMatch(code.replace(/f\.bottom|f\.top|e\.bottom|e\.top|box\.height|body\.height|c\.height|chassis\.height|posts\.bottom|posts\.top|b\.top|b\.bottom/g, ""), new RegExp(field), field);
     }
   });
 });

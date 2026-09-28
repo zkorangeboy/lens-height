@@ -194,7 +194,7 @@ function bareSupportMoveableInterval(support) {
 }
 
 /**
- * A support's range as stacked segments, bottom to top (SPEC.md 5.8), so a
+ * A support's range as stacked segments, bottom to top, so a
  * renderer can draw the fixed base, the adjustable extension, and the
  * moveable extension apart. Each segment has a `kind` (SPEC.md 3.5), a
  * `base` (its rise fully retracted) and an `extent` (how much further it
@@ -241,11 +241,10 @@ function bareSupportSegments(support) {
 }
 
 /**
- * "Mark a chain as built" (SPEC.md 5.5): capture a resolved chain (as
- * produced by solver.js's enumerateChains or buildChain) as the minimal,
- * serializable selection needed to reconstruct it later — the shape
- * solver.js's buildChain expects, and what a real app would persist as
- * the current rig.
+ * Turn a resolved chain (as produced by solver.js's enumerateChains or
+ * buildChain) back into the minimal, serializable picks needed to
+ * reconstruct it later — the shape solver.js's buildChain expects
+ * (SPEC.md 5.1).
  */
 export function describeCurrentRig(chain) {
   return {

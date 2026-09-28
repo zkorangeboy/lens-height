@@ -81,6 +81,30 @@ export function requiredSupportFacingOf(component) {
   return component.supportMountFacing || "up";
 }
 
+/** A riser or an offset (SPEC.md 3.6): mounts to a Mitchell of either
+ * facing, and its own rise/facing follow whichever one it lands on. */
+export function followsMount(component) {
+  return Boolean(component.followsMount);
+}
+
+const flipFacing = (facing) => (facing === "down" ? "up" : "down");
+
+/** Whether `item` can sit on a mount facing `facing` (SPEC.md 2, 3.6): a
+ * riser or offset takes either facing; anything else needs the facing it
+ * declares (default `up`). */
+export function facingAccepted(item, facing) {
+  return followsMount(item) || supportFacingOk(facing, requiredSupportFacingOf(item));
+}
+
+/** `item` as it actually sits given the facing beneath it (SPEC.md 3.6): a
+ * riser or offset hung from a down-facing mount presents its declared
+ * rise negated and its declared facing flipped; on an up-facing mount, or
+ * for anything that doesn't `followsMount`, it's unchanged. */
+export function facedVariant(item, facing) {
+  if (!followsMount(item) || facing !== "down") return item;
+  return { ...item, rise: -item.rise, mountFacing: flipFacing(topFacingOf(item)) };
+}
+
 /** Apple boxes are unlimited (SPEC.md 3.1): the same box may appear any
  * number of times. Everything else is one of each per chain. */
 export function isRepeatable(component) {
@@ -241,9 +265,10 @@ export function orderStack(items, startMount, startFacing) {
     for (let i = 0; i < remaining.length; i++) {
       const item = remaining[i];
       if (!sitsOn(item, mount, placed.length === 0)) continue;
-      if (!supportFacingOk(facing, requiredSupportFacingOf(item))) continue;
+      if (!facingAccepted(item, facing)) continue;
+      const faced = facedVariant(item, facing);
       const rest = remaining.filter((_, j) => j !== i);
-      const found = search(rest, [...placed, item], item.topMount, topFacingOf(item));
+      const found = search(rest, [...placed, faced], faced.topMount, topFacingOf(faced));
       if (found) return found;
     }
     return null;
@@ -274,21 +299,6 @@ export function isAppleBox(item) {
 
 export function isDolly(support) {
   return support.kind === "dolly";
-}
-
-export function isTripod(support) {
-  return support.kind === "tripod";
-}
-
-export function appleBoxCount(baseItems) {
-  return baseItems.filter(isAppleBox).length;
-}
-
-/** Soft, not a rule (SPEC.md 2.1): a tripod on apple boxes is legal but
- * heavily penalized in ranking. Lives here beside the hard rules so
- * "what counts as a tripod on apple boxes" is defined once. */
-export function tripodOnAppleBoxes(baseItems, support) {
-  return isTripod(support) && appleBoxCount(baseItems) > 0;
 }
 
 /** Hard rule: only a dolly forbids apple boxes. */
@@ -322,7 +332,7 @@ export function ruleViolations(baseItems, adapters, support, nose = null) {
   ].filter(Boolean);
 }
 
-// --- What may attach (SPEC.md 5.9) -----------------------------------------
+// --- What may attach (SPEC.md 6) -----------------------------------------
 //
 // The check screen offers each slot only what can legally attach to what's
 // below it. This is that logic, built from the same primitives as chain
@@ -359,7 +369,7 @@ const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 const withMode = (component) =>
   component.mode ? `${nameOf(component)} (${component.modeLabel || component.mode})` : nameOf(component);
 
-// Notes (SPEC.md 5.9): a few words, only for a piece the user didn't touch
+// Notes (SPEC.md 6): a few words, only for a piece the user didn't touch
 // that was removed or swapped for another setting of its own. Never a reason.
 const shortOf = (component) => component.shortName || nameOf(component);
 const removedNote = (component) => `Removed ${shortOf(component)}`;
@@ -374,7 +384,7 @@ const ATTACH_LABELS = {
 };
 
 /** A mode named underslung is the "flipped" state of a component that has
- * one (SPEC.md 5.9); so is an inverted attach point. */
+ * one (SPEC.md 6); so is an inverted attach point. */
 const isFlippedMode = (name) => /underslung/i.test(name || "");
 
 const EMPTY_PICKS = () => ({
@@ -393,12 +403,12 @@ const EMPTY_PICKS = () => ({
   attachName: null,
 });
 
-/** A mode is the "flipped" state (a toggle's on side, SPEC.md 5.9) if it's
+/** A mode is the "flipped" state (a toggle's on side, SPEC.md 6) if it's
  * named underslung or turns the mount it presents to face down (the bottom
  * of a U offset plate). */
 const isFlipped = (variant) => isFlippedMode(variant.mode) || variant.mountFacing === "down";
 
-/** Orientation modes (SPEC.md 5.9) are flips on the drawing, never sheet
+/** Orientation modes (SPEC.md 6) are flips on the drawing, never sheet
  * choices: every head mode, both sides of an offset plate, an SLE's
  * upside-down mode. A full apple's faces, a dolly's wheels, and the SLE's
  * reversed position aren't. */
@@ -506,7 +516,7 @@ function settleMode(component, wanted, why, notes, variantsOf = adapterVariants)
 
 /**
  * Walk `picks` ground up and drop or adjust whatever isn't legal on what's
- * beneath it (SPEC.md 5.9). Base items, the support, the nose fitting,
+ * beneath it (SPEC.md 6). Base items, the support, the nose fitting,
  * adapters, and the head are cleared with a plain-language note; a mode or
  * attach point that stopped fitting switches to the first legal one instead.
  * A pick above an empty required slot is kept, to be revalidated once it's
@@ -721,7 +731,7 @@ function cameraBelow(gear, packageId, picks) {
 
 /**
  * Every slot's candidates, each marked available or not given the picks
- * below it, with a plain-language reason when it isn't (SPEC.md 5.9). The
+ * below it, with a plain-language reason when it isn't (SPEC.md 6). The
  * picks are revalidated first, so this never reasons from an illegal rig.
  */
 export function slotOptions(gear, packageId, buildId, rawPicks) {
@@ -866,7 +876,7 @@ export function defaultPicks(gear, packageId, buildId) {
 }
 
 /**
- * How to present a set of modes (SPEC.md 5.9): nothing, plain text, an
+ * How to present a set of modes (SPEC.md 6): nothing, plain text, an
  * on/off toggle, or a dropdown. `entries` are {name, label, flipped,
  * available, reason}. A toggle needs exactly two legal states, one of them
  * the flipped (underslung / inverted) one; when a flipped state exists but
@@ -886,7 +896,7 @@ export function modeControl(entries) {
 }
 
 /**
- * The modes a piece's sheet offers (SPEC.md 5.9): never an orientation —
+ * The modes a piece's sheet offers (SPEC.md 6): never an orientation —
  * that's a flip on the drawing. None at all while the piece is in an
  * orientation mode (an SLE upside down). `entries` are a slot option's
  * `modes`; `current` is the piece's mode now.
@@ -897,7 +907,7 @@ export function sheetModes(entries, current) {
   return entries.filter((e) => !e.orientation);
 }
 
-// --- Flips (SPEC.md 5.9) ----------------------------------------------------
+// --- Flips (SPEC.md 6) ----------------------------------------------------
 
 /**
  * One flip, as one action: the piece's orientation and every mode that
@@ -938,12 +948,12 @@ export function flip(gear, packageId, buildId, rawPicks, piece) {
   return kept ? flipped : null;
 }
 
-/** The pieces that can flip right now (SPEC.md 5.9): `{slot, index}` each. */
+/** The pieces that can flip right now (SPEC.md 6): `{slot, index}` each. */
 export function flips(gear, packageId, buildId, rawPicks) {
   return [{ slot: "nose", index: 0 }, { slot: "head", index: 0 }].filter((piece) => flip(gear, packageId, buildId, rawPicks, piece));
 }
 
-// --- Editing in the drawing (SPEC.md 5.9, 7.2) ------------------------------
+// --- Editing in the drawing (SPEC.md 6) ------------------------------
 //
 // The check screen edits the rig where the user tapped: add at an insertion
 // point, swap a piece in place, remove one, change a mode. These say what
@@ -962,19 +972,20 @@ function whyNotInOrder(items, startMount, startFacing, startName) {
       const where = belowName ? `${belowName} ends in ${plainMount(mount)}` : `here it would sit on ${plainMount(mount)}`;
       return `${withMode(item)} needs ${plainMounts(acceptedMounts(item))} beneath it, but ${where}.`;
     }
-    const required = requiredSupportFacingOf(item);
-    if (!supportFacingOk(facing, required)) {
+    if (!facingAccepted(item, facing)) {
+      const required = requiredSupportFacingOf(item);
       return `${withMode(item)} needs ${anFacing(required)} mount beneath it, but the top of ${belowName} faces ${facing}.`;
     }
-    mount = item.topMount;
-    facing = topFacingOf(item);
+    const faced = facedVariant(item, facing);
+    mount = faced.topMount;
+    facing = topFacingOf(faced);
     belowName = withMode(item);
   }
   return null;
 }
 
 /** Whether a complete rig is under the floor even at the top of its reach
- * (SPEC.md 5.8): no action should lead there. */
+ * (SPEC.md 5.2): no action should lead there. */
 function belowFloorAtEveryLift(gear, packageId, buildId, picks) {
   if (missingSlot(gear, packageId, buildId, picks)) return false;
   try {
@@ -1095,8 +1106,8 @@ function editContext(gear, packageId, buildId, rawPicks) {
   return { gear, packageId, buildId, picks, pool, byId, supportComponent, support, nose, stackBase, head, base, adapters, plates, camera };
 }
 
-/** Where an insertion point is, in plain words: "on the floor", "on SLE —
- * 4-way Level Head (Upright)", "under O'Connor 2575D". */
+/** Where an insertion point is, in plain words: "on the floor", "on
+ * Standard Level Head (Upright)", "under O'Connor 2575D". */
 function positionWords(ctx, slot, index) {
   if (slot === "base") return index === 0 ? "on the floor" : `on ${withMode(ctx.base[index - 1])}`;
   if (slot === "plate") return `on ${index === 0 ? ctx.camera.below.name : nameOf(ctx.plates[index - 1])}`;
@@ -1105,7 +1116,7 @@ function positionWords(ctx, slot, index) {
 }
 
 /**
- * Every insertion point in the rig (SPEC.md 5.8, 5.9) with what may be added
+ * Every insertion point in the rig (SPEC.md 6) with what may be added
  * there: `base` 0 is the floor and `base` i sits on base item i-1; `adapter`
  * 0 sits on the nose fitting (or the support, if it takes none) and
  * `adapter` i on adapter i-1. Adapter points only exist once there's
@@ -1131,7 +1142,7 @@ export function insertOptions(gear, packageId, buildId, rawPicks) {
 }
 
 /**
- * Everything that can legally be added to the rig (SPEC.md 5.9, 7.2's Add
+ * Everything that can legally be added to the rig (SPEC.md 6's Add
  * button): one entry per component, with every position it fits. At each
  * position it goes in its first mode that fits there.
  *
@@ -1168,7 +1179,7 @@ export function addOptions(gear, packageId, buildId, rawPicks) {
 }
 
 /**
- * What may replace one piece of the rig (SPEC.md 5.9). Base items and
+ * What may replace one piece of the rig (SPEC.md 6). Base items and
  * adapters are judged in their exact place; a support needs only to sit on
  * the base layer, and a head needs one legal mode on what's beneath it.
  * The piece itself isn't listed (its modes are a toggle, not a swap).
@@ -1333,7 +1344,7 @@ export function blockOptions(gear, packageId, buildId, rawPicks) {
 
 /**
  * When the camera block fits nothing below it (`missingSlot` says
- * "attach"), the edits that would make the rig complete (SPEC.md 5.9): a
+ * "attach"), the edits that would make the rig complete (SPEC.md 6): a
  * plate on the head, a plate added to the block's bottom, or the last
  * stripped piece put back. `{label, edit}` each; empty if nothing helps.
  */
@@ -1368,7 +1379,7 @@ function blockOptionsUnchecked(gear, buildId, picks) {
 }
 
 /**
- * Taking the support away (SPEC.md 5.9): with it go the nose fitting, the
+ * Taking the support away (SPEC.md 6): with it go the nose fitting, the
  * Mitchell adapters, and the head, and the camera block sits on the base.
  * Offered only when that rig works. `{label, edit}`, or null.
  */

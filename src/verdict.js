@@ -1,4 +1,4 @@
-// The check screen's one-line verdict (SPEC.md 5.6). Whether the rig reaches
+// The check screen's one-line verdict (SPEC.md 5.3). Whether the rig reaches
 // the target is a comparison of heights, so it happens here, not in the UI:
 // the UI shows `text` in the color `state` names.
 

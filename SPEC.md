@@ -5,9 +5,11 @@ camera package I have on this show, what combination of gear puts the lens
 at a given height — or lets it travel across a given range without
 re-rigging?*
 
-This document is the source of truth for the data model and solver logic.
-When behavior needs to change, change this file first, then update the
-code to match.
+This document is the source of truth for the data model, the rules, and
+the height math. When behavior needs to change, change this file first,
+then update the code to match. Drawing, wording, and styling are not
+covered here — the code is the spec for shapes (see CLAUDE.md for which
+kind of change needs a spec update and which doesn't).
 
 ---
 
@@ -88,8 +90,7 @@ Other mounts are untyped and mate only with themselves:
   bowl-mount. Any other untyped name (older data, test fixtures) likewise
   mates only with itself.
 
-The solver must reject chains with mismatched mounts rather than silently
-summing them.
+A chain must reject mismatched mounts rather than silently summing them.
 
 **Facing.** A mount also faces `up` or `down`. Two fields carry it:
 
@@ -115,7 +116,7 @@ so whatever attaches to it hangs inverted too (3.4).
 
 Two more hard rules reject a chain outright. Neither is a mount check —
 gear with compatible mounts can still break them — so they are separate
-checks, and the solver reports which rule failed.
+checks, and the rejection says which rule failed.
 
 **Family.** Supports and adapters may declare a `family` (e.g. `fisher`,
 `chapman`). An adapter may declare `requiresFamily`; the chain is rejected
@@ -133,16 +134,6 @@ which is exactly why this can't be left to mount compatibility.
   other support — tripod, hi-hat, low hat — may sit on apple boxes.
 - *Which faces.* Only a **full** apple may stand on its 12" or 20" face.
   Half, quarter, and pancake boxes are flat-only.
-
-Where the hard rules allow an apple box, ranking discourages it (5.3),
-in two separate, *soft* steps that are not rules and never reject a chain:
-
-- **A tripod on apple boxes** is legal but heavily penalized — heavier than
-  the general penalty below, because it is the case in practice least
-  worth doing. Such a chain sorts below every chain that doesn't put a
-  tripod on apple boxes, whatever its margin.
-- **Any apple box** carries a lighter general penalty: among otherwise
-  equivalent chains, the one without sorts above.
 
 ---
 
@@ -181,8 +172,8 @@ top of the stack is what the support must accept.
   twice — until the gear library adds quantities.
   Seed data: quarter, half, full, and **pancake** (1", flat only, short
   name "Pancake").
-  Apple boxes may not go under a dolly (2.1); under a tripod they're legal
-  but heavily penalized in ranking.
+  Apple boxes may not go under a dolly (2.1); every other support may sit
+  on them.
 - **Track** (`kind: "track"`). **Round track** (`ground → round-track`),
   +2", is the only track; there is no square track. Its rise is not
   zero, and it is the most commonly forgotten offset in the chain. Only a
@@ -196,14 +187,13 @@ top of the stack is what the support must accept.
   presents both `ground` and `floor`, while an apple box's top presents
   only `ground`. Their top is a `spreader` mount, which **only sticks**
   accept (baby and standard sticks list it in their `bottomMount`); a
-  hi-hat, low hat, or dolly can't sit on them. Not an apple box, so no
-  apple-box penalty applies.
+  hi-hat, low hat, or dolly can't sit on them.
 - **Wheels** are not a base item: a dolly's wheel set is a *mode of the
   dolly* (3.2), because it decides both the rise and what the dolly can sit
   on.
 
-Solver constraint: cap base-layer stacking at **2 items** by default,
-configurable. Taller stacks are legal but should be ranked last.
+Cap base-layer stacking at **2 items** by default, configurable. Taller
+stacks are legal but flagged in the UI as over the cap.
 
 ### 3.2 Support
 
@@ -227,21 +217,20 @@ A chain selection names the support's mode (`supportMode`), defaulting to
 the first that fits what's beneath it.
 
 A support declares a `kind` — `tripod`, `dolly`, `hi-hat`, or `lo-hat` —
-which the apple-box rules key off (2.1): a dolly forbids apple boxes, a
-tripod on them is penalized in ranking.
+which the apple-box rule keys off (2.1): a dolly forbids apple boxes.
 
 - **Tripods** (`kind: "tripod"`; "sticks"). Rise is the bowl height
   interval, `adjustable`. Seed data: **Baby sticks** 20"–36" and
   **Standard sticks** 36"–66", both `ground` or `spreader` → `mitchell`.
   Store `specMin`/`specMax` *and* `practicalMin`/`practicalMax` — the
   practical figures account for leveling on a rake and for the legs
-  actually clearing the spreader. The solver uses practical figures;
+  actually clearing the spreader. Height math uses the practical figures;
   the UI may show spec figures for reference.
 - **Hi-hat / low hat** (`kind: "hi-hat"`, `"lo-hat"`). Fixed rise, no range.
 - **Dollies** (`kind: "dolly"`). Rise is `baseRise + boomRange`, where `baseRise` is floor
   (or track) to the boom's zero point. For the Fisher 11, `baseRise` 17.875"
   is the floor to the nose with the beam fully down on pneumatic tires,
-  measured so that an SLE nose fitting at 0 puts the Mitchell there, and
+  measured so that a Standard Level Head nose fitting at 0 puts the Mitchell there, and
   `boomRange` is the 33.375" beam travel, with `levelingLoss` 0. The boom interval is usually the
   widest range in the system and is what makes a dolly answer a range
   query by itself. When the column itself telescopes, declare `legRange`
@@ -279,7 +268,7 @@ A head has one or more **modes**. Each mode stores:
   needs an up-facing mount beneath it. An underslung mode hangs the head
   from a down-facing mount, so it needs one — and a tripod, riser, or
   hi-hat top all face up, so what supplies it is the bottom side of a
-  Mitchell offset (3.6), or an SLE nose fitting mounted underslung (3.7). An underslung mode is therefore
+  Mitchell offset (3.6), or a Standard Level Head nose fitting mounted underslung (3.7). An underslung mode is therefore
   rejected directly on a tripod. (If omitted, `up`.)
   **No exceptions: every underslung mode needs a down-facing Mitchell**,
   and every upright mode an up-facing one. The rule is keyed on the mode
@@ -304,15 +293,14 @@ Examples:
   is **adjustable over 10"–18"** in both
   modes: +10" to +18" upright, −18" to −10" underslung. Upright, it sits on
   an up-facing mount. Underslung, the whole frame is flipped and hangs from
-  a **down-facing** mount (the bottom of an offset plate, an SLE
+  a **down-facing** mount (the bottom of an offset plate, a Standard Level Head
   underslung) — never from an up-facing one. Either way the platform faces
   `up` (`cameraMountFacing: up`): the camera sits upright on it and
   contributes its usual positive rise. **The camera is never inverted on
   a lambda.**
 
 A head that holds the camera inside its own frame (the Lambda 50) declares
-`cradlesCamera: true`. It changes nothing about height or compatibility;
-it tells the drawing (5.8) to draw the camera inside the head's cradle.
+`cradlesCamera: true`. It changes nothing about height or compatibility.
 
 Inversion is never a flag on the head. It falls out of matching a
 `down`-facing mount to a camera attach point (3.4). Measure each mode
@@ -352,7 +340,7 @@ On a 2575D with a Euro plate between, the lens is 4¾" above the head's top.
 
 **The block as rigged.** The picks carry the block's pieces as rigged
 (`blockIds`, bottom to top; `null` means the block as defined). They may
-differ from the definition in two ways, both from the block's sheet (7.2):
+differ from the definition in two ways, both from the block's sheet (6):
 
 - **Stripped down**: pieces removed from the bottom up, one at a time (the
   Arri dovetail first, and the QR bottom with it). The camera itself
@@ -388,7 +376,7 @@ pieces' interfaces are then not checked.
 when the camera block — or anything stripped from it — sits, with any
 plates, on the floor or on apple boxes. The support, nose fitting,
 Mitchell adapters, and head come and go together: a support with no head,
-or a head with no support, is an incomplete rig (5.9).
+or a head with no support, is an incomplete rig (6).
 
 ### 3.5 Adjustability
 
@@ -411,9 +399,8 @@ every component, so a future part with its own range (a second boom, a
 powered riser) needs no schema change to participate.
 
 A chain's adjustability is the most capable type found among its
-components, and is ranking criterion 3 in solve mode (5.3) — a chain that
-*can* move live outranks one that can't, independent of any particular
-query.
+components: a chain that *can* move live is more capable than one that
+can't, independent of any particular query.
 
 The label alone is not sufficient to satisfy a `moveable` range target,
 though. A support can combine an `adjustable` sub-range with a narrower
@@ -433,20 +420,30 @@ one below. Each adapter declares:
 - `bottomMount` / `topMount` — usually `mitchell-male` and
   `mitchell-female` (2).
 - `shortName` — every component (and build) has one, for its short notes
-  (5.9): "SLE", "LHE", "Riser 6″", "2575".
+  (6): "Standard Level Head", "Low Level Head", "6″ Riser", "2575".
 - `rise` — signed distance from its bottom mount to its top mount.
   Negative when the top mount sits below the bottom mount.
 - `mountFacing` — `up` or `down`: which way its top mount faces (default
   `up`).
 - `supportMountFacing` — which way the mount beneath it must face (default
-  `up`).
+  `up`). Ignored when `followsMount` is set.
+- `followsMount` — a riser or an offset (below). Such an adapter mounts to
+  a Mitchell of either facing, and its own facing follows: beneath an
+  up-facing mount it presents the `rise` and `mountFacing` declared (on
+  each mode, if it has any) exactly as written — beneath a **down**-facing
+  mount, it hangs, and every declared `rise`/`mountFacing` pair it would
+  otherwise present is inverted (rise negated, facing flipped) before the
+  chain sums it. It never gets a flip button (6): there is nothing to
+  choose, since the mount beneath it decides which way it hangs. An
+  adapter without `followsMount` (a rotating offset) keeps a fixed facing
+  and needs the `supportMountFacing` it declares, same as before.
 - `family`, `requiresFamily` — optional; see 2.1.
 
 **Modes.** An adapter may instead declare several `modes`, following the
 head-mode pattern (3.3). Each mode has its own `name`, signed `rise`, and
 top-mount `mountFacing`. An adapter with no `modes` is simply a
 single-mode adapter using the fields above. In a chain, an adapter is used
-in exactly one of its modes, and the solver tries each. The same physical
+in exactly one of its modes. The same physical
 adapter can appear only once in a chain, in one mode. When a selection
 doesn't say which mode, the first one is used.
 
@@ -457,20 +454,32 @@ Kinds modeled:
 
 Adapters are generic Mitchell gear, not tied to a brand:
 
-- **Mitchell risers** — 3", 6", 12", 18", 24". `mitchell → mitchell`,
-  positive rise, no `requiresFamily`, so they work on any support the
-  mounts allow. Their top always faces `up`.
-- **Mitchell offsets, 10" and 24"** — flat plates with a Mitchell mount on
-  both the top and the bottom of the offset end. There's no flipping; the
-  mode is which side the next piece mounts to:
+- **Risers** — "3″ Riser" through "24″ Riser" (3", 6", 12", 18", 24").
+  `mitchell → mitchell`, positive rise as declared, `followsMount`, no
+  `requiresFamily`, so they work on any support the mounts allow. Sitting
+  on an up-facing mount they sit as always: their declared rise, top
+  facing up. Hung from a down-facing mount (an underslung Standard Level
+  Head, an offset's bottom face) they hang: rise negated, presenting a
+  down-facing Mitchell to whatever mounts beneath them next. A riser
+  never attaches to a Euro or QR interface — its mounts are Mitchell only,
+  whichever way it's facing.
+- **Offsets** — "10″ Offset" and "24″ Offset". Flat plates with a Mitchell
+  mount on both the top and the bottom of the offset end, `followsMount`.
+  The mode is still which side the next piece mounts to:
   - `top`: rise +1", top mount faces `up`.
-  - `bottom`: rise 0", top mount faces `down`.
-  The bottom side is what hangs a head: it presents the down-facing mount
-  an underslung head mode requires (3.3). Each declares its real
-  `plateLength` (10", 24"): the next piece mounts that far forward, and the
-  drawing shows the plate at that length (5.8).
-- **Rotating offset**: rise +4", faces `up`. Drawn as a swivel; it has no
-  plate length in the data, so it doesn't move the chain sideways.
+  - `bottom`: rise 0", top mount faces `down` — the side that hangs a
+    head, presenting the down-facing mount an underslung head mode
+    requires (3.3).
+  Those are the plate's own two faces, sitting on an up-facing mount, as
+  always. Hung instead from a down-facing mount, the whole plate inverts:
+  each mode's rise negates and its facing flips, so the face that was
+  "bottom" (rise 0", facing down) now sits level with the mount, facing
+  up, and the face that was "top" (rise +1", facing up) now hangs 1"
+  lower, facing down. Each declares its real `plateLength` (10", 24"): the
+  next piece mounts that far forward.
+- **Rotating offset**: rise +4", faces `up`, no `followsMount` — it keeps
+  a fixed, up-facing mount beneath it. `plateLength` 8": it moves the chain
+  sideways the same way a Mitchell offset does.
 
 ### 3.7 Nose fitting
 
@@ -486,21 +495,18 @@ fitting, and the fitting provides the Mitchell mount** (docs/fisher-11.md).
   or an adjustable `riseRange` (`min`, `max`) with `adjustability:
   "adjustable"` (a hand screw, set between setups), plus `mountFacing` for
   its Mitchell. **This is the first adjustable range on a component other
-  than the support**: it widens the chain's interval (5.2) and is drawn as
-  adjustable (5.8).
-- **SLE — 4-way Level Head**: `upright` rise −4" to 0", adjustable, faces
+  than the support**: it widens the chain's interval (5.2).
+- **Standard Level Head — 4-way**: `upright` rise −4" to 0", adjustable, faces
   up; `reversed` rise 0, fixed, faces up; `underslung` (mounted upside
   down) rise −8" to −4", adjustable, faces **down** (an assumed value, not
   from the brochure).
-- **LHE — 4-way Low Level Head**: rise −14.875", fixed, faces up. It
+- **Low Level Head — 4-way**: rise −14.875", fixed, faces up. It
   declares `hangsAsBracket: true`: it hangs the Mitchell well below the
-  beam, on a bent arm that sets it forward of the nose, so what it carries
-  stands clear of the beam (5.8). Both fittings mount off the nose's front
-  face (5.8, 7.2).
+  beam, on a bent arm forward of the nose.
 
 Brochure checks (Mitchell height above the floor, pneumatic tires, on the
-floor): SLE upright 13.875"–17.875" beam down, 47.25"–51.25" beam up; SLE
-reversed 17.875" / 51.25"; LHE 3" / 36.375".
+floor): Standard Level Head upright 13.875"–17.875" beam down, 47.25"–51.25" beam up; Standard Level Head
+reversed 17.875" / 51.25"; Low Level Head 3" / 36.375".
 
 ---
 
@@ -547,7 +553,7 @@ the **seed layer**. It is read-only at runtime.
     },
     {
       "id": "fisher-lhe",
-      "name": "LHE — 4-way Low Level Head",
+      "name": "Low Level Head",
       "category": "nose",
       "bottomMount": "fisher-nose",
       "topMount": "mitchell",
@@ -604,31 +610,12 @@ into the GitHub web editor from a phone with no conversion step.
 
 ---
 
-## 5. Solver
+## 5. Height math
 
-The solver has two modes, and both reduce to the same per-chain evaluation
-(5.2) so the math is never duplicated between them:
-
-- **Solve mode** — "what configurations reach this target?" Enumerates
-  every mount-compatible chain from the package pool and ranks the
-  feasible ones (5.3).
-- **Check mode** — "does *this specific* rig reach this target?" Evaluates
-  one fully-specified chain — explicit, or defaulted to the current rig
-  (5.5) — and reports its interval, margins, feasibility, and where the
-  target falls in its adjustable range (5.6). When infeasible, it runs a
-  delta search against the current rig instead of solve mode's
-  general fallback (5.7).
-
-**Solve mode is frozen and hidden from the UI — not removed.** The app's
-one screen is check mode (7.2). The solve-mode code, its tests, and
-`cli.js` stay in the repo and stay passing, and UI work does not touch
-them; nothing in the UI calls solve mode. Shared pieces (5.2's evaluation,
-the chain rules) keep serving both.
-
-**Delta search (5.7) is frozen and hidden from the UI the same way.**
-`checkChain` still runs it and its tests stay passing, but the check screen
-evaluates the rig directly (`buildChain` + `evaluateChain`) and shows no
-suggested fixes: the user edits the rig in the drawing instead (7.2).
+`buildChain` resolves a chain selection into its rises (2, 3);
+`evaluateChain` scores it against a target (5.2). The check screen (8)
+calls both directly on whatever the user has picked — there's no search or
+ranking, just one chain evaluated at a time.
 
 ### 5.1 Inputs
 
@@ -646,20 +633,14 @@ suggested fixes: the user edits the rig in the drawing instead (7.2).
 - `packageId` — restricts the component pool to gear actually on the show
 - `buildId` — the camera block in use (3.4)
 - `tolerance` — default **±0.5"**, user-adjustable
-- `mode` — `"solve"` (default) or `"check"`
-- Solve mode also takes `dropDominated` (default on, 5.3 step 4) and
-  `collapse` (default on, 5.3 step 5).
-- Check mode additionally takes a `chain` selection (base item ids with
-  their modes, support id and wheel mode, nose fitting id and mode, adapter
-  ids with the mode each is used in, head id + mode name, build attach
-  name). If omitted, it
-  defaults to the current rig (5.5); if there is no current rig either,
-  check mode has nothing to evaluate.
+- A `chain` selection: base item ids with their modes, support id and
+  wheel mode, nose fitting id and mode, adapter ids with the mode each is
+  used in, head id + mode name, build attach name. Resolved by
+  `buildChain` into the chain `evaluateChain` (5.2) scores.
 
 ### 5.2 Evaluating a chain
 
-However a chain was produced — enumerated by solve mode or specified
-directly for check mode — it is scored the same way:
+However a chain was produced, it is scored the same way:
 
 1. **Compute the interval.** Total rise is an interval `[min, max]`: sum
    of fixed rises (base layer, adapters, head mode, build attach point), plus the
@@ -695,19 +676,38 @@ directly for check mode — it is scored the same way:
      only its *width* — how far it can move live — limits what a
      moveable target can ask for. A chain whose only range is
      `adjustable` has a zero-width moveable interval and so is rejected
-     outright, same as before, no matter how wide `[min, max]` is.
+     outright, no matter how wide `[min, max]` is.
 4. **Locate the target in the adjustable range.** `targetPosition` is
    `(point - min) / (max - min)` — 0 at the bottom of the chain's
    reachable interval, 1 at the top — evaluated at `H` for a fixed target
    and at both `L` and `Hi` for a range target. Not meaningful when the
    chain has no adjustable range (`max === min`).
 
+**Rigging to a specific height.** Reaching a point inside `[min, max]`
+means setting each adjustable and moveable component to some rise within
+its own range; the extension needed is allocated **adjustable first** —
+the support's legs, then a nose fitting's hand screw, then a head's range
+(the Lambda 50's platform) — and **moveable last**, so a live move starts
+from everything else already set and the boom (or jib) takes only what's
+left. This is also why a `moveable` range target's feasibility check (step
+3) only needs the *moveable* interval's width: whatever isn't moveable is
+assumed already positioned by the adjustable stuff.
+
+**Nothing below the floor.** No piece's lowest point — an inverted
+camera's body, an underslung head, a fitting hanging below its mount —
+may sit below the floor at any lift. A chain's reach is limited to where
+it doesn't: `min` rises until the lowest piece clears the floor, and the
+moveable interval is cut to match, so the verdict and the check both use
+the limited range. `chain.retracted` keeps the fully retracted lens
+height. A chain whose lowest piece is below the floor even at the top of
+its reach is infeasible everywhere: `evaluateChain` reports it with
+shortfall direction `floor` (below), and it's dropped from enumeration.
+
 The output — `{ min, max, marginBelow, marginAbove, feasible,
-targetPosition, shortfall }` — is what both modes report; solve mode
-additionally uses it to rank (5.3).
+targetPosition, shortfall }` — is what the check screen shows.
 
 `shortfall` is `null` when the chain is feasible. Otherwise it says how far
-off the chain is, in one of three directions, so a UI never has to subtract
+off the chain is, in one of four directions, so a UI never has to subtract
 heights itself:
 
 - `short` — the target sits above the chain's reach; `amount` is how far
@@ -716,135 +716,22 @@ heights itself:
 - `span` — the target is inside the chain's reach but a moveable range is
   wider than the moveable interval can travel; `amount` is the missing
   travel, with `needed` (the span) and `available` (the moveable width).
+- `floor` — the chain is below the floor at every lift; `amount` is how
+  far under.
 
 `short` and `tall` are checked first, `span` only when the position is
 fine.
 
-### 5.3 Solve mode
+### 5.3 Check mode
 
-1. **Enumerate chains.** From the package pool, generate every valid
-   chain: `[base layer combos] × [support] × [adapter combos] × [head mode] ×
-   [build attach point]`. An adapter combo picks a mode for each adapter
-   (3.6), and never uses the same adapter twice. (Solve mode, frozen,
-   still tries each apple box once per combo; the check screen allows
-   repeats, 3.1.) Cap base-layer combos at
-   2 items and adapter combos at 2 items (both configurable). A combo is
-   stacked in whatever order makes its mounts and facings mate; a combo
-   with no valid order is dropped. Prune aggressively on mount and facing
-   mismatch, and reject any chain that breaks a hard rule in 2.1 (family,
-   apple boxes on a dolly, apple-box faces) — each as its own check, not
-   folded into mount compatibility.
-2. **Evaluate each chain** (5.2). Keep the feasible ones.
-3. **Score and sort.** Ranking priority, in order. This order is kept as
-   a single ordered list of criteria in the implementation, so
-   re-prioritizing is a one-line reordering, not a rewrite of the
-   comparison logic:
-   1. **Not a tripod on apple boxes** — a chain that puts a tripod on
-      apple boxes sorts below every chain that doesn't, before anything
-      else is considered. This is the *heavy* soft apple-box penalty
-      (2.1): legal, but the case least worth doing, so it outweighs even
-      margin. It is a ranking step, not a rule; the chain is still
-      returned.
-   2. **Most margin left** — sort by `min(marginBelow, marginAbove)`
-      descending. This favors configs sitting mid-range, which is what
-      leaves room to adjust on the day.
-   3. **Most capable adjustability** — `moveable` > `adjustable` >
-      `fixed`, using the most capable type found in the chain (3.5). This
-      applies to every query, not only a `moveable` range target: a chain
-      that *can* move live outranks one that can only be repositioned
-      between setups, because it leaves more options open on the day.
-   4. **No apple boxes** — sort by the number of apple boxes in the chain,
-      fewest first. This is the *light* general apple-box penalty (2.1):
-      among chains equal on the criteria above, one with an apple box sorts
-      below one without. It is deliberately separate from the hard rule,
-      from the heavy penalty, and from "fewest pieces" — it applies even
-      when the piece counts tie.
-   5. **Fewest pieces of gear** — count components in the chain,
-      including each apple box and each adapter.
-   6. **Fastest to rig** — configs whose support+head match the current
-      rig (5.5) sort up.
-   7. **Most stable** — penalize tall base stacks, low-stability box
-      orientations, and configs near the top of a tripod's range.
-4. **Drop dominated chains.** Before anything is collapsed, remove chains
-   that another chain beats outright. Chain B is **dominated** if some
-   other chain A has all of:
-   - `marginBelow` at least B's, and `marginAbove` at least B's;
-   - no more pieces of gear than B;
-   - adjustability (3.5) at least as capable as B's;
-   - no ranking penalty that B lacks — each penalty in 5.3 step 3 (a tripod
-     on apple boxes, the number of apple boxes, the stability penalty) is no
-     worse in A than in B;
-
-   *and* is strictly better than B on at least one of them. A chain that
-   ties another on every one of these is not dominated by it; both stay.
-   Dominated chains are **dropped entirely** — they are not kept as
-   alternates. Dominance is judged across every feasible chain, not just
-   within a group.
-
-   Note what this does not do. The two margins always add up to the
-   chain's range width, so a chain that moves the target closer to one end
-   of its range (a taller riser) gains on one margin and loses on the
-   other. Two such chains on the same support are therefore incomparable,
-   and both survive; only a chain that changes nothing but the piece count
-   or a penalty (6" + 12" against a single 18", an apple box against an
-   equal plate) is dropped for it.
-5. **Collapse equivalent chains.** Chains that share the same **support,
-   head, head mode, and build attach point** are one result, whatever
-   adapters and base-layer items they add. Each result is its group's
-   **best-ranked** chain under the ranking in step 3 — not the simplest —
-   carrying the rest of the group as `alternates` (best-ranked first) and
-   `count`, the number of chains in the group (itself included). Results
-   are ordered by their representative. Collapsing is on by default and
-   can be turned off to get every chain flat.
-
-### 5.4 Solve-mode failure output
-
-When no chain is feasible, **do not return an empty result**. Return the
-nearest achievable configuration and the shortfall:
-
-> Closest: baby legs + 2575, tops out at 28.0". You're **4.0" short** of
-> 32". Add a **half apple (4")** under the legs.
-
-Compute this by finding the chain with the smallest absolute distance to
-the target, then checking whether any available base-layer item or
-combination closes the gap. Only base-layer gear the rules in 2 and 2.1
-allow under that chain's support counts — no apple box under a dolly, no
-track under sticks. Among combinations that close it, ones that avoid
-apple boxes are preferred (a tripod on apple boxes last of all), then
-fewest items. If the gap cannot be closed with gear in the package, say so
-explicitly and name the rise that would be needed.
-
-### 5.5 Current rig
-
-The user can mark one specific chain as "built" — the rig actually
-standing on set right now. This is a first-class concept the solver
-depends on in two places, not a deferred nicety:
-
-- **Solve-mode ranking criterion 6** (5.3) sorts a chain up when its
-  support and head match the current rig — swapping base-layer items or
-  flipping the camera mount is fast; swapping the legs or the head is not.
-- **Check mode** (5.6) defaults to it when no explicit chain is given, and
-  **delta search** (5.7) measures every candidate against it.
-
-The current rig is stored as a full chain selection — base item ids and
-modes, support id and wheel mode, nose fitting id and mode, adapter ids and
-each adapter's mode, head id and mode name, build attach name — not just a
-support/head pair, so it can be reconstructed and evaluated exactly, not
-approximated.
-
-### 5.6 Check mode
-
-Given a chain — explicit, or defaulted from the current rig (5.5) — check
-mode resolves the referenced components and evaluates it (5.2). A
-check-mode chain is not exempt from the mount and facing rules in section
-2, or the hard rules in 2.1, just because the user specified it directly:
-an invalid selection is rejected the same way solve mode prunes one during
-enumeration, and the rejection says which rule it broke.
+Given a chain — always explicit, from the picks the user has made — check
+mode resolves the referenced components and evaluates it (5.2). A chain
+is not exempt from the mount and facing rules in section 2, or the hard
+rules in 2.1, just because the user picked it directly: an invalid
+selection is rejected, and the rejection says which rule it broke.
 
 The result is the evaluation itself — interval, `marginBelow`,
-`marginAbove`, `feasible`, and `targetPosition`. When infeasible,
-`checkChain` also runs the delta search below (frozen and not shown in the
-UI, 5).
+`marginAbove`, `feasible`, and `targetPosition`.
 
 **The verdict.** The check screen's one-line answer is a view model too
 (`checkVerdict` in `src/verdict.js`), so the UI never compares heights:
@@ -857,170 +744,11 @@ UI, 5).
   tall", "✗ Needs 4″ more moveable travel".
 - **Waiting** — no target yet: the rig's reach, and a prompt for a target.
 
-Margins are computed (5.2) but not shown, here or in the drawing (5.8).
+Margins are computed (5.2) but not shown.
 
-### 5.7 Delta search
+---
 
-When check mode is infeasible, the general "add any base-layer item"
-fallback (5.4) isn't the most useful answer — the user already has a rig
-built and wants the smallest change to it, not the single closest
-alternative from scratch. Delta search looks for:
-
-- **Additions** — one or more items from the package, not already in the
-  current rig (apple boxes excepted, 3.1): base-layer items stacked under it, or adapters (a Mitchell
-  riser, an offset) stacked between support and head. An added adapter is
-  tried in each of its modes. Only additions the rules in 2 and 2.1 allow
-  count: no apple box under a dolly, no adapter of the wrong family, no
-  head mode left without the facing it needs.
-- **Swaps** — replacing exactly one of support, head (and its mode),
-  build attach point, or one adapter with a different one from the package
-  pool (a 6" riser for a 12" one, an offset in another mode), holding
-  everything else fixed. A swap that would break a rule is not a candidate.
-
-Each added item or swapped slot counts as one change, and a candidate may
-make at most **3 changes** in total (configurable) — past that it's a new
-rig, not a change to this one. Candidates are ranked by **fewest changes**
-first — not fewest pieces of gear, the solve-mode metric. Ties go to the
-candidate that avoids the apple-box penalties in 5.3 (a tripod on apple
-boxes last), then to margin, then to piece count. Adjustability (5.3
-criterion 3) is not part of this ranking: fewest changes always dominates
-in check mode, regardless of whether a candidate happens to be more
-capable than the current rig. Only the best 10 candidates are returned,
-along with how many there were in all. If no combination of additions or
-swaps reaches the target, say so explicitly, the same way 5.4 does for
-solve mode.
-
-### 5.8 Stack layout
-
-The ground-up picture (7.2) is a computed view model, not something the UI
-derives from raw rises. `stackLayout(chain, target, options)` returns
-everything a renderer needs — heights, horizontal positions, and pixel
-boxes for a drawing of a given size — so the UI does no height math.
-
-- **Blocks, bottom to top:** one per base item, the support (in its wheel
-  mode), the nose fitting (if any, in its mode), each adapter, the head (in
-  its mode), each plate (slot `plate`), and the camera block (slot `build`,
-  at its attach point). A rig with no support and no head has none of
-  those blocks: the plates and camera block start on the base. The camera
-  block is **one block** whose `shape` carries each of its pieces at true
-  scale — every plate at its own rise and `length`, the camera body and its
-  lens triangle — so it has one sheet. Each has its signed
-  `rise`, a `kind` (`fixed`, `adjustable`, or `moveable`, 3.5), its
-  `bottom` and `top` in inches (its lower and upper end, whichever way it
-  runs), and `bottomPct` / `topPct` / `heightPct`. A block with a negative
-  rise extends downward from where the piece below ended. The floor is
-  height 0 and the lens is at the end of the last block.
-- **Rigged to the target.** The chain is drawn set up to put the lens at the
-  target: a fixed target's height, or the low end of a range (the move
-  starts there), clamped into the chain's reach. The extension needed is
-  allocated adjustable first — the support's legs, then a nose fitting's
-  range, then a head's (the Lambda 50's platform) — and moveable last, so
-  everything set between setups positions the rig and the boom takes
-  what's left. A nose fitting or head with a range is an `adjustable`
-  block, drawn in the adjustable color, and carries its `range`.
-- **The support is split into parts** — its fixed base, its adjustable
-  extension, its moveable extension — so each can be filled as what it is.
-  Its block carries the support's `range` (min and max rise) alongside the
-  rise at this setup.
-- **Horizontal position.** Every block carries `x`, its horizontal position
-  in inches (0 is the center of the base and support; forward, toward the
-  lens, is positive), and `mountX`, where the next piece mounts. **Every
-  piece sits on the mount of the piece below it**, with no gap and no
-  connecting part the gear doesn't have. The chain moves sideways only where
-  a piece really moves it: a Fisher's nose sits a fixed distance forward of
-  the chassis and **doesn't move as the beam rises**; a nose fitting sets
-  the Mitchell where the brochure puts it (below); an offset plate moves
-  the next piece by its real `plateLength`. Jib arms will later carry their
-  own `x` the same way.
-- **The Fisher's nose and its fittings** (brochure, last page, measured
-  from the rear of the dolly; horizontal positions are visual only, and
-  every height stays exactly as modeled):
-  - The nose's front face is **37.75"** from the rear (17.75" forward of
-    the chassis's center, 2¼" behind its front). The model's nose height
-    (3.2) is where an SLE at the top of its adjustment puts the Mitchell,
-    not the nose itself: the beam's end, the round nose, is drawn a fixed
-    6" below it, and the fittings hang off its front face.
-  - Fittings mount **off the front of the nose, not on top of it**, and
-    **nothing from the head up overlaps the beam**.
-  - **SLE, normal**: a clamp plate on the nose's front face — the part that
-    slides through the 4" adjustment, drawn from the nose to the cage so it
-    always meets both — a leveling cage above it, and a round diamond plate
-    carrying the Mitchell on top, forward of the nose: the diamond plate's
-    front edge at **45"** from the rear.
-  - **SLE, reversed**: the same head turned back over the nose, the
-    Mitchell behind the clamp; the clamp is the front-most part, at
-    **40"**.
-  - **SLE, upside down**: the normal shape inverted — diamond plate at the
-    bottom, the Mitchell facing down, forward of the nose.
-  - **LHE**: a clamp plate on the nose's front face, then a bent arm
-    running forward and down to a flat ring carrying an upward-facing
-    Mitchell, the ring's front edge at **51.75"** — about 12" past the
-    chassis's front.
-- **Nothing below the floor.** No piece's bottom — as drawn: an inverted
-  camera's body, an underslung head, a fitting's clamp — may go below the
-  floor at any lift. A chain's reach is limited to where it doesn't
-  (`solver.js`, from the layout's own geometry): its `min` rises until the
-  lowest piece clears the floor, and its moveable interval is cut to
-  match, so the reach rail, the verdict, and the check all use the limited
-  range. `chain.retracted` keeps the fully retracted lens height, which the
-  layout allocates extension from. A chain whose lowest piece is below the
-  floor even at the top of its reach is rejected.
-- **True scale on both axes.** One inch is the same number of pixels
-  horizontally and vertically, for every piece; nothing is squeezed.
-  Widths are real where the gear gives them (the Fisher 11 from its
-  brochure: 40" long, 28" wheelbase, push posts 39.75" off the floor; an
-  apple box by the face it stands on; an offset plate's length) and
-  simplified but true-to-size otherwise (a head, a riser, a camera).
-- **Scale fits the current rig and the target.** The drawing spans every
-  piece as it's set now (including the Fisher's push posts and chassis),
-  the target or move band, and the beam at the top of a moving range —
-  vertically from the floor (or the lowest piece) to just above the
-  highest of those, horizontally across all of them — at the largest one
-  scale that fits both ways. The full reach does *not* stretch it; the
-  reach rail is clipped. The caller passes the drawing's size in pixels
-  (`frame`); the layout returns each block's pixel `box` (the bounding box
-  of its outline: `x`, `y`, `width`, `height`, y measured down from the
-  top), its `mount` point, and a `shape` saying which outline draws it
-  (7.2) with that outline's own pixel points — a tripod's leg spread; a
-  dolly's wheels (per wheel mode), chassis, deck, rear box, push posts,
-  beam pivot and nose; an offset's side and far end; a camera's body, the
-  forward-facing triangle at its optical center, and whether it's
-  inverted.
-- **The Fisher beam.** The beam is drawn from a fixed pivot on the chassis
-  to the nose (6" below the modeled nose height, above); its angle is
-  visual only. For a
-  moveable range target the layout also gives the nose at the bottom and
-  top of the move (`shape.ghosts`), so both ends can be drawn faintly.
-  **The lift beam has zero horizontal travel**: the nose rises straight
-  up. This is confirmed from years of use on the dolly; the brochure's
-  side-elevation drawing implies the nose moves along an arc and is wrong
-  on this point. The drawing does not follow the brochure here.
-- **Bands:** `reach` is every lens height the chain can reach; `moveable`
-  is the span the moveable portion can sweep from this setup (or `null` if
-  the chain has none); `target` is the target's position — a line for a
-  fixed height, a band for a range. All carry `bottomPct` / `topPct` /
-  `heightPct`. `reach` and `moveable` are **clipped** to the drawing, with
-  `continuesAbove` / `continuesBelow` saying so; `reach` also carries its
-  real `min` and `max`, the labels at the rail's bottom and top.
-- **No margins in the drawing.** Margins aren't shown anywhere (5.6); the
-  drawing's rail shows the reach.
-- **No labels, no tags.** The drawing takes the full width and names
-  nothing: a piece's name and rise are in its sheet, when it's tapped.
-  The layout's `warning` is "Camera inverted — flip image" when the camera
-  block hangs inverted, else null; the UI shows it under the drawing.
-- **Flip points.** Every block carries `flipAt`, the pixel point beside it
-  where its flip button (7.2) is drawn — to its right, left, below, or
-  above, the first inside the drawing that covers no other piece (an SLE's
-  button stays off the nose and beam). The layout doesn't know whether a
-  flip is legal; `rules.js` does (5.9).
-- **Insertion points** (`gaps`) are identified by slot and index: `base` 0
-  is the floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on
-  the nose fitting (or the support, if it takes none), `adapter` *i* on
-  adapter *i*−1; `plate` 0 sits on the head (or on the base, with no head),
-  `plate` *i* on plate *i*−1. Each carries its pixel `point`, where the Add flow's
-  marker for it is drawn (7.2).
-
-### 5.9 What may attach
+## 6. What may attach
 
 Each slot in check mode offers only what can legally attach to what's
 below it. That logic lives in `rules.js`, built from the same primitives
@@ -1037,11 +765,11 @@ of it:
   `sheetModes` — the modes a sheet offers: never an orientation (below).
 - `flips` / `flip` — which pieces can flip right now, and the rig after
   one flip (below).
-- `insertOptions` — for every insertion point (5.8), what may be added
-  there.
+- `insertOptions` — for every insertion point (identified by slot and
+  index), what may be added there.
 - `addOptions` — everything that can legally be added to the rig
   anywhere, one entry per component, each with the positions (slot and
-  index, 5.8) where it fits, and a plain-words description of each for
+  index) where it fits, and a plain-words description of each for
   accessibility ("on the floor", "under O'Connor 2575D"). An item is
   added in its first mode that fits at the chosen position.
 - `swapOptions` — for one piece of the rig, what may replace it.
@@ -1056,11 +784,11 @@ of it:
   or a stripped piece put back.
 
 **Picks are kept in stack order.** `revalidatePicks` returns the base items
-and adapters in the order they physically stack, ground up, so the picks,
-the chain, and the drawing agree on what "index 2" is.
+and adapters in the order they physically stack, ground up, so the picks
+and the chain agree on what "index 2" is.
 
-**Adding and swapping at a position.** The drawing edits the rig where the
-user tapped, so these are positional, not "anywhere in the stack":
+**Adding and swapping at a position.** These are positional, not "anywhere
+in the stack":
 
 - An item may be **inserted** at an insertion point if, in exactly that
   position, it mounts and faces right on what's below and what's above
@@ -1137,24 +865,24 @@ to inverted, because the user put an offset on its bottom side. Notes use
 short names and short mode labels (a mode's `shortLabel`, else its
 `label`), and never explain why.
 
-**Orientation is a flip on the drawing, not a sheet choice.** Which way
+**Orientation is a flip, not a sheet choice.** Which way
 up things hang is never chosen in a sheet: a head's normal / underslung
-(or the lambda's upright / underslung) mode, an SLE's upside-down
+(or the lambda's upright / underslung) mode, a Standard Level Head's upside-down
 (underslung) mode, an offset plate's top / bottom side, and the camera's
 mount are **orientation modes**, and sheets leave them out (`sheetModes`).
-The SLE's reversed position, a full apple's faces, and a dolly's wheels
+The Standard Level Head's reversed position, a full apple's faces, and a dolly's wheels
 aren't flips, and stay sheet choices.
 
-Instead, a piece that can flip gets a **flip button** on the drawing. A
+Instead, a piece that can flip gets a **flip button**. A
 flip is one action in `rules.js`: `flip(gear, packageId, buildId, picks,
 piece)` sets the piece's own orientation and every mode that depends on it
 together, and returns the new, revalidated picks — or null when the flip
 wouldn't leave a complete rig with every piece kept. `flips(…)` lists the
-pieces whose flip is legal right now; the UI asks it, draws a button only
+pieces whose flip is legal right now; the UI asks it, offers a flip only
 for those, and applies a flip on tap, with no message and no note. What
 flips:
 
-- **The SLE**: upright (or reversed) ↔ upside down. The head goes
+- **The Standard Level Head**: upright (or reversed) ↔ upside down. The head goes
   underslung with it, and the camera block hangs inverted — or the other
   way back.
 - **A head on an offset plate** (the adapter directly beneath it is an
@@ -1162,16 +890,18 @@ flips:
   its mode and the camera following. The lambda on an offset plate flips
   the same way.
 - Nothing else. **Offset plates never get a flip button** — they're
-  symmetrical; flipping the head is what moves it to the other side. A
+  symmetrical; flipping the head is what moves it to the other side.
+  **Risers never get one either** (3.6): whichever way they hang follows
+  the mount beneath them automatically, so there's nothing to choose. A
   head directly on sticks, a riser, or a nose fitting has no button of its
-  own (on the SLE, the SLE's button is the flip).
+  own (on the Standard Level Head, the Standard Level Head's button is the flip).
 
 A head's mode and the camera's attach point otherwise settle to the only
-legal one, silently (5.9).
+legal one, silently.
 
 ---
 
-## 6. Non-height constraints (v2, but reserve the fields now)
+## 7. Non-height constraints (v2, but reserve the fields now)
 
 Add optional boolean flags to components and to the query, so the data
 model does not need refactoring later:
@@ -1186,18 +916,18 @@ Query-side flags: `tightSpace`, `onSlope`, `needsLowTilt`.
 
 ---
 
-## 7. App shape
+## 8. App shape
 
 - **Single-page PWA.** Installable to the home screen, no app store.
 - **Offline-first.** Service worker caches the entire app shell and seed
   data. The app must be fully functional in airplane mode on first launch
   after install — no network calls in the query path, ever.
-- **Local storage** for overrides, packages, builds, and current rig
-  state. No account, no backend, no sync.
+- **Local storage** for overrides, packages, and builds. No account, no
+  backend, no sync.
 - **Hosted on GitHub Pages** from the repo, deploying on push.
-- **Phone-first layout.** The one screen is check mode (7.2): target
-  height at the top, a one-line verdict, then the rig drawing, which is
-  also where the rig is edited. One thumb, held at chest height, in a dark room. Large tap
+- **Phone-first layout.** The one screen: target height at the top, a
+  one-line verdict, then the rig drawing, which is also where the rig is
+  edited. One thumb, held at chest height, in a dark room. Large tap
   targets, high contrast, no hover states. A package or build selector
   only appears when there is more than one to choose from.
 - **Units:** inches throughout. Store all values as inches (floating
@@ -1209,157 +939,22 @@ Query-side flags: `tightSpace`, `onSlope`, `needsLowTilt`.
   zero but rounds to zero displays as "<¼"", so a shortfall or a
   margin is never shown as 0. A metric display toggle is a nice-to-have;
   the storage unit does not change.
-
 - **Version note.** A small line at the very bottom of the screen shows
   the app's version and when it was last updated: "v0.7.0 · Updated Sep
   26, 2026, 7:43 AM". Both live in one place, `src/version.js`
   (`VERSION`, and `UPDATED` as an ISO time); `package.json`'s version
   matches it. Bump both with every release: minor for new features or
-  gear, patch for fixes. The app stays below 1.0 until the gear editor,
-  overrides, and offline install (7, 7.1) are in.
+  gear, patch for fixes.
+- **The UI is thin.** `index.html` and `app.js` collect input, call the
+  height math and `rules.js`, and render what comes back. All height math
+  (intervals, margins, shortfalls) and all compatibility logic (mounts,
+  facing, family, apple boxes) stay in `src/`, and so does formatting a
+  number as a fraction: the UI calls it rather than rounding anything
+  itself.
 
-### 7.1 Data persistence caveat
+### 8.1 Data persistence caveat
 
 iOS may evict cached site data after extended non-use. Home-screen PWAs
 are considerably stickier than browser tabs, but the export-to-repo habit
 is the real insurance. The app should prompt for an export if overrides
 have changed and none has been taken in 30 days.
-
-### 7.2 The check screen
-
-Check mode is the app; solve mode and delta search are frozen and not
-shown (5). The screen is built around a drawing of the rig. There is no
-submit button: every change to the target or the rig recomputes
-immediately. There is no summary card and no list of fixes. One column,
-top to bottom:
-
-1. **Target**, compact — a single height, or a range (two heights). A range
-   is always a moveable range (5.1); there is nothing to choose.
-2. **Verdict** — one line (5.6): "✓ Reaches 30″", "✓ Covers 20–30″", "✗
-   4¾″ too short". Green when feasible, red when not; nothing in between.
-3. **The drawing** (5.8) — the main element, full width: a simplified 2D
-   side view of each piece, one kind of outline per kind of gear, at true
-   scale on both axes and stretched to each piece's real bottom and top
-   heights. Pieces connect: each sits on the mount of the one below. The
-   moveable / adjustable / fixed fills sit inside the outlines. Nothing in
-   the drawing is labeled. **The target line or move band is the one strong line**,
-   across the full width. A rail on the left shows the reach, labeled
-   with its lowest and highest lens heights, and the moveable sweep; where
-   the reach runs past the drawing it is clipped and marked as continuing.
-   The drawing's border takes the status color.
-
-   The outlines (`src/outlines.js`, one module; each draws shapes only,
-   inside the pixel box and points the layout hands it, and does no height
-   math):
-   - **Tripod** — splayed legs that stretch with the set height.
-   - **Hi-hat, low hat** — a short stand on a spread base.
-   - **Apple box** — a box sized by the face it stands on, with hand holes.
-   - **Track** — round rails on ties.
-   - **Rolling spreaders** — a low spreader with a caster at each end,
-     under the tripod feet, drawn within the sticks' footprint: no wider
-     than the legs' splay at the floor.
-   - **Fisher dolly** — a side elevation from the brochure's dimension
-     drawing, simplified, not traced: a low chassis about 40" long with a
-     raised rear box, one wheel at each end on a 28" wheelbase (drawn per
-     wheel mode: pneumatic tires, ETW grooved track wheels, skateboard
-     wheels under a plate), push posts at the rear 39.75" off the floor, and
-     the lift beam pivoting on the chassis and rising forward to the nose.
-     The nose stays at one horizontal position as it rises. For a moveable
-     range target, faint outlines of the beam at the bottom and top of the
-     move.
-   - **SLE** — from the brochure's close-ups, simplified: a clamp plate on
-     the nose's front face, a leveling cage, a round diamond plate carrying
-     the Mitchell; normal (forward), reversed (turned back over the nose),
-     or upside down (5.8). **LHE** — a clamp plate on the nose's front
-     face and a bent arm down and forward to a flat Mitchell ring (5.8).
-   - **Riser** — a cage. **Offset** — a plate with a Mitchell on its top and
-     bottom, the side in use marked. **Rotating offset** — a swivel.
-   - **Fluid head** (the O'Connor 2575D) — pan base, tilt body, and the
-     receiver plate on top, stacked with no gap: the outline fills its full
-     rise, from its Mitchell base to its top receiver. Upside down when
-     underslung.
-   - **Lambda 50** — an L-frame in the adjustable color. Upright: a
-     pan-base disk on the mount, a short base plate running forward from
-     it, a column rising at the rear, and a camera platform cantilevered
-     forward from the column above the base plate, the column extending a
-     little above the platform; the camera sits upright on top of the
-     platform. Underslung: the same frame flipped vertically — the pan base
-     on top, hanging under the down-facing mount, the column dropping at
-     the rear, the platform at the bottom, and the camera sitting upright
-     on the platform, between it and the top plate. The platform sits at
-     the head's current rise, so it moves along the column as the rise is
-     set.
-   - **Plate** (the Euro plate, and each plate in a camera block) — a thin
-     plate at its true rise and `length`.
-   - **Camera block** — its pieces at true scale, stacked as rigged. The
-     camera: the body, `bodyHeight` tall,
-     and a small triangle at the optical center whose opening faces
-     forward, the way the camera shoots, centered vertically on the
-     optical center so it sits exactly on the target line when the rig is
-     on target. Inverted, the whole block hangs upside down (the body's
-     handle underneath, the plates above it) but the triangle stays at the
-     optical center, still pointing forward.
-   - **Flip button** — a small circular-arrows icon beside a piece that can
-     flip (5.9), with at least a 44px hit area; the layout gives every
-     piece its `flipAt` point, and the UI draws a button only where
-     `flips` says the flip is legal.
-4. **Edit in the drawing** (5.9). Tapping a piece — anywhere in its
-   outline — opens a sheet to swap it, change a mode that isn't an
-   orientation (a full apple's faces, a dolly's wheels, the SLE's upright
-   or reversed position), or remove it. **Orientation is a flip button on
-   the drawing** (5.9): one tap, no message. **One Add button** under the drawing opens a
-   sheet of everything that can legally be added to the rig. Choosing an
-   item closes the sheet; if it has exactly one legal attach point it goes
-   straight there, and otherwise its legal attach points appear on the
-   drawing as highlighted markers (positions from the layout, 5.8;
-   legality from `rules.js`, 5.9), each with at least a 44px hit area. Tap
-   a marker to insert there; tap anywhere else to cancel. There is no text
-   list of positions. Sheets show only compatible options, with no list of
-   what doesn't fit. **The camera block's sheet** lists its pieces, top to
-   bottom, each with its rise; removes its bottom piece (stripping it
-   down), puts back the last one removed, or adds a Euro plate to its
-   bottom — each offered only when the rig still works after it. The
-   support's sheet
-   can remove it together with the adapters and head, when the camera
-   block then sits on the base. The Add sheet groups what fits under the
-   support, between support and head, and between head and camera (the
-   Euro plate as an ordinary plate), and offers supports when the rig has
-   none. When the camera fits nothing below it, the drawing area offers
-   the fixes. A change that removes or swaps a piece the user didn't touch
-   gets a short note (5.9). There are no checkbox lists or dropdown
-   sections.
-
-**No explanation text.** Sheets carry no explanatory sentences — no reasons,
-no hints: a mode that isn't available right now is simply not offered, and
-a section with nothing in it is left out. Notes are a few words (5.9).
-
-**Information appears once.** A piece's full name and signed rise are in
-its sheet; the drawing names nothing. No text legend beside the drawing.
-All gear values are treated as correct, so there's no "estimated" marking
-(4). "Camera inverted — flip image" appears once, in the line under the
-drawing, where a base layer over the stacking cap is also noted. Adjustability is always called
-**moveable / adjustable / fixed** (3.5), in the drawing's key and in the
-words.
-
-**The UI is thin.** `index.html` and `app.js` collect input, call the solver
-and `rules.js`, and render what comes back. All height math (intervals,
-margins, shortfalls, stack positions) and all compatibility logic (mounts,
-facing, family, apple boxes) stay in `src/`, and so does formatting a
-number as a fraction (7): the UI calls it rather than rounding anything
-itself.
-
----
-
-## 8. Build order
-
-1. Data model + seed JSON with a handful of real components.
-2. Solver, with unit tests covering: fixed target, range target,
-   underslung head (negative rise, both camera attach options), lambda underslung (negative head, upright camera, down-facing mount), dolly boom, base-layer stacking,
-   infeasible-with-suggestion.
-3. Query UI + results list.
-4. Gear editor + override layer + export/import.
-5. PWA shell, service worker, offline verification.
-6. Current rig state and ranking refinement.
-
-Ship after step 5. Step 6 is what makes it live on the home screen rather
-than in a bookmark.

@@ -8,8 +8,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import * as solver from "../src/solver.js";
-import { buildChain, enumerateChains, evaluateChain, normalizeTarget, exceedsBaseLayerCap, checkChain } from "../src/solver.js";
+import { buildChain, enumerateChains, evaluateChain, normalizeTarget, exceedsBaseLayerCap } from "../src/solver.js";
 import { describeCurrentRig, getPackageComponents, supportInterval, supportSegments } from "../src/model.js";
 import { defaultPicks, missingSlot, modeControl, revalidatePicks, sheetModes, slotOptions } from "../src/rules.js";
 import { stackLayout } from "../src/stack.js";
@@ -97,7 +96,7 @@ const dolly = (over = {}) => ({
 });
 
 // ---------------------------------------------------------------------------
-// What may attach — slotOptions (SPEC.md 5.9)
+// What may attach — slotOptions (SPEC.md 6)
 // ---------------------------------------------------------------------------
 
 describe("slotOptions: only what can legally attach to what's below", () => {
@@ -206,7 +205,7 @@ describe("slotOptions: only what can legally attach to what's below", () => {
 });
 
 // ---------------------------------------------------------------------------
-// When a pick changes — revalidatePicks (SPEC.md 5.9)
+// When a pick changes — revalidatePicks (SPEC.md 6)
 // ---------------------------------------------------------------------------
 
 describe("revalidatePicks: clear what stopped fitting, and say why", () => {
@@ -229,7 +228,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     const { picks, notes } = revalidate({ noseId: "fisher-sle", adapterIds: ["mitchell-riser-6"] });
     assert.equal(picks.noseId, null);
     assert.deepEqual(picks.adapterIds, ["mitchell-riser-6"]);
-    assert.deepEqual(notes, ["Removed SLE"]);
+    assert.deepEqual(notes, ["Removed Standard Level Head"]);
   });
 
   test("a Fisher with no nose fitting is incomplete, not illegal: what's above is kept", () => {
@@ -265,7 +264,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
     const { picks, notes } = revalidatePicks(seed, ...P, { ...cleared, supportId: "baby-sticks" });
     assert.equal(picks.noseId, null, "the nose fitting is cleared now that a tripod is chosen");
     assert.deepEqual(picks.adapterIds, ["mitchell-riser-6"]);
-    assert.match(notes[0], /SLE/);
+    assert.match(notes[0], /Standard Level Head/);
   });
 
   test("flipping the offset underslung switches the head and the camera, with no note: it follows from the user's own action", () => {
@@ -323,7 +322,7 @@ describe("revalidatePicks: clear what stopped fitting, and say why", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Toggle, text, or dropdown — modeControl (SPEC.md 5.9)
+// Toggle, text, or dropdown — modeControl (SPEC.md 6)
 // ---------------------------------------------------------------------------
 
 describe("modeControl", () => {
@@ -461,7 +460,7 @@ describe("slot rules agree with the solver's own validation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Stack layout (SPEC.md 5.8)
+// Stack layout (SPEC.md 5.2)
 // ---------------------------------------------------------------------------
 
 describe("stackLayout", () => {
@@ -687,35 +686,17 @@ describe("normalizeTarget and the stacking cap", () => {
   });
 });
 
-describe("check mode, end to end on the seed", () => {
-  test("an infeasible rig returns a shortfall and fixes, the best few first", () => {
-    const picks = defaultPicks(seed, ...P);
-    const result = checkChain(seed, { target: { type: "fixed", height: 60 }, packageId: P[0], buildId: P[1], chain: picks });
-    assert.equal(result.evaluation.feasible, false);
-    assert.equal(result.evaluation.shortfall.direction, "short");
-    assert.ok(result.delta.candidates.length >= 3, "enough to show three and expand the rest");
-    const counts = result.delta.candidates.map((c) => c.changes.length);
-    assert.deepEqual(counts, [...counts].sort((a, b) => a - b), "fewest changes first");
-  });
-});
-
 // ---------------------------------------------------------------------------
-// The UI stays thin (SPEC.md 7.2)
+// The UI stays thin (SPEC.md 8)
 // ---------------------------------------------------------------------------
 
 describe("the UI layer", () => {
   const html = readFileSync(path.join(root, "index.html"), "utf8");
   const app = readFileSync(path.join(root, "app.js"), "utf8");
 
-  test("solve mode is hidden from the UI: no toggle, no solve screen, no submit button, nothing calls it", () => {
+  test("there is one screen: no mode toggle, no submit button", () => {
     assert.doesNotMatch(html, /mode-solve|mode-check|mode-toggle|Find config|Check rig|type="submit"|run-button/);
     assert.doesNotMatch(app, /\bsolve\s*\(|import\s*\{[^}]*\bsolve\b|mode-solve|state\.mode/);
-  });
-
-  test("...but frozen, not removed: solve mode is still exported and cli.js is still there", () => {
-    assert.equal(typeof solver.solve, "function");
-    assert.equal(typeof solver.run, "function");
-    assert.ok(readFileSync(path.join(root, "cli.js"), "utf8").includes("solve("));
   });
 
   test("the UI asks rules.js and stack.js instead of knowing the rules", () => {
@@ -754,9 +735,8 @@ describe("the UI layer", () => {
     }
   });
 
-  test("delta search is frozen and hidden: no fixes, and nothing calls it", () => {
+  test("no suggested fixes: the user edits the rig in the drawing instead", () => {
     assert.doesNotMatch(app, /checkChain|deltaSearch|\.delta\b|fixes|fixHtml/i);
-    assert.equal(typeof solver.checkChain, "function", "still exported");
   });
 
   test("the drawing is the editor: no summary card, no checkbox lists or dropdown sections", () => {

@@ -220,8 +220,8 @@
     },
     {
       "id": "fisher-sle",
-      "name": "SLE — 4-way Level Head",
-      "shortName": "SLE",
+      "name": "Standard Level Head",
+      "shortName": "Standard Level Head",
       "category": "nose",
       "bottomMount": "fisher-nose",
       "topMount": "mitchell-female",
@@ -259,8 +259,8 @@
     },
     {
       "id": "fisher-lhe",
-      "name": "LHE — 4-way Low Level Head",
-      "shortName": "LHE",
+      "name": "Low Level Head",
+      "shortName": "Low Level Head",
       "category": "nose",
       "bottomMount": "fisher-nose",
       "topMount": "mitchell-female",
@@ -273,68 +273,73 @@
     },
     {
       "id": "mitchell-riser-3",
-      "name": "Mitchell Riser 3\"",
-      "shortName": "Riser 3″",
+      "name": "3\" Riser",
+      "shortName": "3″ Riser",
       "category": "adapter",
       "bottomMount": "mitchell-male",
       "topMount": "mitchell-female",
       "rise": 3,
       "mountFacing": "up",
       "adjustability": "fixed",
-      "notes": "No family requirement: works on any support the mounts allow."
+      "notes": "No family requirement: works on any support the mounts allow.",
+      "followsMount": true
     },
     {
       "id": "mitchell-riser-6",
-      "name": "Mitchell Riser 6\"",
-      "shortName": "Riser 6″",
+      "name": "6\" Riser",
+      "shortName": "6″ Riser",
       "category": "adapter",
       "bottomMount": "mitchell-male",
       "topMount": "mitchell-female",
       "rise": 6,
       "mountFacing": "up",
       "adjustability": "fixed",
-      "notes": "No family requirement: works on any support the mounts allow."
+      "notes": "No family requirement: works on any support the mounts allow.",
+      "followsMount": true
     },
     {
       "id": "mitchell-riser-12",
-      "name": "Mitchell Riser 12\"",
-      "shortName": "Riser 12″",
+      "name": "12\" Riser",
+      "shortName": "12″ Riser",
       "category": "adapter",
       "bottomMount": "mitchell-male",
       "topMount": "mitchell-female",
       "rise": 12,
       "mountFacing": "up",
       "adjustability": "fixed",
-      "notes": "No family requirement: works on any support the mounts allow."
+      "notes": "No family requirement: works on any support the mounts allow.",
+      "followsMount": true
     },
     {
       "id": "mitchell-riser-18",
-      "name": "Mitchell Riser 18\"",
-      "shortName": "Riser 18″",
+      "name": "18\" Riser",
+      "shortName": "18″ Riser",
       "category": "adapter",
       "bottomMount": "mitchell-male",
       "topMount": "mitchell-female",
       "rise": 18,
       "mountFacing": "up",
       "adjustability": "fixed",
-      "notes": "No family requirement: works on any support the mounts allow."
+      "notes": "No family requirement: works on any support the mounts allow.",
+      "followsMount": true
     },
     {
       "id": "mitchell-riser-24",
-      "name": "Mitchell Riser 24\"",
-      "shortName": "Riser 24″",
+      "name": "24\" Riser",
+      "shortName": "24″ Riser",
       "category": "adapter",
       "bottomMount": "mitchell-male",
       "topMount": "mitchell-female",
       "rise": 24,
       "mountFacing": "up",
       "adjustability": "fixed",
-      "notes": "No family requirement: works on any support the mounts allow."
+      "notes": "No family requirement: works on any support the mounts allow.",
+      "followsMount": true
     },
     {
       "id": "mitchell-offset-10",
-      "name": "Mitchell Offset, 10″",
-      "shortName": "Offset 10″",
+      "name": "10\" Offset",
+      "shortName": "10″ Offset",
       "category": "adapter",
       "bottomMount": "mitchell-male",
       "topMount": "mitchell-female",
@@ -354,12 +359,13 @@
         }
       ],
       "notes": "Flat plate with a Mitchell mount on both the top and the bottom of the offset end; the mode is which side you mount to.",
-      "plateLength": 10
+      "plateLength": 10,
+      "followsMount": true
     },
     {
       "id": "mitchell-offset-24",
-      "name": "Mitchell Offset, 24″",
-      "shortName": "Offset 24″",
+      "name": "24\" Offset",
+      "shortName": "24″ Offset",
       "category": "adapter",
       "bottomMount": "mitchell-male",
       "topMount": "mitchell-female",
@@ -379,7 +385,8 @@
         }
       ],
       "notes": "Flat plate with a Mitchell mount on both the top and the bottom of the offset end; the mode is which side you mount to.",
-      "plateLength": 24
+      "plateLength": 24,
+      "followsMount": true
     },
     {
       "id": "rotating-offset",
@@ -392,7 +399,8 @@
       "mountFacing": "up",
       "adjustability": "fixed",
       "notes": "Generic Mitchell rotating offset.",
-      "drawAs": "swivel"
+      "drawAs": "swivel",
+      "plateLength": 8
     },
     {
       "id": "oconnor-2575d",

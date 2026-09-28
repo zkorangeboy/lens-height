@@ -1,10 +1,9 @@
-// Solver for the Lens Height Solver. See SPEC.md section 5.
+// Chain construction and height evaluation. See SPEC.md section 5.
 import { stackLayout } from "./stack.js";
 import { getPackage, getBuild, blockPieces, buildAttachPoints, riseRangeOf, supportInterval, supportMoveableInterval } from "./model.js";
 import {
   acceptsMount,
   adapterVariants,
-  appleBoxCount,
   needsNoseFitting,
   orderStack,
   ruleViolations,
@@ -17,7 +16,6 @@ import {
   whyBlockJoints,
   appleBoxOrientationViolation,
   supportVariants,
-  tripodOnAppleBoxes,
 } from "./rules.js";
 
 /**
@@ -114,8 +112,8 @@ function chainAdjustability({ baseItems, adapters, support, nose, head, plates =
 /**
  * Assemble a chain's derived fields (interval, moveable interval, piece
  * count, adjustability) from its resolved parts. The one place a chain
- * object is built, so enumerateChains, buildChain, and deltaSearch can't
- * drift from each other on what a chain even is. A chain with no support
+ * object is built, so enumerateChains and buildChain can't drift from
+ * each other on what a chain even is. A chain with no support
  * has no nose fitting, adapters, or head either (3.4).
  */
 function assembleChain(parts) {
@@ -143,8 +141,8 @@ function assembleChain(parts) {
 }
 
 /** SPEC.md 3.1: the default base-layer stacking cap. Taller stacks are
- * legal but ranked last (solve mode) or flagged (check mode) — this is
- * the single place that "2" is defined, so nothing else hardcodes it. */
+ * legal but flagged in the UI — this is the single place that "2" is
+ * defined, so nothing else hardcodes it. */
 export const DEFAULT_MAX_BASE_LAYER_ITEMS = 2;
 
 /** Whether a chain's base layer is past the stacking cap (SPEC.md 3.1) —
@@ -153,8 +151,8 @@ export function exceedsBaseLayerCap(chain, cap = DEFAULT_MAX_BASE_LAYER_ITEMS) {
   return chain.baseItems.length > cap;
 }
 
-/** SPEC.md 5.3: the default cap on adapters stacked between support and
- * head. Configurable per query, like the base-layer cap. */
+/** The default cap on adapters `enumerateChains` combines per chain, kept
+ * low so exhaustive combination search stays fast. Configurable per call. */
 export const DEFAULT_MAX_ADAPTERS = 2;
 
 /**
@@ -163,8 +161,7 @@ export const DEFAULT_MAX_ADAPTERS = 2;
  * valid order, checks every mount, facing, and hard rule, and returns
  * either `{ chain }` or `{ violations }`. Mount checks and the 2.1 rules
  * (family, apple boxes) are reported separately, each naming what broke.
- * enumerateChains drops violating chains; buildChain throws; deltaSearch
- * skips them.
+ * enumerateChains drops violating chains; buildChain throws.
  */
 function resolveChain({ baseItems, adapters, support = null, nose = null, head = null, mode = null, plates = [], build, blockPieces: pieces = [], attach }) {
   const violations = [];
@@ -256,7 +253,7 @@ function resolveChain({ baseItems, adapters, support = null, nose = null, head =
 }
 
 /**
- * Nothing below the floor (SPEC.md 5.8): laid out fully retracted, the
+ * Nothing below the floor (SPEC.md 5.2): laid out fully retracted, the
  * lowest piece as drawn — an inverted camera's body, a hanging head — must
  * clear the floor. Every piece above the support rises with any extension,
  * so the reach's `min` rises by however far the lowest piece is under the
@@ -286,7 +283,10 @@ function names(items) {
 
 /**
  * Enumerate every mount-compatible chain from the package pool for a
- * given build (SPEC.md 5.3 step 1). Does not evaluate against a target.
+ * given build, stacked so every mount and facing mates and no chain
+ * breaks a hard rule (2, 2.1). Does not evaluate against a target; used
+ * by tests that check a rule against every legal combination, not by
+ * the app itself.
  *
  * @param {object} gear - merged gear data
  * @param {object} opts
@@ -362,10 +362,9 @@ export function enumerateChains(
 
 /**
  * Resolve an explicit chain selection into the same shape enumerateChains
- * produces (SPEC.md 5.1 / 5.6): used by check mode, and by anything that
- * needs to reconstruct a marked current rig (5.5). An explicit selection
- * is not exempt from the mount/facing rules in section 2 — a mismatched
- * one throws rather than being silently summed.
+ * produces (SPEC.md 5.1): the app's check screen calls this directly. An
+ * explicit selection is not exempt from the mount/facing rules in section
+ * 2 — a mismatched one throws rather than being silently summed.
  *
  * @param {object} gear
  * @param {object} selection
@@ -547,9 +546,8 @@ function shortfallOf(chain, target, feasible) {
 
 /**
  * The one place feasibility, margin, and target-position math live
- * (SPEC.md 5.2). Both modes call this per chain instead of duplicating
- * it: solve mode once per enumerated chain, check mode once on the
- * chain it was given.
+ * (SPEC.md 5.2): the check screen calls this once on the chain it was
+ * given.
  */
 export function evaluateChain(chain, target, tolerance = 0.5) {
   const m = margin(chain, target);
@@ -564,520 +562,4 @@ export function evaluateChain(chain, target, tolerance = 0.5) {
     targetPosition: targetPosition(chain, target),
     shortfall: shortfallOf(chain, target, feasible),
   };
-}
-
-function stabilityScore(chain, target) {
-  let score = 0;
-  if (chain.baseItems.length > 1) score -= chain.baseItems.length - 1;
-  for (const item of chain.baseItems) {
-    if (item.stability === "low") score -= 2;
-  }
-  const range = chain.max - chain.min;
-  if (range > 0) {
-    const point = target.type === "fixed" ? target.height : target.high;
-    const frac = (point - chain.min) / range;
-    if (frac > 0.85) score -= 1;
-  }
-  return score;
-}
-
-function matchesCurrentRig(chain, currentRig) {
-  if (!currentRig) return false;
-  return chain.support.id === currentRig.supportId && chain.head.id === currentRig.headId;
-}
-
-/**
- * Solve-mode ranking criteria (SPEC.md 5.3 step 3), in priority order —
- * entries flagged `penalty: true` are the ranking penalties (score is 0
- * with none, lower with more) that dominance pruning (step 4) also reads,
- * so what counts as a penalty is defined here once.
- * the single ordered list the spec calls for, so re-prioritizing is a
- * matter of reordering this array rather than rewriting compareChains.
- * Each `score` returns a number where higher is better; ties fall
- * through to the next criterion.
- */
-const RANKING_CRITERIA = [
-  {
-    // The *heavy* soft apple-box penalty (SPEC.md 5.3 criterion 1): a
-    // tripod on apple boxes is legal but sinks below every chain that
-    // doesn't do it, whatever its margin. Not a rule — see rules.js for
-    // the hard ones — and separate from the light general penalty below.
-    name: "tripodOnAppleBoxes",
-    penalty: true,
-    score: (chain) => (tripodOnAppleBoxes(chain.baseItems, chain.support) ? -1 : 0),
-  },
-  {
-    name: "margin",
-    // Reads the evaluation solve() already attached, rather than
-    // recomputing it.
-    score: (chain) => Math.min(chain.evaluation.marginBelow, chain.evaluation.marginAbove),
-  },
-  {
-    name: "adjustability",
-    score: (chain) => ADJUSTABILITY_RANK[chain.adjustability] ?? ADJUSTABILITY_RANK.fixed,
-  },
-  {
-    // The *light* general apple-box penalty (SPEC.md 5.3 criterion 4):
-    // orders chains the hard rules already let through. Kept apart from
-    // those rules, from the heavy tripod penalty, and from pieceCount, so
-    // it still applies when piece counts tie.
-    name: "appleBoxes",
-    penalty: true,
-    score: (chain) => -appleBoxCount(chain.baseItems),
-  },
-  {
-    name: "pieceCount",
-    score: (chain) => -chain.pieceCount, // fewer pieces is better
-  },
-  {
-    name: "fastestToRig",
-    score: (chain, ctx) => (matchesCurrentRig(chain, ctx.currentRig) ? 1 : 0),
-  },
-  {
-    name: "stability",
-    penalty: true,
-    score: (chain, ctx) => stabilityScore(chain, ctx.target),
-  },
-];
-
-/** Ranking per SPEC.md 5.3 step 3. Sorts best-first. */
-export function compareChains(a, b, target, currentRig) {
-  const ctx = { target, currentRig };
-  for (const criterion of RANKING_CRITERIA) {
-    const diff = criterion.score(b, ctx) - criterion.score(a, ctx);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-function formatTargetLabel(target) {
-  return target.type === "fixed" ? `${target.height}"` : `${target.low}"-${target.high}"`;
-}
-
-/**
- * Positive: chain falls short of the target (needs more rise).
- * Negative: chain is already too tall for the target at its minimum.
- * Zero: target sits inside the chain's interval. Derived from margin
- * rather than recomputed, so this can't drift from evaluateChain.
- */
-function chainGap(chain, target) {
-  const m = margin(chain, target);
-  if (m.above < 0) return -m.above;
-  if (m.below < 0) return m.below;
-  return 0;
-}
-
-/**
- * Find the smallest-piece-count, smallest-overshoot combination of base
- * layer items whose combined rise closes `gapNeeded`. Search is
- * deliberately uncapped: SPEC.md 5.4 allows taller stacks here even
- * though normal enumeration caps at maxBaseLayerItems. `isValidCombo`
- * lets the caller rule out combos the chain's support can't take (an
- * apple box under a tripod, track under sticks): only valid combos are
- * ever suggested or counted toward what's "available". `comboCost`
- * ranks the valid ones: lower is preferred, ahead of item count.
- */
-function findBaseLayerSuggestion(baseItems, gapNeeded, isValidCombo = () => true, comboCost = () => 0) {
-  const riseOf = (combo) => combo.reduce((sum, i) => sum + i.rise, 0);
-  const combos = combinations(baseItems, baseItems.length).filter((c) => c.length > 0 && isValidCombo(c));
-  const closing = combos.filter((c) => riseOf(c) >= gapNeeded);
-
-  if (closing.length === 0) {
-    const maxPossible = Math.max(0, ...combos.map(riseOf));
-    return { closesGap: false, maxAdditionalRise: maxPossible, stillShortBy: gapNeeded - maxPossible };
-  }
-
-  closing.sort((a, b) => {
-    // Avoid apple boxes first (a tripod on them worst of all), then fewest items.
-    if (comboCost(a) !== comboCost(b)) return comboCost(a) - comboCost(b);
-    if (a.length !== b.length) return a.length - b.length;
-    const sumA = a.reduce((sum, i) => sum + i.rise, 0);
-    const sumB = b.reduce((sum, i) => sum + i.rise, 0);
-    return sumA - sumB;
-  });
-
-  const best = closing[0];
-  return { closesGap: true, items: best, addedRise: best.reduce((sum, i) => sum + i.rise, 0) };
-}
-
-function formatFallbackMessage(nearest, target, gap, direction, suggestion) {
-  const targetLabel = formatTargetLabel(target);
-  const rigLabel = [nearest.support, ...nearest.adapters, nearest.head].map((c) => c.name).join(" + ");
-
-  if (direction === "short") {
-    const base = `Closest: ${rigLabel}, tops out at ${nearest.max.toFixed(1)}". You're ${Math.abs(gap).toFixed(1)}" short of ${targetLabel}.`;
-    if (suggestion && suggestion.closesGap) {
-      const items = suggestion.items.map((i) => i.name).join(" + ");
-      return `${base} Add ${items} (${suggestion.addedRise.toFixed(1)}") to close the gap.`;
-    }
-    if (suggestion) {
-      return `${base} No combination of base-layer gear in this package closes the gap: the most available adds ${suggestion.maxAdditionalRise.toFixed(1)}", still ${suggestion.stillShortBy.toFixed(1)}" short. You need ${Math.abs(gap).toFixed(1)}" of additional rise.`;
-    }
-    return `${base} You need ${Math.abs(gap).toFixed(1)}" of additional rise.`;
-  }
-
-  if (direction === "tall") {
-    return `Closest: ${rigLabel}, bottoms out at ${nearest.min.toFixed(1)}". You're ${Math.abs(gap).toFixed(1)}" too tall for ${targetLabel}. Base-layer gear only adds height, so this can't be closed with what's in the package.`;
-  }
-
-  return `Closest: ${rigLabel} reaches ${targetLabel}, but not within tolerance.`;
-}
-
-/** A resolved chain's parts, in the shape resolveChain takes. */
-function partsOf(chain) {
-  const { baseItems, adapters, support, nose, head, mode, build, attach } = chain;
-  // Plates as picked (unsigned): resolveChain turns them over again if they hang.
-  const plates = chain.plates.map((p) => (p.inverted ? { ...p, rise: -p.rise, inverted: false } : p));
-  return { baseItems, adapters, support, nose, head, mode, plates, build, blockPieces: chain.blockPieces, attach };
-}
-
-function buildFallback(gear, target, packageId, buildId) {
-  const coreChains = enumerateChains(gear, { packageId, buildId, maxBaseLayerItems: 0 });
-
-  if (coreChains.length === 0) {
-    return {
-      nearestChain: null,
-      gap: null,
-      direction: null,
-      suggestion: null,
-      message: "No mount-compatible rig exists in this package for this build.",
-    };
-  }
-
-  let nearest = coreChains[0];
-  let nearestDistance = Math.abs(chainGap(nearest, target));
-  for (const chain of coreChains) {
-    const distance = Math.abs(chainGap(chain, target));
-    if (distance < nearestDistance) {
-      nearest = chain;
-      nearestDistance = distance;
-    }
-  }
-
-  const gap = chainGap(nearest, target);
-  const direction = gap > 0 ? "short" : gap < 0 ? "tall" : "exact";
-
-  let suggestion = null;
-  if (direction === "short") {
-    const baseItems = packagePool(gear, packageId).filter((c) => c.category === "base").flatMap(adapterVariants);
-    const isValidCombo = (combo) => new Set(combo.map((b) => b.id)).size === combo.length && !resolveChain({ ...partsOf(nearest), baseItems: combo }).violations;
-    const comboCost = (combo) => (tripodOnAppleBoxes(combo, nearest.support) ? 100 : 0) + appleBoxCount(combo);
-    suggestion = findBaseLayerSuggestion(baseItems, gap, isValidCombo, comboCost);
-  }
-
-  return {
-    nearestChain: nearest,
-    gap,
-    direction,
-    suggestion,
-    message: formatFallbackMessage(nearest, target, gap, direction, suggestion),
-  };
-}
-
-const EPSILON = 1e-9;
-
-/**
- * Everything dominance compares, as numbers where *higher is better*
- * (SPEC.md 5.3 step 4): both margins, fewer pieces, adjustability, and
- * each ranking penalty.
- */
-function dominanceVector(chain, ctx) {
-  return [
-    chain.evaluation.marginBelow,
-    chain.evaluation.marginAbove,
-    -chain.pieceCount,
-    ADJUSTABILITY_RANK[chain.adjustability] ?? ADJUSTABILITY_RANK.fixed,
-    ...RANKING_CRITERIA.filter((c) => c.penalty).map((c) => c.score(chain, ctx)),
-  ];
-}
-
-/** A dominates B: at least as good on every dimension, better on one. */
-function dominates(vectorA, vectorB) {
-  let strictlyBetter = false;
-  for (let i = 0; i < vectorA.length; i++) {
-    const diff = vectorA[i] - vectorB[i];
-    if (diff < -EPSILON) return false;
-    if (diff > EPSILON) strictlyBetter = true;
-  }
-  return strictlyBetter;
-}
-
-/**
- * Drop dominated chains (SPEC.md 5.3 step 4). Judged across every chain
- * passed in; dominated chains are removed outright, not kept as
- * alternates. Chains that tie on every dimension both stay.
- */
-export function dropDominatedChains(chains, target, currentRig = null) {
-  const ctx = { target, currentRig };
-  const vectors = chains.map((chain) => dominanceVector(chain, ctx));
-  return chains.filter((_, b) => !vectors.some((vectorA, a) => a !== b && dominates(vectorA, vectors[b])));
-}
-
-/** SPEC.md 5.3 step 5: what makes two chains "the same result". Adapters
- * and base-layer choices are deliberately not part of it. */
-function equivalenceKey(chain) {
-  return [chain.support.id, chain.head.id, chain.mode.name, chain.attach.name].join("|");
-}
-
-/**
- * Collapse equivalent chains (SPEC.md 5.3 step 5). `rankedChains` is
- * already best-first, so each group's first member is its best-ranked:
- * that becomes the result, carrying the rest as `alternates` (still in
- * rank order) and the group size as `count`. Groups keep the order of
- * their representatives.
- */
-function collapseEquivalent(rankedChains) {
-  const groups = new Map();
-  for (const chain of rankedChains) {
-    const key = equivalenceKey(chain);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(chain);
-  }
-  return [...groups.values()].map(([representative, ...alternates]) => ({
-    ...representative,
-    alternates,
-    count: alternates.length + 1,
-  }));
-}
-
-/**
- * Solve mode (SPEC.md 5.3): "what configurations reach this target?"
- * Enumerates every mount-compatible chain and ranks the feasible ones.
- * Each returned chain carries its `evaluation` (SPEC.md 5.2) alongside
- * the usual min/max/pieceCount fields.
- *
- * @param {object} gear - merged gear data (see model.js mergeOverrides)
- * @param {object} query
- * @param {{type:"fixed",height:number}|{type:"range",low:number,high:number}} query.target
- * @param {string} query.packageId
- * @param {string} query.buildId
- * @param {number} [query.tolerance=0.5]
- * @param {number} [query.maxBaseLayerItems=DEFAULT_MAX_BASE_LAYER_ITEMS]
- * @param {number} [query.maxAdapters=DEFAULT_MAX_ADAPTERS]
- * @param {boolean} [query.dropDominated=true] - drop dominated chains (5.3 step 4)
- * @param {boolean} [query.collapse=true] - collapse equivalent chains (5.3 step 5)
- * @param {{supportId:string,headId:string}|null} [query.currentRig=null]
- * @returns {{feasible: object[], fallback: object|null}} each feasible entry
- *   carries `alternates` (the other chains it stands for) and `count`
- */
-export function solve(gear, query) {
-  const {
-    target,
-    packageId,
-    buildId,
-    tolerance = 0.5,
-    maxBaseLayerItems = DEFAULT_MAX_BASE_LAYER_ITEMS,
-    maxAdapters = DEFAULT_MAX_ADAPTERS,
-    dropDominated = true,
-    collapse = true,
-    currentRig = null,
-  } = query;
-
-  const chains = enumerateChains(gear, { packageId, buildId, maxBaseLayerItems, maxAdapters });
-  const evaluated = chains.map((chain) => ({ ...chain, evaluation: evaluateChain(chain, target, tolerance) }));
-  const reachable = evaluated.filter((chain) => chain.evaluation.feasible);
-  const ranked = dropDominated ? dropDominatedChains(reachable, target, currentRig) : reachable;
-  ranked.sort((a, b) => compareChains(a, b, target, currentRig));
-  const feasible = collapse
-    ? collapseEquivalent(ranked)
-    : ranked.map((chain) => ({ ...chain, alternates: [], count: 1 }));
-
-  if (feasible.length > 0) {
-    return { feasible, fallback: null };
-  }
-
-  return { feasible: [], fallback: buildFallback(gear, target, packageId, buildId) };
-}
-
-/** SPEC.md 5.7: a candidate may make at most this many changes. */
-export const DEFAULT_MAX_DELTA_CHANGES = 3;
-
-/** SPEC.md 5.7: only the best few candidates are returned. */
-const DELTA_RESULT_LIMIT = 10;
-
-/**
- * Delta search (SPEC.md 5.7): when check mode is infeasible, find the
- * smallest change to the current rig. A candidate makes up to
- * `maxChanges` changes: any additions (base-layer items, or adapters —
- * each tried in every mode) plus at most one swap (support, head+mode,
- * build attach point, or one adapter). Ranked by fewest changes first,
- * not fewest pieces of gear (the solve-mode metric); ties avoid the
- * apple-box penalties, then margin, then piece count.
- */
-function deltaSearch(
-  gear,
-  { packageId, buildId, target, tolerance, currentRig, maxChanges = DEFAULT_MAX_DELTA_CHANGES }
-) {
-  const currentChain = buildChain(gear, { packageId, buildId, ...currentRig });
-  const pool = packagePool(gear, packageId);
-  const build = currentChain.build;
-  const attachPoints = buildAttachPoints(build, gear);
-  const current = partsOf(currentChain);
-
-  const currentBaseIds = new Set(currentChain.baseItems.map((c) => c.id));
-  const currentAdapterIds = new Set(currentChain.adapters.map((c) => c.id));
-  const supports = pool.filter((c) => c.category === "support").flatMap(supportVariants);
-  const heads = pool.filter((c) => c.category === "head");
-  const adapterVariantPool = pool.filter((c) => c.category === "adapter").flatMap(adapterVariants);
-
-  // Everything that could be added: base items, and adapters in each mode.
-  const addable = [
-    ...pool
-      .filter((c) => c.category === "base" && !currentBaseIds.has(c.id))
-      .flatMap(adapterVariants)
-      .map((item) => ({ slot: "base", item })),
-    ...adapterVariantPool.filter((v) => !currentAdapterIds.has(v.id)).map((item) => ({ slot: "adapter", item })),
-  ];
-  const additionCombos = combinations(addable, maxChanges).filter((combo) => {
-    const ids = combo.map((x) => x.item.id);
-    return new Set(ids).size === ids.length; // one mode per physical item
-  });
-
-  // Every way to change exactly one slot (or none): parts to override plus
-  // the change to report.
-  const swapOptions = [{ changes: [], parts: {} }];
-  for (const support of supports) {
-    // Another support, or the same one in another wheel mode. The nose
-    // fitting comes along unchanged, so only swaps it still fits count.
-    if (support.id === currentChain.support.id && support.mode === currentChain.support.mode) continue;
-    swapOptions.push({ changes: [{ kind: "swap-support", from: currentChain.support, to: support }], parts: { support } });
-  }
-  for (const head of heads) {
-    for (const mode of head.modes) {
-      if (head.id === currentChain.head.id && mode.name === currentChain.mode.name) continue;
-      swapOptions.push({
-        changes: [{ kind: "swap-head", from: { head: currentChain.head, mode: currentChain.mode }, to: { head, mode } }],
-        parts: { head, mode },
-      });
-    }
-  }
-  for (const attach of attachPoints) {
-    if (attach.name === currentChain.attach.name) continue;
-    swapOptions.push({ changes: [{ kind: "swap-attach", from: currentChain.attach, to: attach }], parts: { attach } });
-  }
-  currentChain.adapters.forEach((from, index) => {
-    for (const to of adapterVariantPool) {
-      // Another mode of the same adapter, or an adapter not already in the chain.
-      if (to.id === from.id ? to.mode === from.mode : currentAdapterIds.has(to.id)) continue;
-      swapOptions.push({
-        changes: [{ kind: "swap-adapter", from, to }],
-        parts: { adapters: currentChain.adapters.map((a, i) => (i === index ? to : a)) },
-      });
-    }
-  });
-
-  const candidates = [];
-
-  for (const swap of swapOptions) {
-    const budget = maxChanges - swap.changes.length;
-    for (const addition of additionCombos) {
-      if (addition.length > budget) continue;
-      if (swap.changes.length === 0 && addition.length === 0) continue; // just the current rig — already known infeasible
-
-      const addedBase = addition.filter((x) => x.slot === "base").map((x) => x.item);
-      const addedAdapters = addition.filter((x) => x.slot === "adapter").map((x) => x.item);
-      const adapters = [...(swap.parts.adapters ?? current.adapters), ...addedAdapters];
-      if (new Set(adapters.map((a) => a.id)).size !== adapters.length) continue;
-
-      // resolveChain applies every mount, facing, family, and apple-box
-      // rule, so a candidate that breaks one simply isn't one.
-      const { chain } = resolveChain({
-        ...current,
-        ...swap.parts,
-        baseItems: [...current.baseItems, ...addedBase],
-        adapters,
-      });
-      if (!chain) continue;
-      const evaluation = evaluateChain(chain, target, tolerance);
-      if (!evaluation.feasible) continue;
-
-      const changes = [
-        ...addition.map((x) =>
-          x.slot === "base"
-            ? { kind: "add", component: x.item }
-            : { kind: "add-adapter", component: x.item, mode: x.item.mode }
-        ),
-        ...swap.changes,
-      ];
-      candidates.push({ changes, chain: { ...chain, evaluation }, evaluation });
-    }
-  }
-
-  const marginOf = (c) => Math.min(c.evaluation.marginBelow, c.evaluation.marginAbove);
-  candidates.sort((a, b) => {
-    const changeDiff = a.changes.length - b.changes.length;
-    if (changeDiff !== 0) return changeDiff;
-
-    // The apple-box penalties from solve-mode ranking (5.3), heavy first.
-    const heavy = (c) => (tripodOnAppleBoxes(c.chain.baseItems, c.chain.support) ? 1 : 0);
-    if (heavy(a) !== heavy(b)) return heavy(a) - heavy(b);
-    const light = (c) => appleBoxCount(c.chain.baseItems);
-    if (light(a) !== light(b)) return light(a) - light(b);
-
-    const marginDiff = marginOf(b) - marginOf(a);
-    if (marginDiff !== 0) return marginDiff;
-
-    return a.chain.pieceCount - b.chain.pieceCount;
-  });
-
-  if (candidates.length === 0) {
-    return {
-      candidates: [],
-      total: 0,
-      message: `No addition or swap of gear (up to ${maxChanges} changes) in this package reaches ${formatTargetLabel(target)} from the current rig (${currentChain.support.name} + ${currentChain.head.name}).`,
-    };
-  }
-
-  return { candidates: candidates.slice(0, DELTA_RESULT_LIMIT), total: candidates.length, message: null };
-}
-
-/**
- * Check mode (SPEC.md 5.6): "does *this* rig reach the target?" Evaluates
- * one specific chain instead of enumerating every possibility. `chain`
- * defaults to `currentRig` when omitted (SPEC.md 5.5). When infeasible,
- * runs delta search (5.7) against the current rig instead of solve
- * mode's general fallback.
- *
- * @param {object} gear
- * @param {object} query
- * @param {object} query.target
- * @param {string} query.packageId
- * @param {string} query.buildId
- * @param {number} [query.tolerance=0.5]
- * @param {object} [query.chain] - explicit selection, see buildChain
- * @param {object} [query.currentRig] - same shape as query.chain; used as
- *   the default selection, and as the delta-search baseline
- * @returns {{chain: object, evaluation: object, delta: object|null}}
- */
-export function checkChain(gear, query) {
-  const { target, packageId, buildId, tolerance = 0.5, chain: selection, currentRig = null } = query;
-
-  const resolved = selection || currentRig;
-  if (!resolved) {
-    throw new Error("check mode needs an explicit chain selection or a currentRig default");
-  }
-
-  const chain = buildChain(gear, { packageId, buildId, ...resolved });
-  const evaluation = evaluateChain(chain, target, tolerance);
-
-  if (evaluation.feasible) {
-    return { chain, evaluation, delta: null };
-  }
-
-  return {
-    chain,
-    evaluation,
-    delta: deltaSearch(gear, { packageId, buildId, target, tolerance, currentRig: resolved }),
-  };
-}
-
-/**
- * Single entry point matching SPEC.md 5.1's `mode` input: dispatches to
- * solve mode or check mode.
- */
-export function run(gear, query) {
-  const mode = query.mode || "solve";
-  if (mode === "solve") return solve(gear, query);
-  if (mode === "check") return checkChain(gear, query);
-  throw new Error(`Unknown mode: ${mode}`);
 }

@@ -1,5 +1,5 @@
-// Flips on the drawing (SPEC.md 5.9, 7.2): which way up a piece hangs is one
-// action in rules.js, offered only where it leaves a legal rig.
+// Flips (SPEC.md 6): which way up a piece hangs is one action in
+// rules.js, offered only where it leaves a legal rig.
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -9,8 +9,6 @@ import path from "node:path";
 
 import { buildChain } from "../src/solver.js";
 import { flip, flips, insertOptions } from "../src/rules.js";
-import { stackLayout } from "../src/stack.js";
-import { flipButtonSvg } from "../src/outlines.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seed = JSON.parse(readFileSync(path.join(root, "gear.json"), "utf8"));
@@ -54,11 +52,21 @@ describe("the SLE flips", () => {
     assert.deepEqual(orientation(flip(seed, ...P, lambda, NOSE)), ["underslung", null, "underslung", "base"]);
   });
 
-  test("offered only when the flipped rig is legal: not with a riser that would end up hanging", () => {
+  test("offered only when the flipped rig is legal", () => {
     assert.deepEqual(flips(seed, ...P, FISHER_SLE), [NOSE], "the SLE, and nothing else, on a plain Fisher rig");
+  });
+
+  test("a 6″ riser under the SLE flipped upside down lowers an underslung 2575 by 6″ (SPEC.md 3.6)", () => {
     const riser = { ...FISHER_SLE, adapterIds: ["mitchell-riser-6"] };
-    assert.equal(flip(seed, ...P, riser, NOSE), null);
-    assert.deepEqual(flips(seed, ...P, riser), []);
+    assert.deepEqual(flips(seed, ...P, riser), [NOSE]);
+    const down = flip(seed, ...P, riser, NOSE);
+    assert.deepEqual(orientation(down), ["underslung", null, "underslung", "base-inverted"]);
+    const chain = chainOf(down);
+    const [flippedRiser] = chain.adapters;
+    assert.equal(flippedRiser.rise, -6, "the 6″ riser hangs, its rise negated");
+    assert.equal(flippedRiser.mountFacing, "down");
+    const withoutRiser = chainOf(flip(seed, ...P, FISHER_SLE, NOSE));
+    assert.equal(chain.max, withoutRiser.max - 6, "6″ lower at the top of the reach");
   });
 });
 
@@ -77,10 +85,14 @@ describe("a head on an offset plate flips to the other side", () => {
     assert.deepEqual(orientation(flip(seed, ...P, lambda, HEAD)), [null, "bottom", "underslung", "base"]);
   });
 
-  test("on a Fisher with an offset on the SLE, only the head flips: the SLE upside down would hang the offset", () => {
+  test("on a Fisher with an offset on the SLE, both flip: the offset follows the SLE down, hanging from its top face instead (SPEC.md 3.6)", () => {
     const both = { ...FISHER_SLE, adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "top" } };
-    assert.deepEqual(flips(seed, ...P, both), [HEAD]);
-    assert.equal(flip(seed, ...P, both, NOSE), null);
+    assert.deepEqual(flips(seed, ...P, both), [NOSE, HEAD]);
+    const down = flip(seed, ...P, both, NOSE);
+    assert.deepEqual(orientation(down), ["underslung", "top", "underslung", "base-inverted"]);
+    const [offset] = chainOf(down).adapters;
+    assert.equal(offset.rise, -1, "the offset's top face, 1″ lower, now hanging");
+    assert.equal(offset.mountFacing, "down");
   });
 });
 
@@ -115,37 +127,6 @@ describe("no flip button where there's nothing to flip", () => {
 });
 
 describe("the button", () => {
-  test("every piece has a flip point beside it, inside the drawing, clear by the 22px hit radius", () => {
-    const layout = stackLayout(chainOf(ON_OFFSET), null, { frame: { width: 320, height: 520 } });
-    for (const b of layout.blocks) {
-      assert.ok(b.flipAt.x >= 22 && b.flipAt.x <= 320 - 22, `${b.slot} across`);
-      assert.ok(b.flipAt.y >= 22 && b.flipAt.y <= layout.frame.height - 22, `${b.slot} up`);
-    }
-    const head = layout.blocks.find((b) => b.slot === "head");
-    const beside = head.flipAt.x >= head.box.x + head.box.width || head.flipAt.x <= head.box.x;
-    assert.ok(beside, "beside the head, not on it");
-  });
-
-  test("the SLE's button covers no other piece — not the nose, not the beam", () => {
-    for (const over of [{}, { noseMode: "reversed" }]) {
-      const layout = stackLayout(chainOf({ ...FISHER_SLE, ...over }), null, { frame: { width: 320, height: 520 } });
-      const sle = layout.blocks.find((b) => b.slot === "nose");
-      for (const o of layout.blocks.filter((b) => b !== sle)) {
-        const { x, y } = sle.flipAt;
-        const hits = x + 22 > o.box.x && x - 22 < o.box.x + o.box.width && y + 22 > o.box.y && y - 22 < o.box.y + o.box.height;
-        assert.ok(!hits, `${JSON.stringify(over)}: clear of the ${o.slot}`);
-      }
-    }
-  });
-
-  test("a circular-arrows icon with a 44px hit area", () => {
-    const svg = flipButtonSvg({ x: 50, y: 80 }, 'data-flip="{}"');
-    assert.match(svg, /<circle cx="50" cy="80" r="22" class="flip-hit"\/>/);
-    assert.match(svg, /class="flip-arrows"/);
-    assert.equal((svg.match(/ A 6 6 /g) || []).length, 2, "two arcs");
-    assert.match(svg, /data-flip=/);
-  });
-
   test("the UI only asks which pieces can flip and applies the flip: no toggles, no message", () => {
     assert.match(app, /flips\(gear/);
     assert.match(app, /flip\(gear/);

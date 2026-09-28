@@ -1,4 +1,5 @@
-// Schematic outlines for the drawing (SPEC.md 7.2): one per kind of gear.
+// Schematic outlines for the drawing: one per kind of gear. Not covered in
+// SPEC.md — this code is the spec for shapes.
 // Each draws shapes only, inside the pixel box and points stackLayout
 // (stack.js) hands it — where a piece's top and bottom are, where the nose
 // is, where the lens is. None of it decides a height: every vertical
@@ -90,14 +91,37 @@ function tripod(block) {
   return legs + spreader + bowl;
 }
 
+/** From their reference photos, simplified, not traced: a
+ * board, a tapered body faceted with two panel lines, and a flat Mitchell
+ * cap on top. The hi-hat and low hat share this shape — the low hat is
+ * just a shorter box, so its body comes out shorter too. */
 function stand(block) {
   const f = frame(block.box);
-  const stem = Math.max(f.w * 0.18, 4);
-  const foot = Math.min(f.h * 0.25, 10);
+  const boardH = Math.min(Math.max(f.h * 0.14, MIN_PX / 2), 6);
+  const bodyBottom = f.bottom - boardH;
+  const bodyTop = f.top;
+  const bodyH = Math.max(bodyBottom - bodyTop, MIN_PX);
+  const capH = Math.min(bodyH * 0.2, 5);
+  const trapTop = bodyTop + capH;
+  const bottomHalf = f.w * 0.3;
+  const topHalf = f.w * 0.12;
+  const capHalf = f.w * 0.15;
+  const panel = (side) =>
+    line(f.cx + side * bottomHalf * 0.53, bodyBottom, f.cx + side * topHalf * 0.42, trapTop, "o");
   return (
-    poly([[f.left, f.bottom], [f.right, f.bottom], [f.cx + stem, f.bottom - foot], [f.cx - stem, f.bottom - foot]], fill(block.kind)) +
-    rect(f.cx - stem / 2, f.top, stem, f.h - foot, fill(block.kind)) +
-    rect(f.cx - stem, f.top, stem * 2, Math.min(4, f.h), "o k-fixed")
+    poly(
+      [
+        [f.cx - bottomHalf, bodyBottom],
+        [f.cx + bottomHalf, bodyBottom],
+        [f.cx + topHalf, trapTop],
+        [f.cx - topHalf, trapTop],
+      ],
+      fill(block.kind)
+    ) +
+    panel(1) +
+    panel(-1) +
+    rect(f.left, bodyBottom, f.w, boardH, "o k-fixed", { rx: 1 }) +
+    rect(f.cx - capHalf, trapTop - capH, capHalf * 2, capH, fill(block.kind), { rx: 1 })
   );
 }
 
@@ -214,9 +238,31 @@ function riser(block) {
   );
 }
 
-function swivel(block) {
+/** From its reference photo, simplified, not traced (SPEC.md 3.6): a
+ * plank from the near (support-side) Mitchell mount to the far
+ * (camera-side) one, 8" over; an X-braced cage at the far end, inset from
+ * and centered under its own flat Mitchell cap. */
+function rotatingOffset(block) {
   const f = frame(block.box);
-  return rect(f.left, f.top, f.w, Math.max(f.h, MIN_PX), fill(block.kind), { rx: 3 }) + circle(f.cx, f.cy, Math.min(f.w, f.h) * 0.3, "o hub");
+  const h = Math.max(f.h, MIN_PX * 4);
+  const top = f.bottom - h;
+  const atW = (a, b) => [f.left + f.w * a, f.left + f.w * b];
+  const atH = (a, b) => [top + h * a, top + h * b];
+  const [footL, footR] = atW(0, 0.525);
+  const [boxL, boxR] = atW(0.5, 0.925);
+  const [capL, capR] = atW(0.45, 0.975);
+  const [capY0, capY1] = atH(0, 0.14);
+  const [boxY0, boxY1] = atH(0.12, 0.74);
+  const [plankY0, plankY1] = atH(0.74, 0.86);
+  const [footY0, footY1] = atH(0.86, 1);
+  return (
+    rect(footL, footY0, footR - footL, footY1 - footY0, "o k-fixed ro-mount", { rx: 1 }) +
+    rect(f.left, plankY0, f.w, plankY1 - plankY0, `${fill(block.kind)} ro-plank`, { rx: 1 }) +
+    rect(boxL, boxY0, boxR - boxL, boxY1 - boxY0, `o k-${block.kind || "fixed"} cage`, { "fill-opacity": 0.35 }) +
+    line(boxL, boxY0, boxR, boxY1, "o") +
+    line(boxR, boxY0, boxL, boxY1, "o") +
+    rect(capL, capY0, capR - capL, capY1 - capY0, "o k-fixed ro-mount", { rx: 1 })
+  );
 }
 
 function offset(block) {
@@ -311,7 +357,7 @@ const OUTLINES = {
   sle,
   lhe,
   riser,
-  swivel,
+  "rotating-offset": rotatingOffset,
   offset,
   "fluid-head": fluidHead,
   lambda,

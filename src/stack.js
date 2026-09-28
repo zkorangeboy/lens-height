@@ -1,21 +1,19 @@
-// Stack layout (SPEC.md 5.8): the drawing of a chain as a view model. All the
-// height math a renderer would need — where each piece sits, how far forward
-// it is, its pixel box and outline points, where the target falls — is done
-// here, so the UI and the outlines (outlines.js) draw
-// numbers they're handed and compute nothing.
+// Stack layout: the drawing of a chain as a view model. Not covered in
+// SPEC.md — this code is the spec for the drawing — except the rigging
+// order below, which is height math (SPEC.md 5.2).
 import { pieceRise, riseRangeOf, supportSegments } from "./model.js";
 
 /** Which kind a piece's own adjustability puts it in (SPEC.md 3.5). */
 const kindOf = (component) => component.adjustability || "fixed";
 
 /** Adjustable extension is used before moveable: legs position the rig,
- * the boom takes what's left (SPEC.md 5.8). */
+ * the boom takes what's left (SPEC.md 5.2). */
 const ALLOCATION_ORDER = { fixed: 0, adjustable: 1, moveable: 2 };
 
 /** Room above the highest thing drawn, as a fraction of the drawing. */
 const HEADROOM = 0.05;
 
-/** The drawing's size in pixels when the caller doesn't say (5.8). */
+/** The drawing's size in pixels when the caller doesn't say. */
 const DEFAULT_FRAME = { width: 320, height: 520 };
 const FRAME_PAD = 6;
 
@@ -115,7 +113,7 @@ export function stackLayout(chain, target = null, options = {}) {
   const rigged = clamp(reference, chain.min, chain.max);
 
   // Spread the extension needed over the support's segments, the nose
-  // fitting's range, and the head's (SPEC.md 5.8): adjustable first — legs,
+  // fitting's range, and the head's (SPEC.md 5.2): adjustable first — legs,
   // then the nose fitting's hand screw, then the Lambda 50's platform —
   // moveable last.
   // No support and no head: the camera block sits on the base (3.4).
@@ -283,13 +281,16 @@ export function stackLayout(chain, target = null, options = {}) {
 
     chain.adapters.forEach((adapter, index) => {
       const plate = adapter.plateLength;
-      const width = adapter.drawAs === "swivel" ? DRAW.swivel : DRAW.riser;
+      const rotating = adapter.drawAs === "swivel";
+      const width = rotating ? DRAW.swivel : DRAW.riser;
       place(
         { slot: "adapter", index, name: adapter.name, component: adapter, kind: kindOf(adapter), mode: adapter.mode, modeLabel: adapter.modeLabel },
         adapter.rise,
         plate ? [-DRAW.mitchell, plate + DRAW.mitchell] : [-width / 2, width / 2],
         plate ? mountX + plate : mountX,
-        plate ? [cursor, cursor + DRAW.plateThickness] : null
+        // A flat offset plate is drawn as a thin band; the rotating offset's
+        // cage fills its own rise instead, like a riser (5.8).
+        plate && !rotating ? [cursor, cursor + DRAW.plateThickness] : null
       );
     });
     const headRise = headSegment.base + allocation[headIndex];
@@ -521,6 +522,7 @@ export function stackLayout(chain, target = null, options = {}) {
         };
       }
       case "adapter":
+        if (b.component.drawAs === "swivel") return { type: "rotating-offset" };
         if (b.component.plateLength) {
           return {
             type: "offset",

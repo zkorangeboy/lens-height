@@ -154,11 +154,6 @@ describe("inversion", () => {
     assert.equal(chain.attach.inverted, true);
     // Offset bottom at the top of the sticks, then down: 2575 −8½, plate −¾, block −4.
     assert.equal(chain.min, 20 + 0 - 8.5 - 0.75 - 4);
-    const layout = stackLayout(chain, null);
-    const block = layout.blocks.at(-1);
-    assert.equal(layout.warning, "Camera inverted — flip image");
-    assert.equal(block.tag, undefined, "no tags");
-    assert.ok(block.shape.pieces.every((p) => p.box.y + p.box.height <= block.shape.body.y + 0.05), "its plates above the upside-down body");
   });
 
   test("no top-handle hang, for now: hanging, the block's only mount is inverted", () => {
@@ -214,15 +209,6 @@ describe("the camera on the floor", () => {
     assert.equal(missingSlot(seed, ...P, picksFor({ headId: null, modeName: null })), "head");
   });
 
-  test("the drawing: the block sits on the floor, with its plate insertion points there", () => {
-    const layout = stackLayout(chainOf(picksFor({ ...ON_FLOOR, baseItemIds: ["apple-half"] })), null);
-    assert.deepEqual(layout.blocks.map((b) => b.slot), ["base", "build"]);
-    const [box, block] = layout.blocks;
-    assert.equal(block.bottom, box.top);
-    assert.equal(layout.lens.height, 4 + 4);
-    assert.deepEqual(layout.gaps.map((g) => [g.slot, g.index]), [["base", 0], ["base", 1], ["plate", 0]]);
-    assert.equal(layout.gaps.find((g) => g.slot === "plate").height, 4, "a plate goes on the apple box");
-  });
 });
 
 describe("editing the camera side", () => {
@@ -286,7 +272,7 @@ describe("editing the camera side", () => {
   });
 });
 
-describe("solve mode still finds the camera block's rigs", () => {
+describe("enumeration still finds the camera block's rigs", () => {
   test("the 2575 with a Euro plate, and the lambda without one", () => {
     const chains = enumerateChains(seed, { packageId: P[0], buildId: P[1], maxBaseLayerItems: 0, maxAdapters: 0 }).filter((c) => c.support.id === "baby-sticks");
     const seen = new Set(chains.map((c) => `${c.head.id}+${c.plates.map((p) => p.id).join("") || "none"}`));

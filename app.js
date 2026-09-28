@@ -1,4 +1,4 @@
-// Lens Height — the check screen (SPEC.md 7.2).
+// Lens Height — the check screen (SPEC.md 8).
 //
 // This file is thin on purpose. It collects input, calls the solver
 // (src/solver.js), the compatibility rules (src/rules.js), the verdict
@@ -9,8 +9,7 @@
 // number is written by src/format.js (¼″ fractions). There is no arithmetic
 // here at all.
 //
-// Solve mode and delta search are frozen and not shown (SPEC.md 5): nothing
-// here calls them.
+// There is no search or ranking (SPEC.md 5): one chain, evaluated directly.
 
 import { buildChain, evaluateChain, normalizeTarget, exceedsBaseLayerCap, DEFAULT_MAX_BASE_LAYER_ITEMS } from "./src/solver.js";
 import {
@@ -308,7 +307,7 @@ function renderIncomplete(missing) {
   }</div>`;
 }
 
-// --- The drawing (SPEC.md 5.8, 7.2) ------------------------------------------
+// --- The drawing --------------------------------------------------------
 
 function drawingHtml(layout, placing = null) {
   const blocks = layout.blocks;
@@ -405,7 +404,7 @@ function optionButton(attrs, label, rise) {
 const editAttr = (change) => `data-edit="${escapeHtml(JSON.stringify(change))}"`;
 
 /** Only what fits, as buttons under a heading; nothing at all when nothing
- * fits (SPEC.md 7.2: no list of what doesn't, no explanation). */
+ * fits: no list of what doesn't, no explanation. */
 function optionsHtml(title, options, toChange) {
   const fits = options.filter((o) => o.available);
   return fits.length
