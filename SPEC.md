@@ -294,8 +294,8 @@ Examples:
   normal — measured to the receiver, not including a Euro plate; its
   underslung rise is entered as −8.5″, a placeholder to be corrected.
 - **O'Connor, underslung:** negative rise, facing `down`, needs a `down`
-  mount beneath. The plate now faces the floor, so the camera must attach
-  either inverted by its base or upright by its top handle (see 3.4).
+  mount beneath. The plate now faces the floor, so the camera block hangs
+  inverted from it (3.4).
 - **Lambda 50, upright and underslung:** an L-frame — a pan base on the
   mount, a base plate running forward from it, a column at the rear, and a
   camera platform cantilevered forward from the column that slides along
@@ -373,15 +373,16 @@ for any camera-side piece — the floor or an apple box (2). Attach points:
 - `base-inverted` — on a down-facing interface the **whole block hangs
   inverted**: the same pieces, rises negated. Results using it are
   labeled "Camera inverted — flip image."
-- `top-handle` — unchanged: on a down-facing interface the camera may
-  instead hang upright from its rated top handle (`hasRatedTopHandle`),
-  its optical center `topHandleOffset` below the mount. It needs the same
-  interface as the block's bottom.
+- `top-handle` — **removed for now**: the A-cam declares no rated top
+  handle, so it's never offered. (The model still supports it for a block
+  that declares `hasRatedTopHandle` and `topHandleOffset` — older data and
+  test fixtures — hanging the camera upright from its handle.)
 
-A down-facing camera mount therefore produces two candidate chains
-(inverted, or hung from the handle), and the solver evaluates both. A
-block may instead declare one `bottomMount` for the whole block (older
-data, test fixtures); its pieces' interfaces are then not checked.
+With no top handle, the facing of the interface the block attaches to
+decides its attach point: upright on an up-facing one, inverted on a
+down-facing one. There is nothing to choose. A block may instead declare
+one `bottomMount` for the whole block (older data, test fixtures); its
+pieces' interfaces are then not checked.
 
 **No support, no head.** A chain with no support and no head is legal
 when the camera block — or anything stripped from it — sits, with any
@@ -973,6 +974,10 @@ boxes for a drawing of a given size — so the UI does no height math.
   nothing: a piece's name and rise are in its sheet, when it's tapped.
   The layout's `warning` is "Camera inverted — flip image" when the camera
   block hangs inverted, else null; the UI shows it under the drawing.
+- **Flip points.** Every block carries `flipAt`, the pixel point beside it
+  where its flip button (7.2) is drawn — to its right, or its left if
+  there's no room, inside the drawing. The layout doesn't know whether a
+  flip is legal; `rules.js` does (5.9).
 - **Insertion points** (`gaps`) are identified by slot and index: `base` 0
   is the floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on
   the nose fitting (or the support, if it takes none), `adapter` *i* on
@@ -993,8 +998,10 @@ of it:
   or adjust whatever the change made illegal, returning plain-language notes
   saying why.
 - `defaultPicks` — the first legal rig, for a fresh start.
-- `modeControl` — whether a set of modes is shown as text, a toggle, or a
-  dropdown.
+- `modeControl` — whether a set of modes is shown as text or a choice;
+  `sheetModes` — the modes a sheet offers: never an orientation (below).
+- `flips` / `flip` — which pieces can flip right now, and the rig after
+  one flip (below).
 - `insertOptions` — for every insertion point (5.8), what may be added
   there.
 - `addOptions` — everything that can legally be added to the rig
@@ -1030,7 +1037,9 @@ user tapped, so these are positional, not "anywhere in the stack":
   offset switched to its bottom side takes the head and camera with it. A
   multi-mode item fits a position if any of its modes does.
 - A base item or adapter may be **swapped** for another on the same terms,
-  in its place. A support may be swapped for any other that sits on the
+  in its place. A swap list names each piece once, in its first mode that
+  fits — on the same side as the piece it replaces — never once per side
+  or face: a side is a flip, a face is changed in the piece's sheet. A support may be swapped for any other that sits on the
   base layer; a head for any other with a legal mode. Adapters that no
   longer fit the new support are removed with a note, as in any change.
 - Base items, adapters, and plates can be **removed**. The support can be
@@ -1081,7 +1090,7 @@ so is a plate added to the camera block that no longer fits under it. A
 pick above an empty required slot is kept, and revalidated once that slot
 is filled. A camera block whose pieces don't mate with each other goes
 back to its definition. A mode that became illegal *switches* to the first
-legal one instead — the same as flipping a toggle off.
+legal one instead.
 
 **Notes: only for what the user didn't touch, in a few words.** A note is
 kept only when an action removes a piece the user didn't touch, or swaps
@@ -1093,15 +1102,37 @@ to inverted, because the user put an offset on its bottom side. Notes use
 short names and short mode labels (a mode's `shortLabel`, else its
 `label`), and never explain why.
 
-**Toggles, not dropdowns.** A mode named `underslung`, or an attach point
-that is `inverted`, is offered as an on/off toggle rather than a dropdown,
-and only when both states are legal right now (an underslung head mode needs
-a down-facing mount beneath it, 3.3). When only one state is legal it's
-shown as plain text. `modeControl` still returns the reason the other
-isn't available (`hint`, for tests); the UI doesn't show it.
-The camera attach point toggles between inverted and hung-from-the-handle
-for an underslung head; for a normal head only the upright mount is legal,
-so there's nothing to toggle.
+**Orientation is a flip on the drawing, not a sheet choice.** Which way
+up things hang is never chosen in a sheet: a head's normal / underslung
+(or the lambda's upright / underslung) mode, an SLE's upside-down
+(underslung) mode, an offset plate's top / bottom side, and the camera's
+mount are **orientation modes**, and sheets leave them out (`sheetModes`).
+The SLE's reversed position, a full apple's faces, and a dolly's wheels
+aren't flips, and stay sheet choices.
+
+Instead, a piece that can flip gets a **flip button** on the drawing. A
+flip is one action in `rules.js`: `flip(gear, packageId, buildId, picks,
+piece)` sets the piece's own orientation and every mode that depends on it
+together, and returns the new, revalidated picks — or null when the flip
+wouldn't leave a complete rig with every piece kept. `flips(…)` lists the
+pieces whose flip is legal right now; the UI asks it, draws a button only
+for those, and applies a flip on tap, with no message and no note. What
+flips:
+
+- **The SLE**: upright (or reversed) ↔ upside down. The head goes
+  underslung with it, and the camera block hangs inverted — or the other
+  way back.
+- **A head on an offset plate** (the adapter directly beneath it is an
+  offset): the head moves to the other side of the plate, top ↔ bottom,
+  its mode and the camera following. The lambda on an offset plate flips
+  the same way.
+- Nothing else. **Offset plates never get a flip button** — they're
+  symmetrical; flipping the head is what moves it to the other side. A
+  head directly on sticks, a riser, or a nose fitting has no button of its
+  own (on the SLE, the SLE's button is the flip).
+
+A head's mode and the camera's attach point otherwise settle to the only
+legal one, silently (5.9).
 
 ---
 
@@ -1229,12 +1260,16 @@ top to bottom:
      optical center so it sits exactly on the target line when the rig is
      on target. Inverted, the whole block hangs upside down (the body's
      handle underneath, the plates above it) but the triangle stays at the
-     optical center, still pointing forward. Hung from the top handle, the
-     camera hangs upright with its plates below it.
+     optical center, still pointing forward.
+   - **Flip button** — a small circular-arrows icon beside a piece that can
+     flip (5.9), with at least a 44px hit area; the layout gives every
+     piece its `flipAt` point, and the UI draws a button only where
+     `flips` says the flip is legal.
 4. **Edit in the drawing** (5.9). Tapping a piece — anywhere in its
-   outline — opens a sheet to swap it, change its mode (a
-   toggle for two states, a segmented choice for more, like a full apple's
-   faces), or remove it. **One Add button** under the drawing opens a
+   outline — opens a sheet to swap it, change a mode that isn't an
+   orientation (a full apple's faces, a dolly's wheels, the SLE's upright
+   or reversed position), or remove it. **Orientation is a flip button on
+   the drawing** (5.9): one tap, no message. **One Add button** under the drawing opens a
    sheet of everything that can legally be added to the rig. Choosing an
    item closes the sheet; if it has exactly one legal attach point it goes
    straight there, and otherwise its legal attach points appear on the
@@ -1245,8 +1280,8 @@ top to bottom:
    what doesn't fit. **The camera block's sheet** lists its pieces, top to
    bottom, each with its rise; removes its bottom piece (stripping it
    down), puts back the last one removed, or adds a Euro plate to its
-   bottom — each offered only when the rig still works after it; and
-   holds its mount (upright, inverted, top handle). The support's sheet
+   bottom — each offered only when the rig still works after it. The
+   support's sheet
    can remove it together with the adapters and head, when the camera
    block then sits on the base. The Add sheet groups what fits under the
    support, between support and head, and between head and camera (the

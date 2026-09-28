@@ -21,8 +21,11 @@ import {
   cameraRemedies,
   defaultPicks,
   missingSlot,
+  flip,
+  flips,
   modeControl,
   revalidatePicks,
+  sheetModes,
   slotOptions,
   supportRemoval,
   swapOptions,
@@ -30,7 +33,7 @@ import {
 import { checkVerdict } from "./src/verdict.js";
 import { inches, signedInches as fmtSigned } from "./src/format.js";
 import { stackLayout } from "./src/stack.js";
-import { markerSvg, pieceAt, pieceSvg } from "./src/outlines.js";
+import { flipButtonSvg, markerSvg, pieceAt, pieceSvg } from "./src/outlines.js";
 import { versionNote } from "./src/version.js";
 
 document.getElementById("version").textContent = versionNote();
@@ -164,7 +167,7 @@ function wireEdits() {
       else render();
       return;
     }
-    const t = event.target.closest("[data-piece],[data-drawing],[data-add],[data-place-item],[data-edit],[data-toggle],[data-build],[data-close],[data-dismiss-notes]");
+    const t = event.target.closest("[data-piece],[data-drawing],[data-add],[data-place-item],[data-edit],[data-flip],[data-build],[data-close],[data-dismiss-notes]");
     if (!t) return;
     if (t.dataset.drawing !== undefined) {
       // A tap on the drawing: src/outlines.js says which piece it's on, from
@@ -192,9 +195,14 @@ function wireEdits() {
       // A mode or a camera block edit keeps its sheet open, to strip a block piece by piece.
       if (change.op !== "mode" && change.op !== "block") closeSheet();
       edit(change);
-    } else if (t.dataset.toggle) {
-      const change = JSON.parse(t.dataset.toggle);
-      edit({ ...change, mode: t.getAttribute("aria-checked") === "true" ? t.dataset.off : t.dataset.on });
+    } else if (t.dataset.flip) {
+      // One tap flips it, with everything that depends on it; no message (7.2).
+      const flipped = flip(gear, state.packageId, state.buildId, state.picks, JSON.parse(t.dataset.flip));
+      if (flipped) {
+        state.picks = flipped;
+        state.notes = [];
+        render();
+      }
     } else if (t.dataset.build) {
       state.buildId = t.dataset.build;
       closeSheet();
@@ -310,6 +318,17 @@ function drawingHtml(layout, placing = null) {
   // tap anywhere on the drawing is resolved to a piece by pieceAt.
   const pieces = blocks.map((b) => pieceSvg(b)).join("");
 
+  // Flip buttons: beside each piece rules.js says can flip right now, at the
+  // point the layout gives it. None while an item is being placed.
+  const flipButtons = placing
+    ? ""
+    : flips(gear, state.packageId, state.buildId, state.picks)
+        .map((piece) => {
+          const b = blocks.find((x) => x.slot === piece.slot && x.index === piece.index);
+          return b ? flipButtonSvg(b.flipAt, `data-flip="${escapeHtml(JSON.stringify(piece))}" role="button" aria-label="Flip ${escapeHtml(b.name)}"`) : "";
+        })
+        .join("");
+
   // Placing an item: its legal attach points, as markers (positions from the
   // layout, legality from rules.js via addOptions).
   const markers = placing
@@ -344,6 +363,7 @@ function drawingHtml(layout, placing = null) {
       ${PATTERNS}
       <g class="pieces">${pieces}</g>
       <rect class="tap-surface" data-drawing x="0" y="0" width="${width}" height="${height}"/>
+      <g class="flips">${flipButtons}</g>
       <g class="markers">${markers}</g>
     </svg>
   </div>`;
@@ -393,26 +413,13 @@ function optionsHtml(title, options, toChange) {
     : "";
 }
 
-function toggleHtml(change, control, current) {
-  const isOn = current === control.on.name;
-  return `<button type="button" class="toggle" role="switch" aria-checked="${isOn}"
-      data-toggle="${escapeHtml(JSON.stringify(change))}"
-      data-on="${escapeHtml(control.on.name)}" data-off="${escapeHtml(control.off.name)}">
-    <span class="toggle-track"><span class="toggle-thumb"></span></span>
-    <span class="toggle-text">
-      <span class="toggle-label">${escapeHtml(control.on.label)}</span>
-      <span class="toggle-off">Off: ${escapeHtml(control.off.label)}</span>
-    </span>
-  </button>`;
-}
-
-/** Nothing, text, a toggle, or (three or more states) a segmented choice —
- * rules.js's modeControl decides which. Its hint is left out: no
- * explanation text in a sheet (7.2). */
+/** Nothing, text, or a segmented choice — rules.js's modeControl decides
+ * which, from the modes a sheet may offer (never which way up a piece hangs: that's a
+ * flip on the drawing, 7.2). Its hint is left out: no explanation text. */
 function modeHtml(control, change, current) {
-  if (control.type === "toggle") return toggleHtml(change, control, current);
-  if (control.type === "dropdown") {
-    return `<div class="choice" role="radiogroup">${control.entries
+  const choices = control.type === "toggle" ? [control.off, control.on] : control.entries;
+  if (choices) {
+    return `<div class="choice" role="radiogroup">${choices
       .map(
         (e) => `<button type="button" class="choice-btn" role="radio" aria-checked="${e.name === current}" ${editAttr({ ...change, mode: e.name })}>${escapeHtml(e.label)}</button>`
       )
@@ -446,22 +453,20 @@ function pieceSheetHtml({ slot, id, at }) {
   const head = `<h2>${escapeHtml(block.name)}</h2>
     <p class="sheet-sub">${fmtSigned(block.rise)} at this setup${range}</p>`;
 
-  if (slot === "build") return blockSheetHtml(head, opts);
+  if (slot === "build") return blockSheetHtml(head);
 
+  // A full apple's face, a wheel set, the SLE's upright or reversed position.
+  // Which way up (a head's mode, an offset's side, the SLE upside down) is a
+  // flip on the drawing, never here (7.2); a plate has no modes.
   let mode = "";
-  if (slot === "plate") {
-    // A plate has no modes; it hangs inverted under a down-facing head (3.4).
-  } else if (slot === "head") {
-    const entry = opts.head.find((o) => o.id === p.headId);
-    mode = `<h3>Mode</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot: "head" }, p.modeName)}`;
-  } else {
-    // A full apple's face, an offset plate's side, a wheel set, a nose fitting's mode.
-    const list = { base: opts.base, adapter: opts.adapters, support: opts.support, nose: opts.nose }[slot];
-    const entry = list.find((o) => o.id === id);
-    if (entry.modes.length > 1) {
-      const current = { base: baseModeAt(p, index), adapter: p.adapterModes[id], support: p.supportMode, nose: p.noseMode }[slot];
-      const title = { base: "Face", support: "Wheels" }[slot] || "Mode";
-      mode = `<h3>${title}</h3>${modeHtml(modeControl(entry.modes), { op: "mode", slot, index }, current)}`;
+  const list = { base: opts.base, adapter: opts.adapters, support: opts.support, nose: opts.nose }[slot];
+  const entry = list && list.find((o) => o.id === id);
+  if (entry) {
+    const current = { base: baseModeAt(p, index), adapter: p.adapterModes[id], support: p.supportMode, nose: p.noseMode }[slot];
+    const modes = sheetModes(entry.modes, current);
+    if (modes.length > 1) {
+      const title = { base: "Face", support: "Wheels" }[slot] || "Position";
+      mode = `<h3>${title}</h3>${modeHtml(modeControl(modes), { op: "mode", slot, index }, current)}`;
     }
   }
 
@@ -478,7 +483,7 @@ function pieceSheetHtml({ slot, id, at }) {
 
 /** The camera block's sheet (3.4): its pieces and rises, the edits that fit
  * (strip the bottom piece, put one back, add a Euro plate), and its mount. */
-function blockSheetHtml(head, opts) {
+function blockSheetHtml(head) {
   const block = blockOptions(gear, state.packageId, state.buildId, state.picks);
   const pieces = `<ul class="block-pieces">${block.pieces
     .map((piece) => `<li><span>${escapeHtml(piece.name)}</span><span class="option-rise">${piece.camera ? `lens ${fmtSigned(piece.rise)}` : fmtSigned(piece.rise)}</span></li>`)
@@ -492,11 +497,8 @@ function blockSheetHtml(head, opts) {
           .map((b) => optionButton(`data-build="${escapeHtml(b.id)}"`, b.name, null))
           .join("")}</div>`
       : "";
-  // On the floor or an apple box there's only one way up: no mount to choose.
-  const mount = state.picks.headId
-    ? `<h3>Camera mount</h3>${modeHtml(modeControl(opts.attach), { op: "mode", slot: "build" }, state.picks.attachName)}`
-    : "";
-  return `${head}<h3>Pieces, top to bottom</h3>${pieces}${editList}${mount}${builds}`;
+  // Its mount follows what it hangs from: nothing to choose (3.4).
+  return `${head}<h3>Pieces, top to bottom</h3>${pieces}${editList}${builds}`;
 }
 
 /** The Add sheet: everything that fits; an item with several positions

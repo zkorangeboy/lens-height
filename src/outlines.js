@@ -363,3 +363,31 @@ export function pieceAt(blocks, point) {
 export function markerSvg(point, dataAttrs) {
   return `<g class="marker" ${dataAttrs}>${circle(point.x, point.y, 22, "marker-hit")}${circle(point.x, point.y, 9, "marker-dot")}</g>`;
 }
+
+/**
+ * A flip button (7.2): a small circular-arrows icon in a disc, with a 44px
+ * hit circle. Drawn only where rules.js says the flip is legal.
+ */
+export function flipButtonSvg(point, dataAttrs) {
+  const { x, y } = point;
+  const r = 6; // the arrows' radius
+  // Two arcs around the centre, each ending in an arrowhead: flip over.
+  const arc = (from, to) => `M ${n(x + r * Math.cos(from))} ${n(y + r * Math.sin(from))} A ${r} ${r} 0 0 1 ${n(x + r * Math.cos(to))} ${n(y + r * Math.sin(to))}`;
+  const head = (at) => {
+    const tip = { x: x + r * Math.cos(at), y: y + r * Math.sin(at) };
+    const back = at - 0.9;
+    const side = (d) => `${n(tip.x + 3.2 * Math.cos(back + d))} ${n(tip.y + 3.2 * Math.sin(back + d))}`;
+    return `M ${side(0.9)} L ${n(tip.x)} ${n(tip.y)} L ${side(-0.9)}`;
+  };
+  const a1 = -Math.PI * 0.95;
+  const b1 = -Math.PI * 0.15;
+  const a2 = Math.PI * 0.05;
+  const b2 = Math.PI * 0.85;
+  return (
+    `<g class="flip" ${dataAttrs}>` +
+    circle(x, y, 22, "flip-hit") +
+    circle(x, y, 12, "flip-disc") +
+    path(`${arc(a1, b1)} ${head(b1)} ${arc(a2, b2)} ${head(b2)}`, "flip-arrows") +
+    `</g>`
+  );
+}

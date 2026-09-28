@@ -161,7 +161,9 @@ describe("inversion", () => {
     assert.ok(block.shape.pieces.every((p) => p.box.y + p.box.height <= block.shape.body.y + 0.05), "its plates above the upside-down body");
   });
 
-  test("the top-handle hang is unchanged: the camera upright, its optical center 3″ below the mount", () => {
+  test("no top-handle hang, for now: hanging, the block's only mount is inverted", () => {
+    const block = seed.builds.find((b) => b.id === "a-cam");
+    assert.equal(block.hasRatedTopHandle, undefined);
     const picks = picksFor({
       adapterIds: ["mitchell-offset-10"],
       adapterModes: { "mitchell-offset-10": "bottom" },
@@ -169,11 +171,11 @@ describe("inversion", () => {
       plateIds: ["euro-plate"],
       attachName: "top-handle",
     });
-    const chain = chainOf(picks);
-    assert.equal(chain.attach.rise, -3);
-    assert.equal(chain.attach.inverted, false);
-    const toggle = slotOptions(seed, ...P, picks).attach.filter((a) => a.available).map((a) => a.name);
-    assert.deepEqual(toggle, ["base-inverted", "top-handle"]);
+    assert.throws(() => chainOf(picks), /no attach point "top-handle"/);
+    const { picks: settled, notes } = revalidatePicks(seed, ...P, picks);
+    assert.equal(settled.attachName, "base-inverted", "settles to the one mount there is");
+    assert.deepEqual(notes, []);
+    assert.deepEqual(slotOptions(seed, ...P, settled).attach.map((a) => a.name), ["base", "base-inverted"]);
   });
 });
 

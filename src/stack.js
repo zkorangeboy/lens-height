@@ -71,6 +71,8 @@ const DRAW = {
   plateLength: 6, // a plate with no `length` of its own
 };
 
+/** A flip button (7.2): 22px hit radius (a 44px target), set this far from its piece. */
+const FLIP = { radius: 22, gap: 18 };
 const FLIP_IMAGE = "Camera inverted — flip image";
 
 /** Which outline draws a support. */
@@ -397,6 +399,18 @@ export function stackLayout(chain, target = null, options = {}) {
   });
   const box = (x0, x1, from, to) => ({ x: X(x0), y: Y(to), width: px(x1 - x0), height: px(to - from) });
 
+  // Where a piece's flip button goes (5.8): beside it — to its right, or its
+  // left if there's no room — inside the drawing, clear of the edge by the
+  // button's 22px hit radius.
+  const flipPoint = (b) => {
+    const right = b.x + b.width + FLIP.gap;
+    const x = right + FLIP.radius <= frame.width ? right : b.x - FLIP.gap;
+    return {
+      x: round2(clamp(x, FLIP.radius, frame.width - FLIP.radius)),
+      y: round2(clamp(b.y + b.height / 2, FLIP.radius, Math.max(FLIP.radius, frame.height - FLIP.radius))),
+    };
+  };
+
   // Each piece's outline and its own points (7.2): shapes only, no heights.
   const shapeOf = (b) => {
     const at = b.x;
@@ -512,6 +526,7 @@ export function stackLayout(chain, target = null, options = {}) {
       ...span(bottom, upper),
       box: box(x0, x1, drawnLow, drawnHigh),
       mount: pt(block.mountX, end),
+      flipAt: flipPoint(box(x0, x1, drawnLow, drawnHigh)),
       shape: shapeOf(block),
       ...(inner ? { parts: inner } : {}),
     };

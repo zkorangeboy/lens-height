@@ -11,7 +11,7 @@ import path from "node:path";
 import * as solver from "../src/solver.js";
 import { buildChain, enumerateChains, evaluateChain, normalizeTarget, exceedsBaseLayerCap, checkChain } from "../src/solver.js";
 import { describeCurrentRig, getPackageComponents, supportInterval, supportSegments } from "../src/model.js";
-import { defaultPicks, missingSlot, modeControl, revalidatePicks, slotOptions } from "../src/rules.js";
+import { defaultPicks, missingSlot, modeControl, revalidatePicks, sheetModes, slotOptions } from "../src/rules.js";
 import { stackLayout } from "../src/stack.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -145,11 +145,11 @@ describe("slotOptions: only what can legally attach to what's below", () => {
     assert.equal(byId(hung.head, "lambda-50").available, true);
   });
 
-  test("camera attach points follow the head mode: upright for normal, inverted or handle for underslung", () => {
+  test("camera attach points follow the head mode: upright for normal, inverted for underslung — one each", () => {
     const names = (o) => o.attach.filter((a) => a.available).map((a) => a.name);
     assert.deepEqual(names(opts()), ["base"]);
     const hung = opts({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" });
-    assert.deepEqual(names(hung).sort(), ["base-inverted", "top-handle"]);
+    assert.deepEqual(names(hung), ["base-inverted"], "no top-handle hang, for now");
   });
 
   test("a component that is already picked stays available", () => {
@@ -353,24 +353,19 @@ describe("modeControl", () => {
     assert.equal(modeControl([entry("a"), entry("b")]).type, "dropdown");
   });
 
-  test("on the seed: a tripod head gets no toggle, the offset does, and so does the camera when hung", () => {
-    const tripodOpts = opts();
-    assert.equal(modeControl(byId(tripodOpts.head, "oconnor-2575d").modes).type, "static");
-    assert.match(modeControl(byId(tripodOpts.head, "oconnor-2575d").modes).hint, /underslung mode needs a down-facing mount/i);
-    assert.equal(modeControl(tripodOpts.attach).type, "static", "an upright head only has the upright mount");
-
-    const offsetControl = modeControl(byId(tripodOpts.adapters, "mitchell-offset-10").modes);
-    assert.equal(offsetControl.type, "toggle");
-    assert.equal(offsetControl.on.name, "bottom", "the plate's bottom side is the flipped state: it faces down");
-    assert.equal(offsetControl.off.name, "top");
-
+  test("on the seed: sheets never offer which way up — head modes, an offset's side, the camera's mount, the SLE upside down", () => {
     const hung = opts({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" }, modeName: "underslung", attachName: "base-inverted" });
-    const camera = modeControl(hung.attach);
-    assert.equal(camera.type, "toggle");
-    assert.equal(camera.on.name, "base-inverted");
-    assert.equal(camera.off.name, "top-handle");
-    // With the plate's bottom side taking the normal mode away, the head has nothing to toggle.
-    assert.equal(modeControl(byId(hung.head, "oconnor-2575d").modes).type, "static");
+    for (const o of [opts(), hung]) {
+      assert.deepEqual(sheetModes(byId(o.head, "oconnor-2575d").modes, o.picks.modeName), [], "a head's mode is a flip");
+      assert.ok(o.attach.every((a) => a.orientation), "the camera's mount is a flip");
+    }
+    assert.deepEqual(sheetModes(byId(hung.adapters, "mitchell-offset-10").modes, "bottom"), [], "an offset's side is a flip");
+    const fisher = opts({ supportId: "fisher-11", noseId: "fisher-sle", noseMode: "upright", baseItemIds: [] });
+    const sle = byId(fisher.nose, "fisher-sle").modes;
+    assert.deepEqual(sheetModes(sle, "upright").map((m) => m.name), ["upright", "reversed"], "the SLE's reversed position is a sheet choice");
+    assert.deepEqual(sheetModes(sle, "underslung"), [], "none while it's upside down: that's the flip's");
+    const faces = byId(opts().base, "apple-full").modes;
+    assert.deepEqual(sheetModes(faces, "flat").map((m) => m.label), ["#1 LA", "#2 Chicago", "#3 NY"], "apple faces aren't flips");
   });
 
   test("components with no underslung mode never get a toggle", () => {

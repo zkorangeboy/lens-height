@@ -40,7 +40,7 @@ const RIGS = {
   lhe: fisher({ noseId: "fisher-lhe", noseMode: undefined }),
   lambda: rig({ headId: "lambda-50", plateIds: [], modeName: "upright" }),
   lambdaHung: fisher({ headId: "lambda-50", plateIds: [], modeName: "underslung", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "bottom" } }),
-  handle: rig({ adapterIds: ["mitchell-offset-24"], adapterModes: { "mitchell-offset-24": "bottom" }, modeName: "underslung", attachName: "top-handle" }),
+  hung24: rig({ adapterIds: ["mitchell-offset-24"], adapterModes: { "mitchell-offset-24": "bottom" }, modeName: "underslung", attachName: "base-inverted" }),
 };
 
 describe("one outline per kind of gear", () => {
@@ -105,11 +105,10 @@ describe("one outline per kind of gear", () => {
   test("the camera block: its plates and a 5″ body at true scale, and a forward triangle at the optical center", () => {
     const upright = layoutOf(rig()).blocks.at(-1);
     const inverted = layoutOf(RIGS.fisherRound).blocks.at(-1);
-    const handle = layoutOf(RIGS.handle).blocks.at(-1);
     const piece = (camera, id) => camera.shape.pieces.find((p) => p.id === id).box;
-    for (const camera of [upright, inverted, handle]) {
+    for (const camera of [upright, inverted]) {
       const { body, cone, opticalCenter } = camera.shape;
-      const selection = camera === upright ? rig() : camera === inverted ? RIGS.fisherRound : RIGS.handle;
+      const selection = camera === upright ? rig() : RIGS.fisherRound;
       const scale = layoutOf(selection).frame.scale;
       assert.ok(Math.abs(body.height - 5 * scale) < 0.05, "a 5″ body");
       // The optical center is 2½″ above the body's base: its middle.
@@ -127,11 +126,9 @@ describe("one outline per kind of gear", () => {
       assert.ok(ay < py && by > py);
       assert.doesNotMatch(outlineOf(camera), /lens-dot|<circle/, "no lens square or dot");
     }
-    // Upright, the plates are under the body; hanging inverted, above it (nearer the mount);
-    // hung from the top handle, the camera is upright with its plates below it.
+    // Upright, the plates are under the body; hanging inverted, above it (nearer the mount).
     assert.ok(piece(upright, "base-plate").y >= upright.shape.body.y + upright.shape.body.height - 0.05);
     assert.ok(piece(inverted, "base-plate").y + piece(inverted, "base-plate").height <= inverted.shape.body.y + 0.05);
-    assert.ok(piece(handle, "base-plate").y >= handle.shape.body.y + handle.shape.body.height - 0.05);
     assert.equal(upright.shape.inverted, false);
     assert.equal(inverted.shape.inverted, true);
     assert.match(outlineOf(inverted), /v 4/, "the handle is drawn on the underside");

@@ -388,15 +388,17 @@ describe("swapOptions", () => {
     const options = swapOptions(seed, ...P, UNDERSLUNG, "adapter", 0);
     assert.deepEqual(available(options), [
       'Mitchell Riser 3"', 'Mitchell Riser 6"', 'Mitchell Riser 12"', 'Mitchell Riser 18"', 'Mitchell Riser 24"',
-      "Mitchell Offset, 24″ (Top of the plate)", "Mitchell Offset, 24″ (Bottom of the plate)",
+      "Mitchell Offset, 24″",
       "Rotating Offset",
     ]);
     assert.ok(!options.some((o) => o.id === "mitchell-offset-10"), "the piece itself isn't a swap");
+    // Each piece once, never a choice of side: that's a flip. The swap keeps the head where it is.
+    assert.equal(options.find((o) => o.id === "mitchell-offset-24").mode, "bottom", "on the same side as the plate it replaces");
   });
 
   test("a base item swaps in its place", () => {
     const options = swapOptions(seed, ...P, picksFor({ baseItemIds: ["apple-half"] }), "base", 0);
-    assert.ok(available(options).includes("Full Apple Box (#1 LA)"));
+    assert.ok(available(options).includes("Full Apple Box"), "once, not once per face");
     assert.ok(!available(options).includes("Square Track"), "a tripod can't stand on track");
   });
 });
@@ -443,12 +445,12 @@ describe("applyEdit, then revalidatePicks", () => {
     assert.deepEqual(notes, ["Removed SLE"]);
   });
 
-  test("mode edits: an adapter's mode, the head's, the camera's mount", () => {
+  test("mode edits: an adapter's mode, a wheel set, the SLE's position", () => {
     const flipped = next(picksFor({ adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "top" } }), {
       op: "mode", slot: "adapter", index: 0, mode: "bottom",
     }).picks;
     assert.equal(flipped.modeName, "underslung");
-    assert.equal(next(UNDERSLUNG, { op: "mode", slot: "build", mode: "top-handle" }).picks.attachName, "top-handle");
+    assert.equal(next(UNDERSLUNG, { op: "mode", slot: "build", mode: "top-handle" }).picks.attachName, "base-inverted", "no top handle to hang from");
     const fisher = picksFor({ supportId: "fisher-11", noseId: "fisher-sle", baseItemIds: ["round-track"] });
     assert.equal(next(fisher, { op: "mode", slot: "support", mode: "skateboard" }).picks.supportMode, "skateboard");
     assert.equal(next(fisher, { op: "mode", slot: "nose", mode: "reversed" }).picks.noseMode, "reversed");

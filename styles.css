@@ -453,6 +453,28 @@ select {
   pointer-events: none;
 }
 
+/* A flip button beside a piece that can flip (7.2): a 44px tap target. */
+.drawing .flip { cursor: pointer; }
+
+.drawing .flip-hit {
+  fill: transparent;
+}
+
+.drawing .flip-disc {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.drawing .flip-arrows {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
 .plot.is-placing .piece { opacity: 0.55; }
 
 .placing-hint {
@@ -627,70 +649,7 @@ select {
   font-size: 0.95rem;
 }
 
-/* On/off toggle, for underslung and inverted modes (no dropdown) */
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 56px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface-alt);
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-}
-
-.toggle[aria-checked="true"] {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.toggle-track {
-  position: relative;
-  flex-shrink: 0;
-  width: 48px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--border);
-}
-
-.toggle[aria-checked="true"] .toggle-track {
-  background: var(--accent);
-}
-
-.toggle-thumb {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.15s;
-}
-
-.toggle[aria-checked="true"] .toggle-thumb {
-  transform: translateX(20px);
-}
-
-.toggle-text {
-  display: flex;
-  flex-direction: column;
-}
-
-.toggle-label {
-  font-weight: 700;
-}
-
-.toggle-off {
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-}
-
-/* Three or more modes (a full apple's faces): one tap each, no dropdown. */
+/* A sheet's modes (a full apple's faces, a dolly's wheels): one tap each, no dropdown. */
 .choice {
   display: flex;
   gap: 4px;

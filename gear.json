@@ -542,8 +542,6 @@
         "base-plate",
         "camera"
       ],
-      "hasRatedTopHandle": true,
-      "topHandleOffset": -3,
       "bottomInterface": "qr-plate"
     }
   ]

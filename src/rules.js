@@ -396,6 +396,16 @@ const EMPTY_PICKS = () => ({
  * of a U offset plate). */
 const isFlipped = (variant) => isFlippedMode(variant.mode) || variant.mountFacing === "down";
 
+/** Orientation modes (SPEC.md 5.9) are flips on the drawing, never sheet
+ * choices: every head mode, both sides of an offset plate, an SLE's
+ * upside-down mode. A full apple's faces, a dolly's wheels, and the SLE's
+ * reversed position aren't. */
+function isOrientation(component, variant) {
+  if (component.category === "head") return true;
+  if (component.category === "adapter") return adapterVariants(component).some((v) => v.mountFacing === "down");
+  return isFlippedMode(variant.mode);
+}
+
 // Each `why…` returns null if the thing may go there, else the reason.
 
 function whyBaseItem(item, keptBase) {
@@ -739,15 +749,16 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
     reason,
     ...extra,
   });
-  const modeEntry = (variant, reason) => ({
+  const modeEntry = (component, variant, reason) => ({
     name: variant.mode,
     label: variant.modeLabel || "",
     flipped: isFlipped(variant),
+    orientation: isOrientation(component, variant),
     available: !reason,
     reason,
   });
   const withModes = (component, variants, why) => {
-    const modes = variants.map((v) => modeEntry(v, why(v)));
+    const modes = variants.map((v) => modeEntry(component, v, why(v)));
     return entry(component, modes.some((m) => m.available) ? null : modes[0].reason, { modes });
   };
 
@@ -782,7 +793,7 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
     .map((candidate) => {
       const modes = candidate.modes.map((m) => {
         const reason = adapterStack ? whyHeadMode(candidate, m, adapterStack, beneathName) : notReady;
-        return { name: m.name, label: m.label || m.name, flipped: isFlippedMode(m.name), available: !reason, reason };
+        return { name: m.name, label: m.label || m.name, flipped: isFlippedMode(m.name), orientation: true, available: !reason, reason };
       });
       return entry(candidate, modes.some((m) => m.available) ? null : modes[0].reason, { modes });
     });
@@ -803,6 +814,7 @@ export function slotOptions(gear, packageId, buildId, rawPicks) {
       name: point.name,
       label: ATTACH_LABELS[point.name] || point.name,
       flipped: Boolean(point.inverted),
+      orientation: true,
       available: !reason,
       reason,
       attach: point,
@@ -869,6 +881,64 @@ export function modeControl(entries) {
     return { type: "toggle", on: flipped[0], off: legal.find((e) => !e.flipped), hint };
   }
   return { type: "dropdown", entries: legal, hint };
+}
+
+/**
+ * The modes a piece's sheet offers (SPEC.md 5.9): never an orientation —
+ * that's a flip on the drawing. None at all while the piece is in an
+ * orientation mode (an SLE upside down). `entries` are a slot option's
+ * `modes`; `current` is the piece's mode now.
+ */
+export function sheetModes(entries, current) {
+  const now = entries.find((e) => e.name === current);
+  if (now && now.orientation) return [];
+  return entries.filter((e) => !e.orientation);
+}
+
+// --- Flips (SPEC.md 5.9) ----------------------------------------------------
+
+/**
+ * One flip, as one action: the piece's orientation and every mode that
+ * depends on it change together, and the rig comes back revalidated — or
+ * null when the flip wouldn't leave a complete rig with every piece kept.
+ * `piece` is `{slot: "nose"}` (the SLE: upright or reversed ↔ upside down)
+ * or `{slot: "head"}` (a head on an offset plate: top ↔ bottom side).
+ * Offset plates themselves never flip; flipping their head moves it.
+ */
+export function flip(gear, packageId, buildId, rawPicks, piece) {
+  const { picks } = revalidatePicks(gear, packageId, buildId, rawPicks);
+  const byId = Object.fromEntries(getPackageComponents(gear, packageId).map((c) => [c.id, c]));
+  let next = null;
+  if (piece.slot === "nose" && picks.noseId) {
+    const variants = adapterVariants(byId[picks.noseId]);
+    const upsideDown = variants.find((v) => isFlippedMode(v.mode));
+    if (upsideDown) {
+      const nowUpsideDown = isFlippedMode(picks.noseMode);
+      const target = nowUpsideDown ? variants.find((v) => !isFlippedMode(v.mode)) : upsideDown;
+      next = { ...picks, noseMode: target.mode };
+    }
+  } else if (piece.slot === "head" && picks.headId && picks.adapterIds.length) {
+    // The adapter directly beneath the head must be an offset plate: flip its side.
+    const id = picks.adapterIds[picks.adapterIds.length - 1];
+    const variants = adapterVariants(byId[id]);
+    const now = variants.find((v) => v.mode === (picks.adapterModes[id] ?? variants[0].mode));
+    const other = variants.find((v) => (v.mountFacing === "down") !== (now.mountFacing === "down"));
+    if (other) next = { ...picks, adapterModes: { ...picks.adapterModes, [id]: other.mode } };
+  }
+  if (!next) return null;
+  // The head's mode and the camera's mount follow: let them settle to the one that fits.
+  next = { ...next, modeName: null, attachName: null };
+  const { picks: flipped } = revalidatePicks(gear, packageId, buildId, next);
+  const kept =
+    !missingSlot(gear, packageId, buildId, flipped) &&
+    flipped.noseMode === next.noseMode &&
+    !whyLost(gear, packageId, buildId, { ...next, modeName: flipped.modeName, attachName: flipped.attachName });
+  return kept ? flipped : null;
+}
+
+/** The pieces that can flip right now (SPEC.md 5.9): `{slot, index}` each. */
+export function flips(gear, packageId, buildId, rawPicks) {
+  return [{ slot: "nose", index: 0 }, { slot: "head", index: 0 }].filter((piece) => flip(gear, packageId, buildId, rawPicks, piece));
 }
 
 // --- Editing in the drawing (SPEC.md 5.9, 7.2) ------------------------------
@@ -1095,9 +1165,23 @@ export function swapOptions(gear, packageId, buildId, rawPicks, slot, index = 0)
   if (slot === "base" || slot === "adapter" || slot === "plate") {
     const list = { base: ctx.base, adapter: ctx.adapters, plate: ctx.plates }[slot];
     const current = list[index];
-    return candidatesFor(ctx.pool, slot)
+    // One entry per component, in its first mode that fits — preferring the
+    // side the current piece is on, so a swap doesn't flip the head. Which
+    // side is a flip on the drawing, never a swap choice (5.9).
+    const sameSide = (c) => (c.mountFacing === "down") === (current?.mountFacing === "down");
+    const byComponent = new Map();
+    const variants = candidatesFor(ctx.pool, slot)
       .filter((c) => !(current && c.id === current.id))
-      .map((candidate) => optionEntry(candidate, whyAtPosition(ctx, slot, list, index, candidate, true)));
+      .sort((a, b) => Number(sameSide(b)) - Number(sameSide(a)));
+    for (const candidate of variants) {
+      const entry = optionEntry(candidate, whyAtPosition(ctx, slot, list, index, candidate, true));
+      const seen = byComponent.get(candidate.id);
+      if (!seen || (!seen.available && entry.available)) byComponent.set(candidate.id, entry);
+    }
+    // Listed in pool order, each by its own name; a full apple's face is changed in its sheet.
+    return [...new Set(candidatesFor(ctx.pool, slot).map((c) => c.id))]
+      .filter((id) => byComponent.has(id))
+      .map((id) => ({ ...byComponent.get(id), label: byComponent.get(id).name }));
   }
   const opts = slotOptions(gear, packageId, buildId, ctx.picks);
   const currentId = { support: ctx.picks.supportId, nose: ctx.picks.noseId, head: ctx.picks.headId }[slot];
