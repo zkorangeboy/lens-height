@@ -168,33 +168,34 @@ function dolly(block) {
 // --- Nose fittings -----------------------------------------------------------
 
 function sle(block) {
-  // The leveling head under its Mitchell plate, with a neck up to the nose
-  // when the plate is set below it. What mounts on the plate sits above.
-  const f = frame(block.box);
-  const { plate, nose } = block.shape;
-  const neck = plate > nose ? rect(f.cx - 3, nose, 6, plate - nose, fill(block.kind)) : "";
-  return neck + rect(f.left, plate, f.w, f.bottom - plate, fill(block.kind), { rx: 2 }) + rect(f.left - 2, plate - 2, f.w + 4, 3, "o k-fixed plate");
+  // From the brochure's close-ups, simplified (5.8): a clamp plate on the
+  // nose's front face, the base it carries, a leveling cage, and the round
+  // diamond plate with the Mitchell — forward of the nose, turned back over
+  // it (reversed), or all of it upside down. The layout places every part.
+  const { clamp, base, cage, diamond } = block.shape;
+  const k = `o k-${block.kind}`;
+  const struts = [0.2, 0.5, 0.8]
+    .map((at) => line(cage.x + cage.width * at, cage.y, cage.x + cage.width * at, cage.y + cage.height, "o sle-strut"))
+    .join("");
+  return (
+    rect(clamp.x, clamp.y, clamp.width, Math.max(clamp.height, MIN_PX), `${k} sle-clamp`, { rx: 1 }) +
+    rect(base.x, base.y, base.width, Math.max(base.height, MIN_PX / 2), "o k-fixed sle-base") +
+    rect(cage.x, cage.y, cage.width, Math.max(cage.height, MIN_PX / 2), "o k-fixed sle-cage", { rx: 1 }) +
+    struts +
+    rect(diamond.x, diamond.y, diamond.width, Math.max(diamond.height, MIN_PX / 2), "o k-fixed sle-diamond", { rx: 2 })
+  );
 }
 
 function lhe(block) {
-  // A bracket hanging from the nose: an arm running down and forward, then
-  // a short foot carrying the Mitchell ring (the brochure's LHE, simplified).
-  const { nose, foot, thickness, mitchell } = block.shape;
-  const t = Math.max(thickness, 3);
-  const elbow = nose.x + (foot.x - nose.x) * 0.45;
+  // From the brochure's photo, simplified (5.8): a clamp plate on the
+  // nose's front face, and a bent arm running down and forward to a flat
+  // ring carrying an upward-facing Mitchell.
+  const { clamp, arm, ring } = block.shape;
+  const [top, elbow, end] = arm;
   return (
-    path(
-      [
-        `M ${n(nose.x - t)} ${n(nose.y)}`,
-        `L ${n(nose.x + t)} ${n(nose.y)}`,
-        `L ${n(elbow + t)} ${n(foot.y)}`,
-        `L ${n(foot.x + mitchell)} ${n(foot.y)}`,
-        `L ${n(foot.x + mitchell)} ${n(foot.y + t)}`,
-        `L ${n(elbow - t)} ${n(foot.y + t)}`,
-        "Z",
-      ].join(" "),
-      fill(block.kind)
-    ) + rect(foot.x - mitchell, foot.y - 2, mitchell * 2, 2, "o k-fixed plate")
+    rect(clamp.x, clamp.y, clamp.width, Math.max(clamp.height, MIN_PX), `o k-${block.kind} lhe-clamp`, { rx: 1 }) +
+    path(`M ${n(top.x)} ${n(top.y)} L ${n(elbow.x)} ${n(elbow.y)} L ${n(end.x)} ${n(end.y)}`, "lhe-arm") +
+    rect(ring.x, ring.y, ring.width, Math.max(ring.height, MIN_PX / 2), "o k-fixed lhe-ring", { rx: 2 })
   );
 }
 

@@ -494,9 +494,9 @@ fitting, and the fitting provides the Mitchell mount** (docs/fisher-11.md).
   from the brochure).
 - **LHE — 4-way Low Level Head**: rise −14.875", fixed, faces up. It
   declares `hangsAsBracket: true`: it hangs the Mitchell well below the
-  beam, and is drawn as an L-bracket whose foot sets the Mitchell forward
-  of the nose, so what it carries stands clear of the beam (5.8). The SLE
-  doesn't: it's a block on the nose, and the Mitchell stays right there.
+  beam, on a bent arm that sets it forward of the nose, so what it carries
+  stands clear of the beam (5.8). Both fittings mount off the nose's front
+  face (5.8, 7.2).
 
 Brochure checks (Mitchell height above the floor, pneumatic tires, on the
 floor): SLE upright 13.875"–17.875" beam down, 47.25"–51.25" beam up; SLE
@@ -928,10 +928,43 @@ boxes for a drawing of a given size — so the UI does no height math.
   piece sits on the mount of the piece below it**, with no gap and no
   connecting part the gear doesn't have. The chain moves sideways only where
   a piece really moves it: a Fisher's nose sits a fixed distance forward of
-  the chassis and **doesn't move as the beam rises**; an offset plate moves
-  the next piece by its real `plateLength`; the LHE's foot sets the
-  Mitchell forward of the nose. Jib arms will later carry their own `x` the
-  same way.
+  the chassis and **doesn't move as the beam rises**; a nose fitting sets
+  the Mitchell where the brochure puts it (below); an offset plate moves
+  the next piece by its real `plateLength`. Jib arms will later carry their
+  own `x` the same way.
+- **The Fisher's nose and its fittings** (brochure, last page, measured
+  from the rear of the dolly; horizontal positions are visual only, and
+  every height stays exactly as modeled):
+  - The nose's front face is **37.75"** from the rear (17.75" forward of
+    the chassis's center, 2¼" behind its front). The model's nose height
+    (3.2) is where an SLE at the top of its adjustment puts the Mitchell,
+    not the nose itself: the beam's end, the round nose, is drawn a fixed
+    6" below it, and the fittings hang off its front face.
+  - Fittings mount **off the front of the nose, not on top of it**, and
+    **nothing from the head up overlaps the beam**.
+  - **SLE, normal**: a clamp plate on the nose's front face — the part that
+    slides through the 4" adjustment, drawn from the nose to the cage so it
+    always meets both — a leveling cage above it, and a round diamond plate
+    carrying the Mitchell on top, forward of the nose: the diamond plate's
+    front edge at **45"** from the rear.
+  - **SLE, reversed**: the same head turned back over the nose, the
+    Mitchell behind the clamp; the clamp is the front-most part, at
+    **40"**.
+  - **SLE, upside down**: the normal shape inverted — diamond plate at the
+    bottom, the Mitchell facing down, forward of the nose.
+  - **LHE**: a clamp plate on the nose's front face, then a bent arm
+    running forward and down to a flat ring carrying an upward-facing
+    Mitchell, the ring's front edge at **51.75"** — about 12" past the
+    chassis's front.
+- **Nothing below the floor.** No piece's bottom — as drawn: an inverted
+  camera's body, an underslung head, a fitting's clamp — may go below the
+  floor at any lift. A chain's reach is limited to where it doesn't
+  (`solver.js`, from the layout's own geometry): its `min` rises until the
+  lowest piece clears the floor, and its moveable interval is cut to
+  match, so the reach rail, the verdict, and the check all use the limited
+  range. `chain.retracted` keeps the fully retracted lens height, which the
+  layout allocates extension from. A chain whose lowest piece is below the
+  floor even at the top of its reach is rejected.
 - **True scale on both axes.** One inch is the same number of pixels
   horizontally and vertically, for every piece; nothing is squeezed.
   Widths are real where the gear gives them (the Fisher 11 from its
@@ -954,7 +987,8 @@ boxes for a drawing of a given size — so the UI does no height math.
   forward-facing triangle at its optical center, and whether it's
   inverted.
 - **The Fisher beam.** The beam is drawn from a fixed pivot on the chassis
-  to the nose at its current height; its angle is visual only. For a
+  to the nose (6" below the modeled nose height, above); its angle is
+  visual only. For a
   moveable range target the layout also gives the nose at the bottom and
   top of the move (`shape.ghosts`), so both ends can be drawn faintly.
   **The lift beam has zero horizontal travel**: the nose rises straight
@@ -975,8 +1009,9 @@ boxes for a drawing of a given size — so the UI does no height math.
   The layout's `warning` is "Camera inverted — flip image" when the camera
   block hangs inverted, else null; the UI shows it under the drawing.
 - **Flip points.** Every block carries `flipAt`, the pixel point beside it
-  where its flip button (7.2) is drawn — to its right, or its left if
-  there's no room, inside the drawing. The layout doesn't know whether a
+  where its flip button (7.2) is drawn — to its right, left, below, or
+  above, the first inside the drawing that covers no other piece (an SLE's
+  button stays off the nose and beam). The layout doesn't know whether a
   flip is legal; `rules.js` does (5.9).
 - **Insertion points** (`gaps`) are identified by slot and index: `base` 0
   is the floor, `base` *i* sits on base item *i*−1; `adapter` 0 sits on
@@ -1232,8 +1267,11 @@ top to bottom:
      The nose stays at one horizontal position as it rises. For a moveable
      range target, faint outlines of the beam at the bottom and top of the
      move.
-   - **SLE** — a small block with a plate. **LHE** — a short L-bracket
-     hanging from the nose, its foot carrying the Mitchell forward.
+   - **SLE** — from the brochure's close-ups, simplified: a clamp plate on
+     the nose's front face, a leveling cage, a round diamond plate carrying
+     the Mitchell; normal (forward), reversed (turned back over the nose),
+     or upside down (5.8). **LHE** — a clamp plate on the nose's front
+     face and a bent arm down and forward to a flat Mitchell ring (5.8).
    - **Riser** — a cage. **Offset** — a plate with a Mitchell on its top and
      bottom, the side in use marked. **Rotating offset** — a swivel.
    - **Fluid head** (the O'Connor 2575D) — pan base, tilt body, and the

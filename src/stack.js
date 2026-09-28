@@ -42,14 +42,28 @@ const DRAW = {
     rearBox: { from: -20, to: -8, top: 20 },
     posts: { x: -18.5, top: 39.75 }, // push posts, operating height
     pivot: { x: -4 }, // the beam pivots on the deck
-    noseX: 21, // the nose: forward of the chassis, whatever the lift
+    noseX: 16.5, // the nose: its front face 37.75″ from the rear (brochure), whatever the lift
     noseRadius: 1.25,
+    noseDrop: 6, // the round nose sits this far below the modeled nose height (5.8)
     beam: 2.5,
   },
-  noseBlock: 5,
-  noseBody: 3, // the SLE's leveling head, under its Mitchell plate
-  bracketFoot: 10, // how far forward the LHE's foot sets the Mitchell (51.75″ overall vs 40″)
-  bracketThickness: 1.5,
+  // The Fisher's nose fittings (5.8), in inches from the nose's center (x)
+  // and from the Mitchell (heights), off the nose's front face. The x
+  // positions follow the brochure's overall lengths from the rear: SLE
+  // normal 45″, reversed 40″, LHE 51.75″ (the rear is at −20, the nose's
+  // center at 16.5).
+  fitting: {
+    clamp: [1.25, 3.5], // on the nose's front face; the reversed SLE's front-most part (40″)
+    clampReach: 2, // the clamp covers the nose this far above and below its center
+    base: 0.5, // the plate from the clamp to the cage
+    cage: 3, // the leveling cage
+    diamond: 0.75, // the diamond plate carrying the Mitchell
+    normal: [2, 8.5], // diamond plate, rear to front (front at 45″); Mitchell at its center
+    reversed: [-3.75, 2.75], // turned back over the nose
+    ring: [8.75, 15.25], // the LHE's flat ring (front at 51.75″)
+    ringThickness: 0.75,
+    elbow: 3, // how far below the clamp the arm bends forward
+  },
   mitchell: 2.5, // a Mitchell mount's radius
   plateThickness: 1,
   riser: 5.5,
@@ -74,6 +88,9 @@ const DRAW = {
 /** A flip button (7.2): 22px hit radius (a 44px target), set this far from its piece. */
 const FLIP = { radius: 22, gap: 18 };
 const FLIP_IMAGE = "Camera inverted — flip image";
+
+/** A nose fitting's upside-down mode (SPEC.md 3.7). */
+const isFlippedName = (name) => /underslung/i.test(name || "");
 
 /** Which outline draws a support. */
 const shapeOfSupport = (support) => ({ dolly: "dolly", tripod: "tripod", "hi-hat": "hi-hat", "lo-hat": "lo-hat" })[support.kind] || "hi-hat";
@@ -119,7 +136,9 @@ export function stackLayout(chain, target = null, options = {}) {
   const noseIndex = segments.length;
   const headIndex = allSegments.length - 1;
   const allocation = allSegments.map(() => 0);
-  let remaining = rigged - chain.min;
+  // Extension is measured from the fully retracted rig, even when the reach
+  // is limited to keep every piece above the floor (5.8).
+  let remaining = rigged - (chain.retracted ?? chain.min);
   const byPriority = allSegments
     .map((segment, index) => ({ segment, index }))
     .sort((a, b) => ALLOCATION_ORDER[a.segment.kind] - ALLOCATION_ORDER[b.segment.kind]);
@@ -218,6 +237,28 @@ export function stackLayout(chain, target = null, options = {}) {
     if (chain.nose) {
       const noseAllocation = allocation[noseIndex];
       const bracket = Boolean(chain.nose.hangsAsBracket);
+      const F = DRAW.fitting;
+      const rise = noseSegment.base + noseAllocation;
+      const mitchell = cursor + rise;
+      const noseCenter = cursor - D.noseDrop;
+      const shape = bracket ? "lhe" : chain.nose.mode === "reversed" ? "reversed" : isFlippedName(chain.nose.mode) ? "upside-down" : "normal";
+      const plate = shape === "lhe" ? F.ring : shape === "reversed" ? F.reversed : F.normal;
+      const mitchellX = (plate[0] + plate[1]) / 2;
+      // Its parts' heights (5.8): the diamond plate (or the LHE's ring) at
+      // the Mitchell, the cage beside it, and a clamp from the nose to the cage.
+      const dir = shape === "upside-down" ? -1 : 1; // upside down, the cage is above the Mitchell
+      const band = (a, c) => [Math.min(a, c), Math.max(a, c)];
+      const diamond = band(mitchell, mitchell - dir * (shape === "lhe" ? F.ringThickness : F.diamond));
+      const cage = band(mitchell - dir * F.diamond, mitchell - dir * (F.diamond + F.cage));
+      const cageFoot = mitchell - dir * (F.diamond + F.cage + F.base);
+      const base = band(mitchell - dir * (F.diamond + F.cage), cageFoot);
+      const clamp =
+        shape === "lhe"
+          ? band(noseCenter - F.clampReach, noseCenter + F.clampReach)
+          : [Math.min(noseCenter - F.clampReach, cageFoot), Math.max(noseCenter + F.clampReach, cageFoot)];
+      const nosePieces = { shape, noseCenter, clamp, cage, base, diamond, plate, mitchellX, elbowAt: clamp[0] - F.elbow };
+      const heights = shape === "lhe" ? [...clamp, ...diamond, nosePieces.elbowAt] : [...clamp, ...cage, ...base, ...diamond];
+      const xs = shape === "lhe" ? [F.clamp[0], plate[1]] : [Math.min(F.clamp[0], plate[0]), Math.max(F.clamp[1], plate[1])];
       place(
         {
           slot: "nose",
@@ -229,13 +270,14 @@ export function stackLayout(chain, target = null, options = {}) {
           modeLabel: chain.nose.modeLabel,
           nose: true,
           bracket,
+          nosePieces,
           ...(noseSegment.extent > 0 ? { range: { min: noseRange.min, max: noseRange.max } } : {}),
         },
-        noseSegment.base + noseAllocation,
-        bracket ? [-DRAW.bracketThickness, DRAW.bracketFoot + DRAW.mitchell] : [-DRAW.noseBlock / 2, DRAW.noseBlock / 2],
-        bracket ? mountX + DRAW.bracketFoot : mountX,
-        // The SLE's head hangs under its plate; the plate carries what's above.
-        bracket ? null : [cursor + noseSegment.base + noseAllocation - DRAW.noseBody, cursor]
+        rise,
+        xs,
+        // The Mitchell, where the next piece mounts: forward of the nose, or turned back over it.
+        mountX + mitchellX,
+        [Math.min(...heights), Math.max(...heights)]
       );
     }
 
@@ -402,12 +444,24 @@ export function stackLayout(chain, target = null, options = {}) {
   // Where a piece's flip button goes (5.8): beside it — to its right, or its
   // left if there's no room — inside the drawing, clear of the edge by the
   // button's 22px hit radius.
-  const flipPoint = (b) => {
-    const right = b.x + b.width + FLIP.gap;
-    const x = right + FLIP.radius <= frame.width ? right : b.x - FLIP.gap;
+  // Beside it — right, left, below, then above — at the first spot inside
+  // the drawing that covers no piece; failing that, to its right, kept inside.
+  const flipPoint = (b, others) => {
+    const cx = b.x + b.width / 2;
+    const cy = b.y + b.height / 2;
+    const spots = [
+      { x: b.x + b.width + FLIP.gap, y: cy },
+      { x: b.x - FLIP.gap, y: cy },
+      { x: cx, y: b.y + b.height + FLIP.gap },
+      { x: cx, y: b.y - FLIP.gap },
+    ];
+    const inside = (p) => p.x >= FLIP.radius && p.x <= frame.width - FLIP.radius && p.y >= FLIP.radius && p.y <= frame.height - FLIP.radius;
+    const clear = (p) =>
+      others.every((o) => p.x + FLIP.radius <= o.x || p.x - FLIP.radius >= o.x + o.width || p.y + FLIP.radius <= o.y || p.y - FLIP.radius >= o.y + o.height);
+    const spot = spots.find((p) => inside(p) && clear(p)) || spots[0];
     return {
-      x: round2(clamp(x, FLIP.radius, frame.width - FLIP.radius)),
-      y: round2(clamp(b.y + b.height / 2, FLIP.radius, Math.max(FLIP.radius, frame.height - FLIP.radius))),
+      x: round2(clamp(spot.x, FLIP.radius, frame.width - FLIP.radius)),
+      y: round2(clamp(spot.y, FLIP.radius, Math.max(FLIP.radius, frame.height - FLIP.radius))),
     };
   };
 
@@ -434,16 +488,38 @@ export function stackLayout(chain, target = null, options = {}) {
           rearBox: box(D.rearBox.from, D.rearBox.to, datum + D.deck, datum + D.rearBox.top),
           posts: { x: X(D.posts.x), top: Y(datum + D.posts.top), bottom: Y(datum + D.rearBox.top), width: px(1) },
           pivot: pt(D.pivot.x, datum + D.deck),
-          nose: pt(D.noseX, b.end),
+          nose: pt(D.noseX, b.end - D.noseDrop),
           noseRadius: px(D.noseRadius),
           beam: px(D.beam),
-          ghosts: moveGhosts ? moveGhosts.map((h) => pt(D.noseX, h)) : [],
+          ghosts: moveGhosts ? moveGhosts.map((h) => pt(D.noseX, h - D.noseDrop)) : [],
         };
       }
-      case "nose":
-        return b.bracket
-          ? { type: "lhe", nose: pt(at, b.start), foot: pt(b.mountX, b.end), thickness: px(DRAW.bracketThickness), mitchell: px(DRAW.mitchell) }
-          : { type: "sle", plate: Y(b.end), nose: Y(b.start) };
+      case "nose": {
+        // Off the nose's front face (5.8): each part as a pixel box.
+        const P = b.nosePieces;
+        const F = DRAW.fitting;
+        const clamp = box(at + F.clamp[0], at + F.clamp[1], ...P.clamp);
+        if (P.shape === "lhe") {
+          const armX = at + F.clamp[0] + (F.clamp[1] - F.clamp[0]) / 2;
+          return {
+            type: "lhe",
+            clamp,
+            // The arm: down from the clamp, then bent forward and down to the ring's rear edge.
+            arm: [pt(armX, P.clamp[0]), pt(armX, P.elbowAt), pt(at + P.plate[0], P.diamond[1] - F.ringThickness / 2)],
+            ring: box(at + P.plate[0], at + P.plate[1], ...P.diamond),
+            mitchell: pt(b.mountX, b.end),
+          };
+        }
+        return {
+          type: "sle",
+          position: P.shape,
+          clamp,
+          base: box(Math.min(at + F.clamp[0], at + P.plate[0]), Math.max(at + F.clamp[1], at + P.plate[1]), ...P.base),
+          cage: box(at + P.plate[0] + 0.75, at + P.plate[1] - 0.75, ...P.cage),
+          diamond: box(at + P.plate[0], at + P.plate[1], ...P.diamond),
+          mitchell: pt(b.mountX, b.end),
+        };
+      }
       case "adapter":
         if (b.component.plateLength) {
           return {
@@ -517,7 +593,7 @@ export function stackLayout(chain, target = null, options = {}) {
         return { kind: part.kind, rise: part.rise, ...span(Math.min(from, partCursor), Math.max(from, partCursor)) };
       });
     }
-    const { start, end, x0, x1, drawnLow, drawnHigh, pieceSpans, ...rest } = block;
+    const { start, end, x0, x1, drawnLow, drawnHigh, pieceSpans, nosePieces, ...rest } = block;
     return {
       ...rest,
       direction: block.rise > 0 ? "up" : block.rise < 0 ? "down" : "flat",
@@ -526,11 +602,13 @@ export function stackLayout(chain, target = null, options = {}) {
       ...span(bottom, upper),
       box: box(x0, x1, drawnLow, drawnHigh),
       mount: pt(block.mountX, end),
-      flipAt: flipPoint(box(x0, x1, drawnLow, drawnHigh)),
       shape: shapeOf(block),
       ...(inner ? { parts: inner } : {}),
     };
   });
+
+  // Flip points (5.8), once every piece's box is known.
+  for (const b of blocks) b.flipAt = flipPoint(b.box, blocks.filter((o) => o !== b).map((o) => o.box));
 
   return {
     floor: { height: 0, pct: pct(0), y: Y(0) },
@@ -541,6 +619,9 @@ export function stackLayout(chain, target = null, options = {}) {
     gaps: gapSpots.map(({ x, height, ...g }) => ({ ...g, height, x, point: pt(x, height), pct: pct(height) })),
     lens: { height: cursor, pct: pct(cursor), ...blocks[blocks.length - 1].shape.opticalCenter },
     reach: { min: chain.min, max: chain.max, ...clipped(chain.min, chain.max) },
+    // The lowest any piece above the support reaches as drawn, in inches: the
+    // floor limit's measure (5.8). The base and support never rise with the lift.
+    lowest: Math.min(...raw.filter((b) => b.slot !== "base" && b.slot !== "support").map((b) => b.drawnLow)),
     moveable: sweep && { ...sweep, ...clipped(sweep.min, sweep.max) },
     target: target && {
       low: targetLow,

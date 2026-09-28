@@ -5,6 +5,8 @@
 // RANKING_CRITERIA, deliberately separate.
 
 import { blockPieces, buildAttachPoints, getBuild, getPackageComponents, pieceBottom, pieceRise } from "./model.js";
+// solver.js imports this module too; buildChain is only called at run time, so the cycle is safe.
+import { buildChain } from "./solver.js";
 
 // --- Mounts and facing (SPEC.md 2) -----------------------------------------
 
@@ -971,6 +973,17 @@ function whyNotInOrder(items, startMount, startFacing, startName) {
   return null;
 }
 
+/** Whether a complete rig is under the floor even at the top of its reach
+ * (SPEC.md 5.8): no action should lead there. */
+function belowFloorAtEveryLift(gear, packageId, buildId, picks) {
+  if (missingSlot(gear, packageId, buildId, picks)) return false;
+  try {
+    return buildChain(gear, { packageId, buildId, ...picks }).belowFloor > 0;
+  } catch {
+    return false;
+  }
+}
+
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const MODES_KEY = { base: "baseModes", adapter: "adapterModes" };
 const IDS_KEY = { base: "baseItemIds", adapter: "adapterIds", plate: "plateIds" };
@@ -997,7 +1010,7 @@ function whyLost(gear, packageId, buildId, next) {
     sameList(picks.plateIds, next.plateIds || []) &&
     sameList(asRigged(picks.blockIds), asRigged(next.blockIds)) &&
     Boolean(picks.attachName);
-  if (kept) return null;
+  if (kept) return belowFloorAtEveryLift(gear, packageId, buildId, picks) ? "Below the floor" : null;
   return notes.find((n) => /^(Cleared|Removed)/.test(n)) || notes[0] || "The rest of the rig wouldn't fit with it.";
 }
 

@@ -26,7 +26,9 @@ export function checkVerdict(chain, target, evaluation) {
         ? `${inches(s.amount)} too short`
         : s.direction === "tall"
           ? `${inches(s.amount)} too tall`
-          : `Needs ${inches(s.amount)} more moveable travel`;
+          : s.direction === "floor"
+            ? `${inches(s.amount)} below the floor`
+            : `Needs ${inches(s.amount)} more moveable travel`;
     return { state: "infeasible", text };
   }
 

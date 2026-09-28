@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { buildChain } from "../src/solver.js";
-import { flip, flips } from "../src/rules.js";
+import { flip, flips, insertOptions } from "../src/rules.js";
 import { stackLayout } from "../src/stack.js";
 import { flipButtonSvg } from "../src/outlines.js";
 
@@ -84,6 +84,19 @@ describe("a head on an offset plate flips to the other side", () => {
   });
 });
 
+describe("no flip, add, or swap that leaves the rig under the floor at every lift", () => {
+  test("a low hat's head can't flip to hang under an offset: it would be under the floor", () => {
+    const lohat = picksFor({ supportId: "lohat-placeholder", adapterIds: ["mitchell-offset-10"], adapterModes: { "mitchell-offset-10": "top" } });
+    assert.equal(flip(seed, ...P, lohat, HEAD), null);
+    assert.deepEqual(flips(seed, ...P, lohat), []);
+    const bottomSide = insertOptions(seed, ...P, picksFor({ supportId: "lohat-placeholder" }))
+      .find((g) => g.slot === "adapter" && g.index === 0)
+      .options.find((o) => o.id === "mitchell-offset-10" && o.mode === "bottom");
+    assert.equal(bottomSide.available, false);
+    assert.equal(bottomSide.reason, "Below the floor");
+  });
+});
+
 describe("no flip button where there's nothing to flip", () => {
   test("never on an offset plate: it's symmetrical, and flipping its head is what moves it", () => {
     assert.equal(flip(seed, ...P, ON_OFFSET, { slot: "adapter", index: 0 }), null);
@@ -111,6 +124,18 @@ describe("the button", () => {
     const head = layout.blocks.find((b) => b.slot === "head");
     const beside = head.flipAt.x >= head.box.x + head.box.width || head.flipAt.x <= head.box.x;
     assert.ok(beside, "beside the head, not on it");
+  });
+
+  test("the SLE's button covers no other piece — not the nose, not the beam", () => {
+    for (const over of [{}, { noseMode: "reversed" }]) {
+      const layout = stackLayout(chainOf({ ...FISHER_SLE, ...over }), null, { frame: { width: 320, height: 520 } });
+      const sle = layout.blocks.find((b) => b.slot === "nose");
+      for (const o of layout.blocks.filter((b) => b !== sle)) {
+        const { x, y } = sle.flipAt;
+        const hits = x + 22 > o.box.x && x - 22 < o.box.x + o.box.width && y + 22 > o.box.y && y - 22 < o.box.y + o.box.height;
+        assert.ok(!hits, `${JSON.stringify(over)}: clear of the ${o.slot}`);
+      }
+    }
   });
 
   test("a circular-arrows icon with a 44px hit area", () => {

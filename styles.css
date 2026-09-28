@@ -402,6 +402,15 @@ select {
 }
 
 .drawing .leg { stroke-width: 5; }
+/* The LHE's bent arm, and the SLE cage's struts (5.8). */
+.drawing .lhe-arm {
+  fill: none;
+  stroke: var(--text-secondary);
+  stroke-width: 4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.drawing .sle-strut { stroke-width: 1; }
 .drawing .leg.k-adjustable { stroke: var(--adjustable); }
 .drawing .leg.k-fixed { stroke: var(--fixed); }
 .drawing .leg.k-moveable { stroke: var(--moveable); }

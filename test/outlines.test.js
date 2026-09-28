@@ -216,10 +216,10 @@ describe("taps and markers", () => {
     }
   });
 
-  test("the LHE is tappable on its arm, just under the nose", () => {
+  test("the LHE is tappable on its arm, at the bend", () => {
     const layout = layoutOf(RIGS.lhe);
     const lhe = layout.blocks.find((b) => b.slot === "nose");
-    assert.equal(slotAt(layout, { x: lhe.shape.nose.x, y: lhe.shape.nose.y + 4 }), "nose");
+    assert.equal(slotAt(layout, lhe.shape.arm[1]), "nose");
   });
 
   test("an SLE set down under an offset plate stays tappable", () => {

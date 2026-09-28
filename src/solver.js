@@ -1,4 +1,5 @@
 // Solver for the Lens Height Solver. See SPEC.md section 5.
+import { stackLayout } from "./stack.js";
 import { getPackage, getBuild, blockPieces, buildAttachPoints, riseRangeOf, supportInterval, supportMoveableInterval } from "./model.js";
 import {
   acceptsMount,
@@ -237,8 +238,8 @@ function resolveChain({ baseItems, adapters, support = null, nose = null, head =
   else violations.push(...[appleBoxOrientationViolation(baseItems)].filter(Boolean));
 
   if (violations.length > 0) return { violations };
-  return {
-    chain: assembleChain({
+  const chain = floorLimited(
+    assembleChain({
       baseItems: baseStack.items,
       adapters: adapterStack.items,
       support,
@@ -249,7 +250,33 @@ function resolveChain({ baseItems, adapters, support = null, nose = null, head =
       build,
       blockPieces: pieces,
       attach,
-    }),
+    })
+  );
+  return { chain };
+}
+
+/**
+ * Nothing below the floor (SPEC.md 5.8): laid out fully retracted, the
+ * lowest piece as drawn — an inverted camera's body, a hanging head — must
+ * clear the floor. Every piece above the support rises with any extension,
+ * so the reach's `min` rises by however far the lowest piece is under the
+ * floor, and the moveable interval is cut to match. `retracted` keeps the
+ * fully retracted lens height, which the layout allocates extension from.
+ */
+function floorLimited(chain) {
+  const under = -stackLayout(chain, null).lowest;
+  const limited = { ...chain, retracted: chain.min, belowFloor: 0 };
+  if (!(under > 0)) return limited;
+  const min = chain.min + under;
+  if (min > chain.max) {
+    // Under the floor even at the top of its reach: it can't be used at all.
+    // It still builds, drawn at the top, so the check can say how far under.
+    return { ...limited, min: chain.max, moveableInterval: { min: chain.max, max: chain.max }, belowFloor: min - chain.max };
+  }
+  return {
+    ...limited,
+    min,
+    moveableInterval: { min: Math.max(chain.moveableInterval.min, min), max: Math.max(chain.moveableInterval.max, min) },
   };
 }
 
@@ -319,7 +346,8 @@ export function enumerateChains(
                   blockPieces: pieces,
                   attach,
                 });
-                if (chain) chains.push(chain);
+                // A rig under the floor at every lift is no candidate (5.8).
+                if (chain && !chain.belowFloor) chains.push(chain);
               }
             }
           }
@@ -508,6 +536,7 @@ function targetPosition(chain, target) {
  */
 function shortfallOf(chain, target, feasible) {
   if (feasible) return null;
+  if (chain.belowFloor) return { direction: "floor", amount: chain.belowFloor };
   const m = margin(chain, target);
   if (m.above < 0) return { direction: "short", amount: -m.above };
   if (m.below < 0) return { direction: "tall", amount: -m.below };
@@ -524,7 +553,8 @@ function shortfallOf(chain, target, feasible) {
  */
 export function evaluateChain(chain, target, tolerance = 0.5) {
   const m = margin(chain, target);
-  const feasible = isFeasible(chain, target, tolerance);
+  // A rig that's under the floor at every lift reaches nothing (5.8).
+  const feasible = !chain.belowFloor && isFeasible(chain, target, tolerance);
   return {
     min: chain.min,
     max: chain.max,
