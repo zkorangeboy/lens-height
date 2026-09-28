@@ -476,7 +476,16 @@ export function stackLayout(chain, target = null, options = {}) {
           ? { type: "track" }
           : { type: "apple" };
       case "support": {
-        if (supportShape === "tripod") return { type: "tripod", mount: pt(at, b.end), topWidth: px(DRAW.tripodTop) };
+        if (supportShape === "tripod") {
+          // Legs telescope: a fixed upper tube, always b.range.min long, and
+          // a lower tube sliding out of it. `jointAt` is where the collar
+          // sits, as a fraction of the leg measured from the mount down —
+          // 1 (the very foot) at the collapsed minimum, shrinking toward
+          // range.min/range.max as the set height rises — so the upper
+          // tube's own drawn length never changes.
+          const jointAt = b.rise > 0 ? clamp(b.range.min / b.rise, 0, 1) : 1;
+          return { type: "tripod", mount: pt(at, b.end), topWidth: px(DRAW.tripodTop), jointAt };
+        }
         if (supportShape !== "dolly") return { type: supportShape, mount: pt(at, b.end) };
         const wheels = b.mode || "pneumatic";
         const tireCenter = datum + D.tire;

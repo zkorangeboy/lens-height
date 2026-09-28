@@ -2,6 +2,8 @@ Read SPEC.md before any work. It is the source of truth for the data
 model, the rules, and the height math — not for drawing, wording, or
 styling. Plain HTML/CSS/JS, no frameworks, no build step.
 
+Read only the SPEC.md sections relevant to the task, not the whole file.
+
 Two tiers of work:
 
 - **Model, rules, or height changes** (gear.json, src/model.js,

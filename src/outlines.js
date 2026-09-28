@@ -78,14 +78,25 @@ function spreader(block) {
 
 function tripod(block) {
   const f = frame(block.box);
-  const { mount, topWidth } = block.shape;
+  const { mount, topWidth, jointAt = 1 } = block.shape;
   const bowl = rect(mount.x - topWidth / 2, f.top, topWidth, Math.min(f.h * 0.06, 10), "o k-fixed");
+  const collarR = Math.min(topWidth * 0.16, 3.5);
   const legs = [
     [mount.x - topWidth / 2, f.left],
     [mount.x, mount.x],
     [mount.x + topWidth / 2, f.right],
   ]
-    .map(([fromX, toX]) => line(fromX, f.top, toX, f.bottom, `leg k-${block.kind}`))
+    .map(([fromX, toX]) => {
+      // A fixed upper tube from the mount to the collar, and a lower tube
+      // sliding out of it to the foot.
+      const jointX = fromX + (toX - fromX) * jointAt;
+      const jointY = f.top + (f.bottom - f.top) * jointAt;
+      return (
+        line(fromX, f.top, jointX, jointY, "leg k-fixed") +
+        line(jointX, jointY, toX, f.bottom, "leg k-adjustable") +
+        circle(jointX, jointY, collarR, "o k-fixed")
+      );
+    })
     .join("");
   const spreader = line(f.left + f.w * 0.12, f.bottom - f.h * 0.08, f.right - f.w * 0.12, f.bottom - f.h * 0.08, "o spreader");
   return legs + spreader + bowl;
