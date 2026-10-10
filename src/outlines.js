@@ -34,6 +34,8 @@ const frame = (box) => ({
 });
 /** Something too thin to see still shows as a sliver this many px thick. */
 const MIN_PX = 4;
+/** A Mitchell mount's drawn footprint, the same width everywhere one appears. */
+const mountWidth = (mitchell) => mitchell * 2;
 const fill = (kind) => `o k-${kind || "fixed"}`;
 /** Draw `inner` upside down within the box (an underslung head, an inverted camera). */
 const flipped = (box, inner) => {
@@ -262,7 +264,7 @@ function rotatingOffset(block) {
   // The near (support-side) and far (camera-side) Mitchell mounts, centered
   // on the same x the chain actually mounts through — not a fraction of
   // the box, which drifts whenever the plate length or scale changes.
-  const mountW = mitchell * 2.1;
+  const mountW = mountWidth(mitchell);
   const [footL, footR] = [near.x - mountW / 2, near.x + mountW / 2];
   const [capL, capR] = [far.x - mountW / 2, far.x + mountW / 2];
   const cageInset = mitchell * 0.5;
@@ -290,11 +292,12 @@ function offset(block) {
   const top = plateBottom - thick;
   const ring = (x) => rect(x - mitchell * 0.8, top + thick * 0.25, mitchell * 1.6, thick * 0.5, "o hole", { rx: thick * 0.25 });
   const faceY = side === "bottom" ? plateBottom - 1.5 : top;
+  const mountW = mountWidth(mitchell);
   return (
     rect(near.x - mitchell, top, far.x - near.x + mitchell * 2, thick, fill(block.kind), { rx: Math.min(thick / 2, 4) }) +
     ring(near.x) +
     ring(far.x) +
-    rect(far.x - mitchell, faceY, mitchell * 2, 1.5, "in-use")
+    rect(far.x - mountW / 2, faceY, mountW, 1.5, "in-use")
   );
 }
 
